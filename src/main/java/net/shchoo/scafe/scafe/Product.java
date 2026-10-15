@@ -4,6 +4,6 @@ public class Product {
     public Product(String name) {
         this.name = name;
     }
-    String name;
+    public String name;
     int recipesUsedIn = 0;
 }

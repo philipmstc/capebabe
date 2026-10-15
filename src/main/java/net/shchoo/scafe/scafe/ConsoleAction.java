@@ -1,7 +1,11 @@
 package net.shchoo.scafe.scafe;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public enum ConsoleAction {
@@ -52,12 +56,28 @@ public enum ConsoleAction {
 
     ECHO('e', "Echo input", (player, board, additionalInputs) -> {
         System.out.println(additionalInputs);
-    });
+    }),
+
+    DEBUG_CREATE_ACTION_NODE('3', "Create random actionable node in indicated direction [wasd]",
+            (player, board, additionalInputs) -> {
+                board.actions.get(player.y + 2).set(player.x + 2,
+                        Collections.singletonList(new Board.Action() {
+                            @Override
+                            public void perform() {
+                                Recipe recipe = board.skills.stream().filter(s -> s.type == SkillType.PRIMARY).findFirst().get()
+                                        .productLines.stream().iterator().next()
+                                        .recipes.get(0);
+                                System.out.println("Making: " + recipe.product.name);
+                                recipe.create(player);
+                                System.out.println("Done!");
+                            }
+                        })
+                );
+            });
 
     private static SkillType getSkillType(List<String> additionalInputs) {
         SkillType filter = null;
-        if (!additionalInputs.isEmpty())
-        {
+        if (!additionalInputs.isEmpty()) {
             if (SkillType.TERTIARY.name().equalsIgnoreCase(additionalInputs.get(0))) {
                 filter = SkillType.TERTIARY;
             }
@@ -69,6 +89,10 @@ public enum ConsoleAction {
             }
         }
         return filter;
+    }
+
+    private static <T> Optional<T> suchThat(Collection<T> ts, Function<T, String> func, String equals) {
+        return ts.stream().filter(t -> func.apply(t).equals(equals)).findFirst();
     }
 
     final char input;
@@ -85,8 +109,7 @@ public enum ConsoleAction {
         this.onSelect = (player, board, additionalInputs) -> onSelect.accept(player, board);
     }
 
-    ConsoleAction(char input, String description, OnSelect onSelect)
-    {
+    ConsoleAction(char input, String description, OnSelect onSelect) {
         this.input = input;
         this.description = description;
         this.onSelect = onSelect;
