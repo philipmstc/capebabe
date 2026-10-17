@@ -1,0 +1,54 @@
+package net.shchoo.scafe.scafe;
+
+import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.screen.Screen;
+
+/**
+ * A top-level tab (Map, Skills, ...). Main switches between menus with Left/Right;
+ * Down/Enter focuses the current one, after which it receives keys until it releases focus.
+ */
+public abstract class Menu {
+
+    public enum Result {
+        HANDLED,
+        IGNORED,
+        RELEASE
+    }
+
+    private final String title;
+    private boolean focused;
+
+    protected Menu(String title) {
+        this.title = title;
+    }
+
+    public String title() {
+        return title;
+    }
+
+    public boolean isFocused() {
+        return focused;
+    }
+
+    public void focus(Player player, Board board) {
+        focused = canFocus(player, board);
+        if (focused) {
+            onFocus(player, board);
+        }
+    }
+
+    public void unfocus() {
+        focused = false;
+    }
+
+    protected boolean canFocus(Player player, Board board) {
+        return true;
+    }
+
+    protected void onFocus(Player player, Board board) {}
+
+    /** Only called while focused. IGNORED keys fall through to the global commands (wasd, q, /...). */
+    public abstract Result handleKey(KeyStroke key, Player player, Board board);
+
+    public abstract void draw(Screen screen, Player player, Board board);
+}

@@ -1,7 +1,7 @@
 package net.shchoo.scafe.scafe;
 
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.List;
 
 public class Skill {
 
@@ -27,13 +27,13 @@ public class Skill {
         this.productLines = new ArrayList<>();
     }
 
-    public Skill(SkillType type, String name, Collection<ProductLine> productLines) {
+    public Skill(SkillType type, String name, List<ProductLine> productLines) {
         this.type = type;
         this.name = name;
         this.productLines = productLines;
     }
 
-    public Skill(String name, Collection<ProductLine> productLines)
+    public Skill(String name, List<ProductLine> productLines)
     {
         this.name = name;
         this.productLines = productLines;
@@ -42,7 +42,7 @@ public class Skill {
 
     SkillType type;
     String name;
-    Collection<ProductLine> productLines;
+    public List<ProductLine> productLines;
 
 
 

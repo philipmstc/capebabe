@@ -46,28 +46,25 @@ public class ProductLineFactory {
 
     private static Skill chooseSkill(Collection<Skill> skills) {
         // todo add some variance here eventually
-        List<Skill> sorted2 = skills.stream().sorted((s1, s2) -> {
-            List<ProductLine> sorted = s1.productLines.stream().sorted(
-                    Comparator.comparingInt(p ->
-                            p.recipes.get(0).product.recipesUsedIn
-                    )
-            ).toList();
-            List<ProductLine> sorted1 = s2.productLines.stream().sorted(
-                    Comparator.comparingInt(p ->
-                            p.recipes.get(0).product.recipesUsedIn
-                    )
-            ).toList();
-            int compare = Integer.compare(
-                    sorted.iterator().next().recipes.get(0).product.recipesUsedIn,
-                    sorted1.iterator().next().recipes.get(0).product.recipesUsedIn);
-            return compare;
-        }).toList();
-        return sorted2.iterator().next();
+        return skills.stream()
+                .min(Comparator.comparingInt(ProductLineFactory::leastUsage))
+                .orElseThrow(() -> new IllegalStateException("No skills to build a product line from"));
     }
 
     private static ProductLine chooseProductLine(Skill skill) {
-        return skill.productLines.stream().sorted(Comparator.comparingInt(
-             p-> p.recipes.get(0).product.recipesUsedIn)
-        ).iterator().next();
+        return skill.productLines.stream()
+                .min(Comparator.comparingInt(ProductLineFactory::usage))
+                .orElseThrow(() -> new IllegalStateException("Skill " + skill.name + " has no product lines"));
+    }
+
+    private static int usage(ProductLine productLine) {
+        return productLine.recipes.get(0).product.recipesUsedIn;
+    }
+
+    private static int leastUsage(Skill skill) {
+        return skill.productLines.stream()
+                .mapToInt(ProductLineFactory::usage)
+                .min()
+                .orElse(Integer.MAX_VALUE); // a skill with no lines has nothing to offer
     }
 }

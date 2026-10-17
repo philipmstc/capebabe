@@ -26,10 +26,24 @@ public class Recipe {
         this.components = comps;
     }
 
-    public void create(Player player) {
-        // todo validate player has level req, inventory req etc
-        player.inventory.putIfAbsent(product, 0);
-        player.inventory.put(product, player.inventory.get(product)+1);
-        player.gainExperience(skill, expGained);
+    public boolean levelMet(Player player) {
+        return player.getLevel(skill) >= levelNeeded;
+    }
+
+    public boolean create(Player player) {
+        if (!levelMet(player)) {
+            GameLog.say("Need " + skill.name + " Lv. " + levelNeeded + " (you're Lv. " + player.getLevel(skill) + ")");
+            return false;
+        }
+        if (player.attemptToUseAll(components)) {
+            player.inventory.putIfAbsent(product, 0);
+            player.inventory.put(product, player.inventory.get(product)+1);
+            player.gainExperience(skill, expGained);
+            return true;
+        }
+        else {
+            return false;
+        }
+
     }
 }

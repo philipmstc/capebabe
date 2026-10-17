@@ -25,31 +25,36 @@ import static net.shchoo.scafe.scafe.ConsoleAction.*;
 
 public class Main {
 
-    public static final int BOARD_HEIGHT = 5;
-    public static final int BOARD_WIDTH = 8;
+    public static final int BOARD_HEIGHT = 7;
+    public static final int BOARD_WIDTH = 11;
+    public static final TerminalSize TERMINAL_SIZE = new TerminalSize(100, 28);
 
     // POSITIONS
-    public static final int COMMAND_POS_X = 0;
-    public static final int COMMAND_POS_Y = 12;
-    public static final int HEADER_0_POS_X = 6;
-    public static final int HEADER_1_POS_X = 19;
-    public static final int HEADER_POS_Y = 0;
-    public static final int HEADER_2_POS_X = 30;
-    public static final int LIST_ITEM_POS_X = 20;
-    public static final int LIST_ITEM_POS_Y = 0;
     public static final int BOARD_POS_X = 0;
     public static final int BOARD_POS_Y = 1;
+    public static final int COMMAND_POS_X = 0;
+    public static final int COMMAND_POS_Y = BOARD_POS_Y + 2 * BOARD_HEIGHT + 4;
+    public static final int HEADER_POS_X = BOARD_POS_X + BOARD_WIDTH - 1;
+    public static final int HEADER_POS_Y = 0;
+    public static final int HEADER_GAP = 5;
+    public static final int LIST_ITEM_POS_X = BOARD_POS_X + 2 * BOARD_WIDTH + 2;
+    public static final int LIST_ITEM_POS_Y = 0;
+    public static final int LOG_POS_X = 0;
+    public static final int LOG_POS_Y = COMMAND_POS_Y + 1;
+    public static final int LOG_LINES = 7;
+    public static final int LIST_ROWS = COMMAND_POS_Y - 1 - LIST_ITEM_POS_Y;
 
 
     static int skillCount = 0;
     static int plCount = 0;
-    static int frame = 0;
 
     public static void main(String[] args) throws Exception {
-        String url = "jdbc:sqlite:C:\\Users\\phili\\AppData\\Roaming\\DBeaverData\\workspace6\\.metadata\\sample-database-sqlite-1\\Chinook.db";
-        Connection connection = DriverManager.getConnection(url);
+        // DB loading disabled: the path below only exists on one machine (and startup failed
+        // without it), and the queries are all commented out anyway. Kept for reference.
+//        String url = "jdbc:sqlite:C:\\Users\\phili\\AppData\\Roaming\\DBeaverData\\workspace6\\.metadata\\sample-database-sqlite-1\\Chinook.db";
+//        Connection connection = DriverManager.getConnection(url);
         List<Skill> skills = new ArrayList<>();
-        if (connection != null) {
+//        if (connection != null) {
 //            System.out.println("Connected");
 //            PreparedStatement preparedStatement = connection.prepareStatement("select * from skill");
 //            boolean execute = preparedStatement.execute();
@@ -77,28 +82,31 @@ public class Main {
 //            preparedStatement.close();
 //            rs.close();
 //            connection.close();
-        }
+//        }
 
 
         Scanner in = new Scanner(System.in);
         Player player = new Player();
         Board board = new Board(skills);
-        AWTTerminalFontConfiguration fontConfig = AWTTerminalFontConfiguration.newInstance(
-               new Font("Monospaced", Font.PLAIN, 24)
-        );
+        GameLog.subscribe(board.log::add);
+        SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
+                false, AWTTerminalFontConfiguration.BoldMode.NOTHING,
+                new Font("ComicMono Nerd Font", Font.PLAIN, 24));
 
         DefaultTerminalFactory factory = new DefaultTerminalFactory();
         factory.setTerminalEmulatorFontConfiguration(fontConfig);
+        factory.setInitialTerminalSize(TERMINAL_SIZE);
 
 //                factory.setForceTextTerminal(true);
 
 
 //        Terminal terminal = new CygwinTerminal(System.in, System.out, Charset.defaultCharset());
-        Terminal terminal = factory.createTerminal();
-        Screen screen = new TerminalScreen(terminal);
+
+        Screen screen = factory.createScreen();
         screen.startScreen();
         screen.setCursorPosition(null);
-        Mode currentMode = Mode.NORMAL;
+        List<Menu> menus = List.of(new MapMenu(), new SkillsMenu(), new InventoryMenu(), new GoalsMenu());
+        boolean typingCommand = false;
         String currentCommand = "";
         int selection = 0;
 
@@ -106,243 +114,153 @@ public class Main {
 //        DEBUG_CREATE_RANDOM_PRODUCT_LINE.onSelect(player, board, Arrays.asList("10"));
 //        LIST.onSelect(player, board, new ArrayList<>());
         while (true) {
+            player.tick();
             screen.clear();
-            drawScene(player, board, screen, currentMode, currentCommand, selection);
+            drawScene(player, board, screen, menus, selection, typingCommand ? currentCommand : null);
             screen.refresh();
-            // System.out.print("Choose an action: ");
             KeyStroke keyStroke = screen.pollInput();
-            if (keyStroke != null) {
-                // Handle modal change
-                if (keyStroke.getKeyType().equals(KeyType.Escape)) {
-                    if (currentMode != Mode.NORMAL) {
-                        currentMode = Mode.NORMAL;
-                    } else {
-                        System.exit(0);
-                    }
-                    continue;
-                }
-                if (currentMode == Mode.NORMAL) {
-                    if (Character.valueOf('/').equals(keyStroke.getCharacter())) {
-                        currentMode = Mode.COMMAND;
-                    }
-                    if (Character.valueOf('L').equals(keyStroke.getCharacter())) {
-                        currentMode = Mode.LIST;
-                    } else if (keyStroke.getKeyType() == KeyType.Character) {
-                        String s = keyStroke.getCharacter().toString();
-
-                        if (!s.isEmpty()) {
-                            submitCommand(s, player, board);
-                        }
-                    }
-                }
-                else if (currentMode == Mode.COMMAND) {
-                    if (keyStroke.getKeyType().equals(KeyType.Character)) {
-                        currentCommand = currentCommand + keyStroke.getCharacter();
-                    }
-                    if (keyStroke.getKeyType().equals(KeyType.Enter)) {
-                        System.out.println(currentCommand);
-                        submitCommand(currentCommand, player, board);
-                        currentCommand = "";
-                        currentMode = Mode.NORMAL;
-                    }
-                    if (keyStroke.getKeyType().equals(KeyType.Backspace)) {
+            if (keyStroke == null) {
+                Thread.sleep(60);
+                continue;
+            }
+            Menu menu = menus.get(selection);
+            KeyType type = keyStroke.getKeyType();
+            if (typingCommand) {
+                switch (type) {
+                    case Character -> currentCommand = currentCommand + keyStroke.getCharacter();
+                    case Backspace -> {
                         if (!currentCommand.isEmpty()) {
                             currentCommand = currentCommand.substring(0, currentCommand.length() - 1);
                         }
                     }
-                }
-                else if (currentMode == Mode.LIST) {
-                    if (keyStroke.getKeyType().equals(KeyType.ArrowLeft)) {
-                        selection = Math.max(0, selection - 1);
+                    case Enter -> {
+                        GameLog.say("/" + currentCommand);
+                        submitCommand(currentCommand, player, board);
+                        currentCommand = "";
+                        typingCommand = false;
                     }
-                    if (keyStroke.getKeyType().equals(KeyType.ArrowRight)) {
-                        selection = Math.min(1, selection + 1);
+                    case Escape -> {
+                        currentCommand = "";
+                        typingCommand = false;
                     }
+                    default -> {}
                 }
-
+            } else if (menu.isFocused()) {
+                Menu.Result result = menu.handleKey(keyStroke, player, board);
+                if (result == Menu.Result.RELEASE) {
+                    menu.unfocus();
+                } else if (result == Menu.Result.IGNORED) {
+                    typingCommand = handleGlobalKey(keyStroke, player, board);
+                }
+            } else {
+                switch (type) {
+                    case Escape -> System.exit(0);
+                    case ArrowLeft -> selection = Math.max(0, selection - 1);
+                    case ArrowRight -> selection = Math.min(menus.size() - 1, selection + 1);
+                    case ArrowDown, Enter -> menu.focus(player, board);
+                    default -> typingCommand = handleGlobalKey(keyStroke, player, board);
+                }
             }
-            frame = (frame + 1) % (2* BOARD_WIDTH - 1);
-            Thread.sleep(40);
+            Thread.sleep(60);
         }
+    }
+
+    /** Single-key commands available everywhere. Returns true if the player started typing a /command. */
+    private static boolean handleGlobalKey(KeyStroke keyStroke, Player player, Board board) {
+        if (keyStroke.getKeyType() != KeyType.Character) {
+            return false;
+        }
+        if (keyStroke.getCharacter() == '/') {
+            return true;
+        }
+        submitCommand(keyStroke.getCharacter().toString(), player, board);
+        return false;
     }
 
     private static void submitCommand(String s, Player player, Board board) {
-        boolean found = false;
+        String command = s.trim();
+        if (command.isEmpty()) {
+            return;
+        }
         for (ConsoleAction ca : ConsoleAction.values()) {
-            if (ca.input == s.charAt(0)) {
-                String[] parts = s.trim().split("\\s+");
+            if (ca.input == command.charAt(0)) {
+                String[] parts = command.split("\\s+");
                 List<String> additionalInputs = List.of(parts).subList(1, parts.length);
-                ca.onSelect(player, board, additionalInputs);
-                found = true;
-                break;
+                try {
+                    ca.onSelect(player, board, additionalInputs);
+                } catch (Exception e) {
+                    // A bad command (e.g. "/1 abc") shouldn't take the whole game down with it.
+                    GameLog.say("Couldn't run [" + command + "]: "
+                            + e.getClass().getSimpleName() + ": " + e.getMessage());
+                    e.printStackTrace();
+                }
+                return;
             }
         }
-        if (!found) {
-            System.out.println("Unrecognized command [" + s.charAt(0) + "]");
-        }
-    }
-
-    enum Mode {
-        NORMAL,
-        COMMAND,
-        LIST
+        GameLog.say("Unrecognized command [" + command.charAt(0) + "]");
     }
 
     private static void drawScene(Player player,
                                   Board board,
                                   Screen screen,
-                                  Mode currentMode,
-                                  String currentCommand,
-                                  int selection) {
-        drawBoard(player, board, screen);
-        if (currentMode == Mode.COMMAND) {
+                                  List<Menu> menus,
+                                  int selection,
+                                  String currentCommand) {
+        BoardView.draw(player, board, screen);
+        if (currentCommand != null) {
             drawCommand(screen, currentCommand);
         }
-        drawList(player, board, screen, currentMode, selection);
-
+        int headersEnd = drawHeaders(screen, menus, selection);
+        XpTrackerView.draw(player, screen, headersEnd - HEADER_GAP + 2);
+        menus.get(selection).draw(screen, player, board);
+        drawLog(board, screen);
     }
 
-    private static void drawBoard(Player player, Board board, Screen screen) {
-        // draw border
-        drawBox(screen, BOARD_POS_X, BOARD_POS_Y, BOARD_WIDTH, BOARD_HEIGHT, 2);
-        drawBox(screen, BOARD_POS_X, BOARD_POS_Y + 2*BOARD_HEIGHT + 1, BOARD_POS_X + 2*BOARD_WIDTH, 2, 1);
-        TextGraphics line = screen.newTextGraphics();
-        line.setBackgroundColor(TextColor.ANSI.GREEN_BRIGHT);
-        line.drawLine(new TerminalPosition(BOARD_POS_X + 1, BOARD_POS_Y + 2*BOARD_HEIGHT + 2),
-                      new TerminalPosition(BOARD_POS_X + 1 + frame, BOARD_POS_Y + 2*BOARD_HEIGHT + 2),
-                '=');
-        for (int i = 0; i < BOARD_HEIGHT; i++) {
-            for (int j = 0; j < BOARD_WIDTH; j++) {
-                boolean isPlayerPosition = player.x == j - 2 && player.y == i - 2;
-                boolean hasAction = !board.availableActions(j, i).isEmpty();
-                char result = isPlayerPosition
-                        ? hasAction
-                        ? '&' : '*'
-                        : hasAction
-                        ? '#' : Symbols.BULLET;
-
-                TextColor fg = isPlayerPosition
-                        ? hasAction
-                        ? TextColor.ANSI.YELLOW : TextColor.ANSI.CYAN
-                        : hasAction
-                        ? TextColor.ANSI.RED : TextColor.ANSI.BLACK_BRIGHT;
-
-                screen.setCharacter(BOARD_POS_X + 1 + (j * 2), BOARD_POS_Y + 1 + (i * 2),
-                        TextCharacter.fromCharacter(
-                                result,
-                                fg,
-                                TextColor.ANSI.DEFAULT
-                        )[0]);
+    /** Returns where a next header would go (last header + gap). */
+    private static int drawHeaders(Screen screen, List<Menu> menus, int selection) {
+        int x = HEADER_POS_X;
+        for (int i = 0; i < menus.size(); i++) {
+            TextGraphics header = screen.newTextGraphics();
+            if (i == selection) {
+                header.setForegroundColor(TextColor.ANSI.DEFAULT);
+                header.setBackgroundColor(TextColor.ANSI.BLACK_BRIGHT);
+                header.enableModifiers(SGR.BOLD);
+            } else {
+                header.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+                header.setBackgroundColor(TextColor.ANSI.DEFAULT);
             }
+            String title = menus.get(i).title();
+            header.putString(x, HEADER_POS_Y, title);
+            // the first header sits over the map, the rest over the menu area
+            x = i == 0 ? LIST_ITEM_POS_X + 1 : x + title.length() + HEADER_GAP;
         }
+        return x;
     }
-    private static void drawBox(Screen screen,
-                                int xStart,
-                                int yStart,
-                                int width,
-                                int height,
-                                int scale) {
+
+    private static void drawLog(Board board, Screen screen) {
+        TerminalSize size = screen.getTerminalSize();
+        int width = size.getColumns() - LOG_POS_X;
+        int visibleLines = Math.min(LOG_LINES, size.getRows() - LOG_POS_Y);
+        if (width <= 0 || visibleLines <= 0) {
+            return;
+        }
         TextGraphics graphics = screen.newTextGraphics();
-        TerminalPosition topLeft = new TerminalPosition(xStart, yStart);
-        TerminalPosition topRight = new TerminalPosition(xStart + scale * width , yStart);
-        TerminalPosition bottomLeft = new TerminalPosition(xStart, yStart + scale * height );
-        TerminalPosition bottomRight = new TerminalPosition(xStart + scale * width , yStart + scale * height );
         graphics.setForegroundColor(TextColor.ANSI.DEFAULT);
         graphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        graphics.drawLine(topLeft, topRight, Symbols.SINGLE_LINE_HORIZONTAL);
-        graphics.drawLine(topLeft, bottomLeft, Symbols.SINGLE_LINE_VERTICAL);
-        graphics.drawLine(topRight, bottomRight, Symbols.SINGLE_LINE_VERTICAL);
-        graphics.drawLine(bottomLeft, bottomRight, Symbols.SINGLE_LINE_HORIZONTAL);
-        graphics.setCharacter(topLeft, Symbols.SINGLE_LINE_TOP_LEFT_CORNER);
-        graphics.setCharacter(topRight, Symbols.SINGLE_LINE_TOP_RIGHT_CORNER);
-        graphics.setCharacter(bottomLeft, Symbols.SINGLE_LINE_BOTTOM_LEFT_CORNER);
-        graphics.setCharacter(bottomRight, Symbols.SINGLE_LINE_BOTTOM_RIGHT_CORNER);
-    }
-
-    private static void drawList(Player player, Board board, Screen screen, Mode currentMode, int selection) {
-        TextGraphics header0 = screen.newTextGraphics();
-        if (currentMode != Mode.LIST) {
-            header0.setForegroundColor(TextColor.ANSI.DEFAULT);
-            header0.setBackgroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            header0.enableModifiers(SGR.BOLD);
-        }
-        else {
-            header0.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            header0.setBackgroundColor(TextColor.ANSI.DEFAULT);
-            header0.disableModifiers(SGR.BOLD);
-        }
-        header0.putString(HEADER_0_POS_X, HEADER_POS_Y, "Map");
-        TextGraphics header = screen.newTextGraphics();
-        if (selection == 0 && currentMode == Mode.LIST) {
-            header.setBackgroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            header.setForegroundColor(TextColor.ANSI.DEFAULT);
-            header.enableModifiers(SGR.BOLD);
-        } else {
-            header.setBackgroundColor(TextColor.ANSI.DEFAULT);
-            header.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            header.disableModifiers(SGR.BOLD);
-        }
-        header.putString(HEADER_1_POS_X, HEADER_POS_Y, "Skills");
-
-        TextGraphics header2 = screen.newTextGraphics();
-        if (selection == 1 && currentMode == Mode.LIST) {
-            header2.setBackgroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            header2.setForegroundColor(TextColor.ANSI.DEFAULT);
-            header2.enableModifiers(SGR.BOLD);
-        } else {
-            header2.setBackgroundColor(TextColor.ANSI.DEFAULT);
-            header2.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            header2.disableModifiers(SGR.BOLD);
-        }
-
-        header2.putString(HEADER_2_POS_X, HEADER_POS_Y, "Inventory");
-        if (currentMode == Mode.LIST && selection == 0) {
-            if (board.skills.isEmpty()) {
-                return;
+        List<String> lines = board.log.latest(visibleLines);
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (line.length() > width) {
+                line = line.substring(0, width - 1) + "~";
             }
-            TextGraphics textGraphics = screen.newTextGraphics();
-            textGraphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
-            for (int i = 0; i < board.skills.size(); i++) {
-                Skill skill = board.skills.get(i);
-                switch(skill.type) {
-                    case PRIMARY -> textGraphics.setForegroundColor(TextColor.ANSI.GREEN);
-                    case SECONDARY -> textGraphics.setForegroundColor(TextColor.ANSI.BLUE_BRIGHT);
-                    case TERTIARY -> textGraphics.setForegroundColor(TextColor.ANSI.YELLOW);
-                }
-                textGraphics.putString(LIST_ITEM_POS_X, LIST_ITEM_POS_Y + ((i + 1) * 2),
-                        "[Lv. " + player.getLevel(skill) + "] " + skill.name + " : " + player.getExperience(skill) + "/" + player.getExperienceToNextLevel(skill));
-            }
-        }
-        if (currentMode == Mode.LIST && selection == 1) {
-            if (player.inventory.isEmpty()) {
-                return;
-            }
-            TextGraphics textGraphics = screen.newTextGraphics();
-            textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
-            textGraphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
-            int i = 0;
-            for (Product product : player.inventory.keySet()) {
-                textGraphics.putString(LIST_ITEM_POS_X, LIST_ITEM_POS_Y + ((i+1)* 2),
-                        product.name + " x " + player.inventory.get(product));
-
-            }
+            graphics.putString(LOG_POS_X, LOG_POS_Y + i, line);
         }
     }
 
     private static void drawCommand(Screen screen, String currentCommand) {
-        screen.setCharacter(COMMAND_POS_X, COMMAND_POS_Y, TextCharacter.fromCharacter(
-                '/',
-                TextColor.ANSI.DEFAULT,
-                TextColor.ANSI.DEFAULT
-        )[0]);
-        for (int i = 0; i < currentCommand.length(); i++) {
-            char c = currentCommand.charAt(i);
-            screen.setCharacter(COMMAND_POS_X + 1 + i, COMMAND_POS_Y, TextCharacter.fromCharacter(
-                    c,
-                    TextColor.ANSI.DEFAULT,
-                    TextColor.ANSI.DEFAULT
-            )[0]);
-        }
+        TextGraphics graphics = screen.newTextGraphics();
+        graphics.setForegroundColor(TextColor.ANSI.DEFAULT);
+        graphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
+        graphics.putString(COMMAND_POS_X, COMMAND_POS_Y, "/" + currentCommand);
     }
-
 }
