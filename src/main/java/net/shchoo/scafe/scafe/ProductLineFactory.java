@@ -7,41 +7,41 @@ public class ProductLineFactory {
     private static final int[] DEFAULT_LEVEL_NEEDED_BY_TIER = {0, 20, 35, 50, 70};
     private static final int[] DEFAULT_XP_GAINED_BY_TIER = {200,300,400,500,750};
 
-    private static Recipe createRecipe(Skill skill, String productName, int tier, List<Product> components) {
+    private static Recipe createRecipe(WorldContent world, Skill skill, String productName, int tier, List<Product> components) {
         return new Recipe(
+                world.allocateId(),
                 skill,
-                new Product(productName + "-" + tier),
+                new Product(world.allocateId(), productName + "-" + tier),
                 DEFAULT_LEVEL_NEEDED_BY_TIER[tier],
                 DEFAULT_XP_GAINED_BY_TIER[tier],
                 components);
     }
 
-    public static ProductLine createPrimaryProductLine(Skill skill, String productName) {
+    public static ProductLine createPrimaryProductLine(WorldContent world, Skill skill, String productName) {
         List<Recipe> recipes = new ArrayList<>();
         for (int i = 0; i < DEFAULT_LEVEL_NEEDED_BY_TIER.length; i++) {
-            recipes.add(createRecipe(skill, productName, i, new ArrayList<>()));
+            recipes.add(createRecipe(world, skill, productName, i, new ArrayList<>()));
         }
-        return new ProductLine(skill, recipes);
+        return new ProductLine(world.allocateId(), skill, recipes);
     }
 
-    public static ProductLine createSecondaryProductLine(Skill skill, String productName, Collection<Skill> primarySkills) {
+    public static ProductLine createSecondaryProductLine(WorldContent world, Skill skill, String productName, Collection<Skill> primarySkills) {
         List<Recipe> recipes = new ArrayList<>();
         Skill targetSkill = chooseSkill(primarySkills);
         ProductLine targetProductLine = chooseProductLine(targetSkill);
         for (int i = 0; i < DEFAULT_LEVEL_NEEDED_BY_TIER.length; i++) {
-            Product p = new Product(productName + "-" + i);
             List<Product> comps = new ArrayList<>();
             // todo only single component recipes considered for now.
             Product targetProduct = targetProductLine.recipes.get(i).product;
             comps.add(targetProduct);
-            recipes.add(createRecipe(skill, productName, i, comps));
+            recipes.add(createRecipe(world, skill, productName, i, comps));
         }
-        return new ProductLine(skill, recipes);
+        return new ProductLine(world.allocateId(), skill, recipes);
     }
 
-    public static ProductLine createTertiaryProductLine(Skill skill, String productName, Collection<Skill> secondarySkills) {
+    public static ProductLine createTertiaryProductLine(WorldContent world, Skill skill, String productName, Collection<Skill> secondarySkills) {
         // todo does this need special treatment?
-        return createSecondaryProductLine(skill, productName, secondarySkills);
+        return createSecondaryProductLine(world, skill, productName, secondarySkills);
     }
 
     private static Skill chooseSkill(Collection<Skill> skills) {

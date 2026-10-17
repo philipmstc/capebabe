@@ -21,30 +21,32 @@ public class Skill {
             3986701, 4273970, 4581857, 4911843, 5265513,  5644567,  6050827,  6486246,  6952916,  7453081,
             7989145, 8563684, 9179459, 9839431, 10546771, 11304879, 12117400, 12988238, 13921579, 14921909
     };
-    public Skill(String name, SkillType type) {
+    public Skill(int id, String name, SkillType type, int colorIndex, char symbol) {
+        this.id = id;
         this.type = type;
         this.name = name;
+        this.colorIndex = colorIndex;
+        this.symbol = symbol;
         this.productLines = new ArrayList<>();
     }
 
-    public Skill(SkillType type, String name, List<ProductLine> productLines) {
-        this.type = type;
-        this.name = name;
-        this.productLines = productLines;
-    }
-
-    public Skill(String name, List<ProductLine> productLines)
-    {
-        this.name = name;
-        this.productLines = productLines;
-        this.type = SkillType.TERTIARY; // todo bad default -- calculate from PL.
-    }
-
+    final int id;
     SkillType type;
     String name;
+    /** Index into the UI palette ({@link SkillStyle}); part of the content so every client agrees. */
+    final int colorIndex;
+    final char symbol;
     public List<ProductLine> productLines;
 
-
-
     public SkillType getType() { return type; }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof Skill other && other.id == id;
+    }
+
+    @Override
+    public int hashCode() {
+        return Integer.hashCode(id);
+    }
 }

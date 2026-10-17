@@ -1,13 +1,25 @@
 package net.shchoo.scafe.scafe;
 
-import java.util.Collection;
 import java.util.List;
 
 public class ProductLine {
+    final int id;
     Skill skill;
-    public ProductLine(Skill skill, List<Recipe> recipes) {
+    List<Recipe> recipes;
+
+    public ProductLine(int id, Skill skill, List<Recipe> recipes) {
+        this.id = id;
         this.skill = skill;
         this.recipes = recipes;
     }
-    List<Recipe> recipes;
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof ProductLine other && other.id == id;
+    }
+
+    @Override
+    public int hashCode() {
+        return Integer.hashCode(id);
+    }
 }

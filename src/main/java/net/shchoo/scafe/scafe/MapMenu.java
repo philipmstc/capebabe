@@ -6,6 +6,7 @@ import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.screen.Screen;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static net.shchoo.scafe.scafe.Main.*;
 
@@ -29,7 +30,7 @@ public class MapMenu extends Menu {
             case ArrowRight -> dx = 1;
             case ArrowUp -> dy = -1;
             case ArrowDown -> dy = 1;
-            case Enter -> player.walker.walkTo(cursor);
+            case Enter -> player.send(new Intent.WalkTo(cursor));
             case Escape -> {
                 return Result.RELEASE;
             }
@@ -62,25 +63,53 @@ public class MapMenu extends Menu {
         textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
         textGraphics.putString(LIST_ITEM_POS_X, LIST_ITEM_POS_Y + 1,
                 (here ? "Here" : "Tile") + " (" + target.x() + "," + target.y() + ")");
-        List<Board.Action> tileActions = board.availableActions(target.x(), target.y());
-        if (tileActions.isEmpty()) {
+        int row = LIST_ITEM_POS_Y + 2;
+        for (Event.EntityInfo other : player.othersAt(target)) {
+            textGraphics.setForegroundColor(BoardView.OTHER_PLAYER_COLOR);
+            textGraphics.setCharacter(LIST_ITEM_POS_X, row, '*');
+            textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
+            textGraphics.putString(LIST_ITEM_POS_X + 2, row, other.name());
             textGraphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            textGraphics.putString(LIST_ITEM_POS_X, LIST_ITEM_POS_Y + 2, "Nothing here");
+            textGraphics.putString(LIST_ITEM_POS_X + 3 + other.name().length(), row++,
+                    "total Lv. " + other.totalLevel(player.content));
+        }
+        Node node = board.nodeAt(target.x(), target.y());
+        if (node == null) {
+            if (row == LIST_ITEM_POS_Y + 2) {
+                textGraphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+                textGraphics.putString(LIST_ITEM_POS_X, row, "Nothing here");
+            }
             return;
         }
-        int row = LIST_ITEM_POS_Y + 2;
-        for (Board.Action action : tileActions) {
-            textGraphics.setForegroundColor(BoardView.nodeColor(action, player));
-            textGraphics.setCharacter(LIST_ITEM_POS_X, row, SkillStyle.getSymbolForSkill(action.forWhich()));
-            textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
-            for (String line : action.describe()) {
-                textGraphics.putString(LIST_ITEM_POS_X + 2, row++, line);
-            }
-            if (action.isLockedFor(player)) {
-                textGraphics.setForegroundColor(TextColor.ANSI.RED);
-                textGraphics.putString(LIST_ITEM_POS_X + 2, row++, action.wasAttempted() ? "  locked -- g to add goal" : "  locked");
-                textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
-            }
+        textGraphics.setForegroundColor(BoardView.nodeColor(node, player));
+        textGraphics.setCharacter(LIST_ITEM_POS_X, row, SkillStyle.getSymbolForSkill(node.skill()));
+        textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
+        for (String line : describe(node)) {
+            textGraphics.putString(LIST_ITEM_POS_X + 2, row++, line);
         }
+        Event.NodeStatus status = player.status(node);
+        textGraphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+        if (node.maxCharges != Node.UNLIMITED) {
+            textGraphics.putString(LIST_ITEM_POS_X + 2, row++, status.depleted()
+                    ? "  empty -- respawning"
+                    : "  " + status.charges() + "/" + node.maxCharges + " left");
+        }
+        if (node.capacity != Node.UNLIMITED || status.users() > 0) {
+            textGraphics.putString(LIST_ITEM_POS_X + 2, row++, "  in use: " + status.users()
+                    + (node.capacity == Node.UNLIMITED ? "" : "/" + node.capacity));
+        }
+        if (player.isLockedFor(node)) {
+            textGraphics.setForegroundColor(TextColor.ANSI.RED);
+            textGraphics.putString(LIST_ITEM_POS_X + 2, row, player.hasTried(node) ? "  locked -- g to add goal" : "  locked");
+        }
+    }
+
+    private static List<String> describe(Node node) {
+        Recipe recipe = node.recipe;
+        String components = recipe.components.keySet().stream().map(p -> p.name).collect(Collectors.joining(", "));
+        return List.of(
+                recipe.skill.name + " [Lv. " + recipe.levelNeeded + "]",
+                "  makes " + recipe.product.name + " (+" + recipe.expGained + "xp)",
+                "  needs " + (components.isEmpty() ? "nothing" : components));
     }
 }

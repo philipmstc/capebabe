@@ -13,6 +13,7 @@ import java.util.List;
 import static net.shchoo.scafe.scafe.Main.*;
 
 public class BoardView {
+    public static final TextColor OTHER_PLAYER_COLOR = TextColor.ANSI.MAGENTA_BRIGHT;
 
     public static void draw(Player player, Board board, Screen screen) {
         drawBox(screen, BOARD_POS_X, BOARD_POS_Y, BOARD_WIDTH, BOARD_HEIGHT, 2);
@@ -36,7 +37,7 @@ public class BoardView {
         }
         int width = 2 * BOARD_WIDTH - 1;
         int y = BOARD_POS_Y + 2 * BOARD_HEIGHT + 2;
-        int filled = (int) Math.round(player.currentAction.fraction() * width);
+        int filled = (int) Math.round(player.actionFraction() * width);
         String label = player.currentAction.label();
         if (label.length() > width) {
             label = label.substring(0, width);
@@ -101,23 +102,27 @@ public class BoardView {
     }
 
     public static void drawTile(Player player, Board board, Screen screen, int worldX, int worldY, boolean highlighted) {
-        List<Board.Action> tileActions = board.availableActions(worldX, worldY);
+        Node node = board.nodeAt(worldX, worldY);
         boolean isPlayerPosition = player.x == worldX && player.y == worldY;
-        boolean hasAction = !tileActions.isEmpty();
+        boolean hasAction = node != null;
         boolean isOrigin = worldX == 0 && worldY == 0;
         char result = isPlayerPosition
                 ? hasAction
                 ? '~' : '*'
                 : hasAction
-                ? SkillStyle.getSymbolForSkill(tileActions.get(0).forWhich())
+                ? SkillStyle.getSymbolForSkill(node.skill())
                 : isOrigin ? 'o' : Symbols.BULLET;
 
         TextColor fg = isPlayerPosition
                 ? hasAction
                 ? TextColor.ANSI.YELLOW : TextColor.ANSI.CYAN
                 : hasAction
-                ? nodeColor(tileActions.get(0), player)
+                ? nodeColor(node, player)
                 : isOrigin ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.BLACK_BRIGHT;
+        if (!isPlayerPosition && !player.othersAt(new Board.Position(worldX, worldY)).isEmpty()) {
+            result = '*';
+            fg = OTHER_PLAYER_COLOR;
+        }
 
         int screenX = BOARD_POS_X + 1 + (worldX - player.x + Board.VIEW_CENTER_COLUMN) * 2;
         int screenY = BOARD_POS_Y + 1 + (worldY - player.y + Board.VIEW_CENTER_ROW) * 2;
@@ -132,9 +137,12 @@ public class BoardView {
         screen.setCharacter(screenX, screenY, TextCharacter.fromCharacter(result, fg, bg)[0]);
     }
 
-    public static TextColor nodeColor(Board.Action action, Player player) {
-        TextColor.ANSI color = SkillStyle.getColorForSkill(action.forWhich());
-        return action.wasAttempted() && action.isLockedFor(player) ? SkillStyle.dim(color) : color;
+    public static TextColor nodeColor(Node node, Player player) {
+        if (player.status(node).depleted()) {
+            return TextColor.ANSI.BLACK_BRIGHT;
+        }
+        TextColor.ANSI color = SkillStyle.getColorForSkill(node.skill());
+        return player.hasTried(node) && player.isLockedFor(node) ? SkillStyle.dim(color) : color;
     }
 
     private static void drawBox(Screen screen,

@@ -16,10 +16,9 @@ import com.googlecode.lanterna.terminal.swing.SwingTerminalFontConfiguration;
 
 import java.awt.*;
 import java.nio.charset.Charset;
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.util.*;
 import java.util.List;
+import java.nio.file.Path;
 
 import static net.shchoo.scafe.scafe.ConsoleAction.*;
 
@@ -45,50 +44,53 @@ public class Main {
     public static final int LIST_ROWS = COMMAND_POS_Y - 1 - LIST_ITEM_POS_Y;
 
 
-    static int skillCount = 0;
-    static int plCount = 0;
 
     public static void main(String[] args) throws Exception {
-        // DB loading disabled: the path below only exists on one machine (and startup failed
-        // without it), and the queries are all commented out anyway. Kept for reference.
-//        String url = "jdbc:sqlite:C:\\Users\\phili\\AppData\\Roaming\\DBeaverData\\workspace6\\.metadata\\sample-database-sqlite-1\\Chinook.db";
-//        Connection connection = DriverManager.getConnection(url);
-        List<Skill> skills = new ArrayList<>();
-//        if (connection != null) {
-//            System.out.println("Connected");
-//            PreparedStatement preparedStatement = connection.prepareStatement("select * from skill");
-//            boolean execute = preparedStatement.execute();
-//            ResultSet rs = preparedStatement.getResultSet();
-//            while (rs.next()) {
-//                Skill skill = new Skill(rs.getString("name"), new ArrayList<>());
-//                skills.add(skill);
-//            }
-//
-//            preparedStatement.close();
-//            rs.close();
-//
-//            preparedStatement = connection.prepareStatement("select * from product");
-//            preparedStatement.execute();
-//            rs = preparedStatement.getResultSet();
-//            Collection<Product> products = new ArrayList<>();
-//            while (rs.next()) {
-//                Product product = new Product(rs.getString("name"));
-//                products.add(product);
-//            }
-//            for (Product p : products) {
-//                System.out.println("Product: " + p.name);
-//            }
-//
-//            preparedStatement.close();
-//            rs.close();
-//            connection.close();
-//        }
+        Options options = Options.parse(args);
+        if (options.server()) {
+            GameServer server = startServer(options);
+            NetworkServer network = new NetworkServer(server, options.port(), options.admin());
+            System.out.println(server.world.name + " is up on port " + network.port()
+                    + (options.admin() ? " (admin commands on for everyone)" : ""));
+            network.acceptForever();
+            return;
+        }
+        GameConnection connection;
+        if (options.connect() != null) {
+            connection = SocketConnection.connect(options.connect());
+        } else {
+            GameServer server = startServer(options);
+            if (options.host()) {
+                NetworkServer network = new NetworkServer(server, options.port(), options.admin());
+                network.startInBackground();
+            }
+            connection = new LocalConnection(server.connect());
+        }
+        runClient(options, connection);
+    }
 
+    /** Opens the save file, loads (or creates) the world and starts ticking. Saves on exit. */
+    private static GameServer startServer(Options options) throws Exception {
+        GameStore store = GameStore.openFile(options.db());
+        World world = store.loadOrCreateWorld(options.worldId(), "world" + options.worldId(), new Random().nextLong());
+        GameServer server = new GameServer(world, store);
+        server.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            server.stop();
+            try {
+                store.close();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }));
+        return server;
+    }
 
-        Scanner in = new Scanner(System.in);
-        Player player = new Player();
-        Board board = new Board(skills);
+    private static void runClient(Options options, GameConnection connection) throws Exception {
+        Player player = new Player(connection);
+        Board board = new Board(player.content);
         GameLog.subscribe(board.log::add);
+        player.send(new Intent.Join(options.name()));
         SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
                 false, AWTTerminalFontConfiguration.BoldMode.NOTHING,
                 new Font("ComicMono Nerd Font", Font.PLAIN, 24));
@@ -114,54 +116,95 @@ public class Main {
 //        DEBUG_CREATE_RANDOM_PRODUCT_LINE.onSelect(player, board, Arrays.asList("10"));
 //        LIST.onSelect(player, board, new ArrayList<>());
         while (true) {
-            player.tick();
+            long frameStart = System.currentTimeMillis();
+            player.receive();
+            player.frame();
             screen.clear();
             drawScene(player, board, screen, menus, selection, typingCommand ? currentCommand : null);
             screen.refresh();
-            KeyStroke keyStroke = screen.pollInput();
-            if (keyStroke == null) {
-                Thread.sleep(60);
-                continue;
-            }
-            Menu menu = menus.get(selection);
-            KeyType type = keyStroke.getKeyType();
-            if (typingCommand) {
-                switch (type) {
-                    case Character -> currentCommand = currentCommand + keyStroke.getCharacter();
-                    case Backspace -> {
-                        if (!currentCommand.isEmpty()) {
-                            currentCommand = currentCommand.substring(0, currentCommand.length() - 1);
+            KeyStroke keyStroke;
+            while ((keyStroke = screen.pollInput()) != null) {
+                Menu menu = menus.get(selection);
+                KeyType type = keyStroke.getKeyType();
+                if (typingCommand) {
+                    switch (type) {
+                        case Character -> currentCommand = currentCommand + keyStroke.getCharacter();
+                        case Backspace -> {
+                            if (!currentCommand.isEmpty()) {
+                                currentCommand = currentCommand.substring(0, currentCommand.length() - 1);
+                            }
                         }
+                        case Enter -> {
+                            GameLog.say("/" + currentCommand);
+                            submitCommand(currentCommand, player, board);
+                            currentCommand = "";
+                            typingCommand = false;
+                        }
+                        case Escape -> {
+                            currentCommand = "";
+                            typingCommand = false;
+                        }
+                        default -> {}
                     }
-                    case Enter -> {
-                        GameLog.say("/" + currentCommand);
-                        submitCommand(currentCommand, player, board);
-                        currentCommand = "";
-                        typingCommand = false;
+                } else if (menu.isFocused()) {
+                    Menu.Result result = menu.handleKey(keyStroke, player, board);
+                    if (result == Menu.Result.RELEASE) {
+                        menu.unfocus();
+                    } else if (result == Menu.Result.IGNORED) {
+                        typingCommand = handleGlobalKey(keyStroke, player, board);
                     }
-                    case Escape -> {
-                        currentCommand = "";
-                        typingCommand = false;
+                } else {
+                    switch (type) {
+                        case Escape -> {
+                            connection.close();
+                            System.exit(0);
+                        }
+                        case ArrowLeft -> selection = Math.max(0, selection - 1);
+                        case ArrowRight -> selection = Math.min(menus.size() - 1, selection + 1);
+                        case ArrowDown, Enter -> menu.focus(player, board);
+                        default -> typingCommand = handleGlobalKey(keyStroke, player, board);
                     }
-                    default -> {}
-                }
-            } else if (menu.isFocused()) {
-                Menu.Result result = menu.handleKey(keyStroke, player, board);
-                if (result == Menu.Result.RELEASE) {
-                    menu.unfocus();
-                } else if (result == Menu.Result.IGNORED) {
-                    typingCommand = handleGlobalKey(keyStroke, player, board);
-                }
-            } else {
-                switch (type) {
-                    case Escape -> System.exit(0);
-                    case ArrowLeft -> selection = Math.max(0, selection - 1);
-                    case ArrowRight -> selection = Math.min(menus.size() - 1, selection + 1);
-                    case ArrowDown, Enter -> menu.focus(player, board);
-                    default -> typingCommand = handleGlobalKey(keyStroke, player, board);
                 }
             }
-            Thread.sleep(60);
+            Thread.sleep(Math.max(0, GameClock.FRAME_MILLIS - (System.currentTimeMillis() - frameStart)));
+        }
+    }
+
+    /**
+     * Command line, all optional:
+     * {@code [--name n] [--world id] [--db file]} plays locally;
+     * add {@code --host [--port p] [--admin]} to let others join your game;
+     * {@code --server [--port p] [--admin]} runs a world with no window;
+     * {@code --connect host[:port] [--name n]} joins someone else's.
+     */
+    record Options(String name, int worldId, Path db, boolean server, boolean host, int port, boolean admin, String connect) {
+        static Options parse(String[] args) {
+            String name = defaultName();
+            int worldId = 1;
+            Path db = GameStore.defaultFile();
+            boolean server = false, host = false, admin = false;
+            int port = NetworkServer.DEFAULT_PORT;
+            String connect = null;
+            for (int i = 0; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--name" -> name = args[++i];
+                    case "--world" -> worldId = Integer.parseInt(args[++i]);
+                    case "--db" -> db = Path.of(args[++i]);
+                    case "--server" -> server = true;
+                    case "--host" -> host = true;
+                    case "--port" -> port = Integer.parseInt(args[++i]);
+                    case "--admin" -> admin = true;
+                    case "--connect" -> connect = args[++i];
+                    default -> throw new IllegalArgumentException("Unknown option " + args[i]);
+                }
+            }
+            return new Options(name, worldId, db, server, host, port, admin, connect);
+        }
+
+        private static String defaultName() {
+            String name = System.getProperty("user.name", "player").replaceAll("[^A-Za-z0-9_-]", "_");
+            name = name.length() > 20 ? name.substring(0, 20) : name;
+            return name.isEmpty() ? "player" : name;
         }
     }
 

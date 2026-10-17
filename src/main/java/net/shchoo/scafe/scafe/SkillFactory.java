@@ -30,7 +30,13 @@ public class SkillFactory {
         }
     }
 
+    private static final Map<SkillType, List<Character>> SYMBOLS_BY_TYPE = Map.of(
+            PRIMARY, List.of('#', '%', '!'),
+            SECONDARY, List.of('$', '?', '='),
+            TERTIARY, List.of('@', '&', '+'));
+
     private static WeightedSkillTypeChoice typeInNeedOfLove(Collection<Skill> existingSkills,
+                                                            Random rng,
                                                             double primaryDensity,
                                                             double secondaryDensity,
                                                             double tertiaryDensity,
@@ -84,7 +90,7 @@ public class SkillFactory {
             type = PRIMARY;
             weight = -1;
         } else {
-            double random = Math.random();
+            double random = rng.nextDouble();
             if (random < normPrimaryWeight) {
                 type = PRIMARY;
                 weight = normPrimaryWeight;
@@ -99,41 +105,47 @@ public class SkillFactory {
         return new WeightedSkillTypeChoice(type, weight);
     }
 
-    public static Skill createRandomSkill(Collection<Skill> existingSkills, String name) {
+    public static Skill createRandomSkill(WorldContent world, Random rng) {
         SkillType type = typeInNeedOfLove(
-                existingSkills,
+                world.skills,
+                rng,
                 TARGET_PRIMARY_SKILL_DENSITY,
                 TARGET_SECONDARY_SKILL_DENSITY,
                 TARGET_TERTIARY_SKILL_DENSITY,
                 Collection::size)
                 .type;
-        return createSkill(name, type, existingSkills);
+        return createSkill(world, rng, "skill" + world.skills.size(), type);
     }
 
-    public static Skill createSkill(String name, SkillType type, Collection<Skill> allSkills) {
-        Skill skill = new Skill(name, type);
+    /** Creates the skill with its product lines and adds it to {@code world}. */
+    public static Skill createSkill(WorldContent world, Random rng, String name, SkillType type) {
+        long sameType = world.skills.stream().filter(s -> s.type == type).count();
+        Skill skill = new Skill(world.allocateId(), name, type, world.skills.size(),
+                SYMBOLS_BY_TYPE.get(type).get((int) (sameType % 3)));
         do {
-            addNewProductLineToSkill(skill, allSkills);
-        } while (needsNewProductLine(skill, allSkills));
+            addNewProductLineToSkill(skill, world);
+        } while (needsNewProductLine(skill, world.skills, rng));
+        world.addSkill(skill);
         return skill;
     }
 
-    public static void addNewProductLineToSkill(Skill skill, Collection<Skill> allSkills) {
+    public static void addNewProductLineToSkill(Skill skill, WorldContent world) {
         String name = skill.name + "{" + (skill.productLines.size()) + "}";
+        List<Skill> allSkills = world.skills;
         switch (skill.type) {
-            case PRIMARY -> skill.productLines.add(ProductLineFactory.createPrimaryProductLine(skill, name));
+            case PRIMARY -> skill.productLines.add(ProductLineFactory.createPrimaryProductLine(world, skill, name));
             case SECONDARY ->
-                    skill.productLines.add(ProductLineFactory.createSecondaryProductLine(skill, name, allSkills.stream()
+                    skill.productLines.add(ProductLineFactory.createSecondaryProductLine(world, skill, name, allSkills.stream()
                             .filter(s -> PRIMARY.equals(s.type)).toList()));
             case TERTIARY ->
-                    skill.productLines.add(ProductLineFactory.createTertiaryProductLine(skill, name, allSkills.stream()
+                    skill.productLines.add(ProductLineFactory.createTertiaryProductLine(world, skill, name, allSkills.stream()
                             .filter(s -> SkillType.SECONDARY.equals(s.type)).toList()));
         }
     }
 
     public static boolean correctProductLineDensity = true;
 
-    private static boolean needsNewProductLine(Skill target, Collection<Skill> allSkills) {
+    private static boolean needsNewProductLine(Skill target, Collection<Skill> allSkills, Random rng) {
         if (!correctProductLineDensity) {
             return false;
         }
@@ -141,6 +153,7 @@ public class SkillFactory {
         all.add(target);
 
         WeightedSkillTypeChoice choice = typeInNeedOfLove(all,
+                rng,
                 TARGET_PRODUCT_LINE_DENSITY_PRIMARY,
                 TARGET_PRODUCT_LINE_DENSITY_SECONDARY,
                 TARGET_PRODUCT_LINE_DENSITY_TERTIARY,
