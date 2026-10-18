@@ -24,7 +24,7 @@ Goal: shape the code so single player is just "a server running inside the clien
  │   content + nearby entities)     │ ◄──────────┼─ Characters (pos, xp, inv, goals, ...)  │
  │ Prediction for own movement      │   Events   │ Node occupancy / depletion              │
  │ Popups, XpTracker, MessageLog    │  (tick #)  │ Monsters (Walker + Pathfinding)         │
- │ BoardView / Menus render @60ms   │            │ GameStore (SQLite)                      │
+ │ Widgets render @60ms             │            │ WorldStore (SQLite) ──► accounts.db     │
  └──────────────────────────────────┘            └─────────────────────────────────────────┘
 ```
 
@@ -69,7 +69,7 @@ One process can host several worlds (one `GameServer` + tick loop each), or one 
 ## Accounts and characters
 
 - `account(id, name)` now; credentials get added to `account` later without touching game tables.
-- A character belongs to one account and one world (different seeds mean different skills, so progress can't carry over): `character(id, account_id, world_id, name, x, y, ...)`.
+- A character belongs to one account and one world (different seeds mean different skills, so progress can't carry over): a `game_character(id, account_id, name, x, y, ...)` row in that world's own database, pointing at the global `account`.
 - Until login exists, the server trusts the name it's given. Fine for friends, not for public.
 
 ## Timing: 600ms ticks, 60ms frames
@@ -103,9 +103,9 @@ Events are addressed to one character, to everyone near a position, or to the wh
 
 ## How the code maps to this (as built)
 
-- **Shared:** content classes (`Skill`, `ProductLine`, `Product`, `Recipe`, `Node`), `ContentBatch`, `WorldContent`, `Intent`, `Event`, `Levels`, `Wire` (JSON lines).
-- **Server:** `GameServer` (tick loop, sessions, visibility), `GameCharacter` (rules), `ActionProgress`, `NodeStates`, `Walker` + `Pathfinding`, `WorldGenerator` (+ factories), `GameStore` (SQLite), `NetworkServer`.
-- **Client:** `Player` (mirror of your character + prediction + nearby entities), `Board` (content view + log), `BoardView`, the `Menu`s, `Popup`, `XpTracker`, `ConsoleAction` (keys -> intents), `GameConnection` (`LocalConnection` / `SocketConnection`).
+- **Shared:** content classes (`Skill`, `ProductLine`, `Product`, `Recipe`, `Node`, `MonsterType`), `ContentBatch`, `WorldContent`, `Intent`, `Event`, `Levels`, `Wire` (JSON lines).
+- **Server:** `GameServer` (tick loop, sessions, visibility of players + monsters), `GameCharacter` (rules), `ActionProgress`, `NodeStates`, `Monsters` + `Monster` + `Combat`, `Walker` + `Pathfinding`, `WorldGenerator` (+ factories), `Storage` (interface); `persistence`: `WorldStore` + `AccountStore`; `net`: `NetworkServer`.
+- **Client:** `Player` (mirror of your character + prediction + nearby entities), `Board` (content view + log), the `Widget`s (`MapView`, `TabBar` + `Menu`s, ...), `Popup`, `XpTracker`, `ConsoleAction` (keys -> intents), `GameConnection` (`LocalConnection` / `SocketConnection`).
 - `Main` wires it up: local game (default), `--host`, `--server`, `--connect`.
 
 ## Transport
@@ -123,11 +123,11 @@ interface GameConnection {
 
 ## Persistence (SQLite, server-only)
 
-- World content: `world(id, seed, content_version, name)`, and `skill`, `product_line`, `product`, `recipe`, `recipe_component`, `node(world_id, x, y, recipe_id, capacity, max_charges, respawn_ticks)` -- every content row carries `world_id` and the `content_version` that introduced it.
-- Accounts / characters: `account`, `game_character`, `character_skill_xp`, `inventory`, `goal`, `character_tried_node`.
+- **One database per world** (`<data>/worlds/world-<id>.db`, `WorldStore`): `world_meta` (single row: name, seed, content_version), content tables `skill`, `product_line`, `product`, `recipe`, `recipe_component`, `node` (each row carries the `content_version` that introduced it), and the characters living there: `game_character` (with `account_id`), `character_skill_xp`, `inventory`, `goal`, `character_tried_node`.
+- **One global accounts database** (`<data>/accounts.db`, `AccountStore`): `account(id, name)`; credentials go here when login happens. Every world's store points at it; characters reference accounts by id (no cross-file foreign keys).
 - Not saved: action progress, walk paths, popups, xp/h, hover. Node charges/respawn timers: probably not worth saving at first (nodes come back full after a restart).
 - A `ContentBatch` is one transaction. Character state autosaves on an interval, on level up and on disconnect; a trade is one transaction.
-- SQLite allows one writer at a time; with one writer thread per world that's fine. If many worlds share one file and it gets busy, one DB file per world is the easy fix, and Postgres is the bigger one.
+- SQLite allows one writer at a time per file; with one file per world and one writer thread per world, worlds never block each other. `accounts.db` is shared but rarely written (account creation), with a busy timeout. Moving to Postgres later = schema per world + one accounts schema, same split.
 
 ## Suggested order
 
@@ -135,7 +135,7 @@ interface GameConnection {
 1. ~~**IDs + world as data + world RNG**~~ (done): stable IDs, color/symbol on the skill, factories produce `ContentBatch`es from a seeded RNG.
 2. ~~**Intents**~~ (done): key handling produces `Intent`s; an in-process `GameServer` applies them.
 3. ~~**Events**~~ (done): replace `GameLog` and the direct Player → UI coupling (popups, xp tracker) with events; client keeps a mirror of world content.
-4. ~~**`GameStore`**~~ (done) on the server: worlds, content batches, characters. Single-player saves land here.
+4. ~~**Persistence**~~ (done; per-world databases + global accounts) on the server: worlds, content batches, characters. Single-player saves land here.
 5. ~~**Node capacity / depletion**~~ (done) (needs the server owning node state).
 6. ~~**Network transport** + `Join` + seeing other players~~ (done). Then trade / fight.
 7. Client-side prediction for own movement, area-of-interest filtering (everyone currently gets every `EntityMoved` in the world), login.
