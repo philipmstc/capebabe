@@ -1,6 +1,7 @@
 package net.shchoo.scafe.scafe.protocol;
 
 import net.shchoo.scafe.scafe.model.ContentBatch;
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.WorldContent;
@@ -13,7 +14,8 @@ import java.util.Set;
 public sealed interface Event {
     record CharacterSnapshot(int id, String name, Position position, Map<Integer, Long> xp,
                              Map<Integer, Integer> inventory, List<GoalDef> goals, Set<Integer> triedNodes,
-                             Position lastActionAt, int hp, int maxHp) {}
+                             Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
+                             boolean running) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -32,14 +34,15 @@ public sealed interface Event {
      * For players, total level = (number of skills in the world) + levelsGained, so it stays right when new
      * skills appear without the server re-sending everyone. For monsters, monsterTypeId says which kind.
      */
-    record EntityInfo(int id, EntityKind kind, String name, Position position, int levelsGained, int monsterTypeId,
-                      int hp, int maxHp) {
-        public static EntityInfo player(int id, String name, Position position, int levelsGained, int hp, int maxHp) {
-            return new EntityInfo(id, EntityKind.PLAYER, name, position, levelsGained, 0, hp, maxHp);
+    record EntityInfo(int id, EntityKind kind, String name, Position position, Direction facing, int levelsGained,
+                      int monsterTypeId, int hp, int maxHp, int colorIndex) {
+        public static EntityInfo player(int id, String name, Position position, Direction facing, int levelsGained,
+                                        int hp, int maxHp, int colorIndex) {
+            return new EntityInfo(id, EntityKind.PLAYER, name, position, facing, levelsGained, 0, hp, maxHp, colorIndex);
         }
 
         public static EntityInfo monster(int id, String name, Position position, int monsterTypeId, int hp, int maxHp) {
-            return new EntityInfo(id, EntityKind.MONSTER, name, position, 0, monsterTypeId, hp, maxHp);
+            return new EntityInfo(id, EntityKind.MONSTER, name, position, Direction.DOWN, 0, monsterTypeId, hp, maxHp, 0);
         }
 
         public boolean isMonster() {
@@ -50,8 +53,8 @@ public sealed interface Event {
             return content.skills.size() + levelsGained;
         }
 
-        public EntityInfo at(Position newPosition) {
-            return new EntityInfo(id, kind, name, newPosition, levelsGained, monsterTypeId, hp, maxHp);
+        public EntityInfo at(Position newPosition, Direction newFacing) {
+            return new EntityInfo(id, kind, name, newPosition, newFacing, levelsGained, monsterTypeId, hp, maxHp, colorIndex);
         }
     }
 
@@ -67,12 +70,13 @@ public sealed interface Event {
     record ContentAdded(ContentBatch batch) implements Event {}
 
     record EntityEntered(EntityInfo entity) implements Event {}
-    record EntityMoved(int id, Position position) implements Event {}
+    /** Moved and/or turned. For your own character, sent for every step the server takes for you (so prediction can match). */
+    record EntityMoved(int id, Position position, Direction facing) implements Event {}
     record EntityLeft(int id) implements Event {}
     /** Something you can see about another player or monster changed (levelled up, took damage...). */
     record EntityUpdated(EntityInfo entity) implements Event {}
     /** Your queued steps were thrown away (e.g. you started an action); you're at {@code position}. */
-    record StepsCleared(Position position) implements Event {}
+    record StepsCleared(Position position, Direction facing) implements Event {}
 
     /** The action restarts every {@code durationTicks} until {@link ActionStopped}. */
     record ActionStarted(int nodeId, String label, long startTick, int durationTicks) implements Event {}
@@ -91,6 +95,8 @@ public sealed interface Event {
     /** Someone (you, a monster, another player) was hit for {@code damage}; 0 = a miss. */
     record Hit(int targetId, int damage, Position at) implements Event {}
     record HpChanged(int hp, int maxHp) implements Event {}
+    record ColorChanged(int colorIndex) implements Event {}
+    record RunningChanged(boolean running) implements Event {}
 
     record Message(String text) implements Event {}
 }

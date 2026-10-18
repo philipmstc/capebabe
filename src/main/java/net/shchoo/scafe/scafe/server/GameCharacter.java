@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
 import net.shchoo.scafe.scafe.model.Levels;
 import net.shchoo.scafe.scafe.model.Node;
@@ -19,6 +20,11 @@ public class GameCharacter implements Walker.Mobile {
     public final String name;
     public int x;
     public int y;
+    public Direction facing = Direction.DOWN;
+    /** Index into the clients' player palette ({@link net.shchoo.scafe.scafe.protocol.Intent#PLAYER_COLORS}). */
+    public int colorIndex;
+    /** Running = two steps per tick. */
+    public boolean running;
     public final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     public final List<Goal> goals = new ArrayList<>();
@@ -74,6 +80,16 @@ public class GameCharacter implements Walker.Mobile {
         y = position.y();
     }
 
+    @Override
+    public void face(Direction direction) {
+        facing = direction;
+    }
+
+    /** The tile you're facing: what you act on. */
+    public Position ahead() {
+        return position().step(facing);
+    }
+
     public int getLevel(Skill skill) {
         return Levels.levelFor(getExperience(skill));
     }
@@ -124,21 +140,24 @@ public class GameCharacter implements Walker.Mobile {
         }
     }
 
-    void queueStep(int dx, int dy) {
-        if (!walker.queueStep(dx, dy)) {
-            emit(new Event.StepsCleared(position()));
+    void queueStep(Direction direction) {
+        if (!walker.queueStep(direction)) {
+            emit(new Event.StepsCleared(position(), facing));
         }
     }
 
     void walkTo(Position target) {
         if (walker.walkTo(target)) {
-            emit(new Event.StepsCleared(position()));
+            emit(new Event.StepsCleared(position(), facing));
+        }
+        if (!walker.isWalking() && !target.equals(position())) {
+            say("Can't find a way there.");
         }
     }
 
     void stopWalking() {
         if (walker.stop()) {
-            emit(new Event.StepsCleared(position()));
+            emit(new Event.StepsCleared(position(), facing));
         }
     }
 
@@ -244,11 +263,12 @@ public class GameCharacter implements Walker.Mobile {
         Map<Integer, Integer> inventoryById = new LinkedHashMap<>();
         inventory.forEach((product, count) -> inventoryById.put(product.id, count));
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
-                goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp());
+                goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
+                facing, colorIndex, running);
     }
 
     Event.EntityInfo info() {
         int levelsGained = xp.keySet().stream().mapToInt(skill -> getLevel(skill) - 1).sum();
-        return Event.EntityInfo.player(id, name, position(), levelsGained, hp, maxHp());
+        return Event.EntityInfo.player(id, name, position(), facing, levelsGained, hp, maxHp(), colorIndex);
     }
 }

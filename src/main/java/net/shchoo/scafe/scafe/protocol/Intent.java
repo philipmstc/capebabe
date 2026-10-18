@@ -8,6 +8,8 @@ import java.util.List;
 public sealed interface Intent {
     /** Steps the server will queue ahead of you; clients predict at most this many. */
     int MAX_QUEUED_STEPS = 2;
+    /** Player colors are an index into the client's palette of this many. */
+    int PLAYER_COLORS = 8;
 
     record Join(String name) implements Intent {}
     record Leave() implements Intent {}
@@ -18,6 +20,9 @@ public sealed interface Intent {
     record AddGoal() implements Intent {}
     /** Fight a monster next to you (or stop fighting). */
     record Attack() implements Intent {}
+    record SetColor(int colorIndex) implements Intent {}
+    /** Running = two steps per tick. */
+    record SetRunning(boolean running) implements Intent {}
     /** Debug / world-building commands (the 1 / 2 / 3 keys). */
     record Admin(String command, List<String> args) implements Intent {}
 }

@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Recipe;
@@ -176,7 +177,7 @@ class GameServerTest {
     }
 
     @Test
-    void stepThenPerformActsOnTheNewTile() {
+    void walkingIntoANodeTurnsYouToFaceItAndQUsesIt() {
         Player alice = join("alice");
         alice.send(new Intent.Admin("1", List.of("1")));
         tick(alice);
@@ -187,9 +188,12 @@ class GameServerTest {
         tick(alice);
 
         alice.moveBy(1, 0);
+        assertEquals(new Position(0, 0), alice.position(), "predicted: the node blocks the step");
+        assertEquals(Direction.RIGHT, alice.facing, "...but you turn to face it");
         alice.send(new Intent.Perform());
         tick(alice);
-        assertEquals(new Position(1, 0), alice.serverPosition());
+        assertEquals(new Position(0, 0), alice.serverPosition());
+        assertEquals(Direction.RIGHT, alice.facing);
         assertNotNull(alice.currentAction);
         tick(alice);
         tick(alice);
@@ -235,7 +239,7 @@ class GameServerTest {
         placeNodeFor(alice.content.skills.get(0).productLines.get(0).recipes.get(0));
         alice.send(new Intent.Perform());
         tick(alice);
-        alice.moveBy(0, 1);
+        alice.moveBy(1, 0);
         tick(alice);
         assertNull(alice.currentAction);
         assertTrue(log.contains("Interrupted."));
@@ -280,10 +284,10 @@ class GameServerTest {
         assertTrue(log.stream().anyMatch(m -> m.startsWith("Couldn't run 1")));
     }
 
-    /** Puts a node for {@code recipe} at the origin, as one content batch like everything else. */
+    /** Puts a node for {@code recipe} just below the origin -- in front of a fresh character, who faces down. */
     private Node placeNodeFor(Recipe recipe) {
         WorldContent scratch = server.world.content.copy();
-        Node node = new Node(scratch.allocateId(), new Position(0, 0), scratch.recipe(recipe.id), Node.UNLIMITED, Node.UNLIMITED, 0);
+        Node node = new Node(scratch.allocateId(), new Position(0, 1), scratch.recipe(recipe.id), Node.UNLIMITED, Node.UNLIMITED, 0);
         scratch.addNode(node);
         server.applyContent(scratch.diff(server.world.content));
         return node;

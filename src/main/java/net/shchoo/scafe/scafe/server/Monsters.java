@@ -4,6 +4,7 @@ import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Position;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 /** All monsters currently out in a world: spawning, wandering, despawning. */
 class Monsters {
@@ -14,10 +15,21 @@ class Monsters {
     static final int DESPAWN_TICKS = 100;
 
     private final Map<Integer, Monster> byId = new LinkedHashMap<>();
+    private final Predicate<Position> passable;
     private int nextId = -1;
+
+    Monsters() {
+        this(position -> true);
+    }
+
+    Monsters(Predicate<Position> passable) {
+        this.passable = passable;
+    }
 
     Monster spawn(MonsterType type, Position at) {
         Monster monster = new Monster(nextId--, type, at);
+        // the leash is part of what's passable for it, so no path can ever take it outside its roam box
+        monster.walker.setPassable(p -> passable.test(p) && distance(p, monster.home) <= type.roamRadius);
         byId.put(monster.id, monster);
         return monster;
     }
@@ -86,7 +98,9 @@ class Monsters {
             }
             monster.stepCooldown = monster.type.moveTicks;
             Position before = monster.position();
-            monster.walker.tick();
+            if (monster.walker.tick() == Walker.Result.BLOCKED) {
+                continue;
+            }
             if (!monster.position().equals(before)) {
                 moved.add(monster);
             }

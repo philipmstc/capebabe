@@ -21,9 +21,21 @@
 - Inventory navigable and prettier (low prio) -- `InventoryMenu` exists but can't be focused yet
 - **(first pass done, see "Monsters" below)** Monsters and a fighting system of some kind involving the items
 - **(first pass done: monster drops)** "neutral" items that are not tied to any skill or recipe -- probably dropped by monsters, in addition to maybe other sources (think Feathers in runescape)
-- Bank a la runescape
+- Bank a la runescape -- see "Towns, banks, limited inventory, weapons" in the backlog below
 
 # backlog/scratch pad
+
+## Towns, banks, limited inventory, weapons (ideas, 2026-10-18 -- not started)
+- **Towns**: a kind of node you *enter*; entering swaps your map for a submap with fixed (but still procedurally generated) interactables. Leaving puts you back where the town node is.
+- **Banks, shops, etc.** live inside towns.
+- **Limited inventory space**, so progression has breaks: you fill up, go to a town, deposit at a bank, withdraw later. (Also a natural "fun interruption" for long repeating actions -- the TODO in the Morning section.)
+- **Combat skills as their own category**: procedurally generated *weapon classes*, acquired inside towns (e.g. bought at a shop). You can only level a combat skill once you own a weapon of that class -- so combat grows the skill tree like crafting does, instead of one fixed `combat` skill.
+- **Still open**: tying crafting and combat together in a way that stays extensible (see the back-burner "how combat fits the skill tree" item under Monsters; the "each monster is its own skill" idea is one candidate, weapon classes are another, they might combine: weapon class = combat skill, monster = what it's trained on).
+- Thoughts on what each would touch in the current code, for when it's time:
+  - Submaps: `Position` would need a map/area id (or towns get their own coordinate space), nodes would carry which map they're on, and visibility / AOI would only consider entities on the same map. A town's layout could be a `ContentBatch` like everything else (generated once, saved, replayed), so every player sees the same town.
+  - Node kinds: today every `Node` is a recipe; towns, banks and shops make it a real `kind` (`NodeDef.kind` + a branch in `GameCharacter.performOrStop`), which the notes already anticipate.
+  - Bank: a second item store per character (`bank` table like `inventory`), moves between the two are one transaction. Inventory limit = a slot/stack cap checked wherever items are added (crafting, drops) -- and one-of-a-kind drops would need a rule for "inventory full" (don't drop? drop straight to the bank?).
+  - Weapon classes: a new content type (like `MonsterType`) whose discovery adds a `COMBAT`-type skill per class; the shop sells a weapon item of that class; xp from fighting goes to the class of the weapon you're holding. The current single `combat` skill would become "the first weapon class" or go away.
 
 ## Monsters
 
@@ -37,7 +49,7 @@
 - [x] Logging -> board log via a listener: `GameLog.say(...)` from anywhere, `MessageLog` subscribes in `Main`. All `board.log.add` calls and `Player`'s `System.out` moved over. (`SkillFactory`'s weight debug prints left on System.out on purpose, they'd flood the log.)
 - [x] Map tab not focused: preview shows the player's current tile ("Here (x,y)")
 - [x] "Goals" menu: `q` on a node you're too low level for marks it (non-_BRIGHT color), then `g` adds "reach SKILL Lv. XX to make PRODUCT". Goals tab shows `[ ]`/`[x]`, log says "Goal complete" on the level up.
-- [x] Hover + `Enter` walks the player to the cursor, one tile per tick (horizontal then vertical). `Pathfinding.orthogonal` is the algorithm, `Walker` steps anything implementing `Walker.Mobile` -- monsters can reuse both. A wasd step replaces the walk.
+- [x] Hover + `Enter` walks the player to the cursor, one tile per tick. `Walker` steps anything implementing `Walker.Mobile` (monsters too). A wasd step replaces the walk. *(2026-10-18: now real pathfinding around nodes, diagonals allowed -- see "Facing, blocking, running, settings" below.)*
 - [x] Spot check of Recipe validation / resource usage -- see below
 - [x] Off-screen "home" arrow on the map border: points at the last tile where something was successfully made (yellow), or the origin (white) if nothing yet. `MapView.drawHomeIndicator`, tracked in `Player.lastActionAt`.
 
@@ -153,26 +165,39 @@
 - [ ] Monsters as an "interruption" for long actions (the TODO above): an aggressive kind walking up while you're skilling.
 - [ ] Mouse (asked 2026-10-18; checked against the lanterna 3.1.5 jar): ANSI text terminals (Unix/Cygwin/Telnet) support it -- `DefaultTerminalFactory.setMouseCaptureMode(MouseCaptureMode.CLICK_RELEASE)` and clicks arrive as `MouseAction` key strokes (`KeyType.MouseEvent`, `getPosition()` = column/row). The Swing window we use on Windows does *not* report clicks (its only mouse listener is middle-click paste), and 3.1.5 has no native Windows console terminal. Doable for Swing anyway: add our own `MouseListener` to the Swing terminal component, divide pixels by the cell size (component size / terminal columns, rows) and feed a `MouseAction` into the input loop. Since `MouseAction` is a `KeyStroke`, the existing `Widget.onKey` routing would carry clicks too (click a tab, click a tile to walk there, click a monster to fight).
 
+## Facing, blocking, running, settings (2026-10-18)
+- [x] The player is an arrow (`^ v < >`) showing which way you face; other players too (in their color). Every step turns you; pressing towards a node turns you to face it without moving. You start facing down. Facing is saved.
+- [x] Skill nodes are impassable (for players and monsters); other players and monsters are passable.
+- [x] You act on what you're facing: `q`, `g` and the Map tab's default preview ("Ahead (x,y)") all use the tile in front of you. Turning away from (or walking off) a node interrupts the action. `/3` builds in front of you. `f` turns you towards the monster you attack (a monster in front of you is picked first).
+- [x] Hover + `Enter` uses real pathfinding (`Pathfinding.path`, breadth-first): around nodes, diagonal steps allowed and counting as one move (but never squeezing between two nodes on a corner), straight-looking routes preferred. Walking to a node ends orthogonally next to it, facing it. "Can't find a way there." if it's walled off; "Something's in the way." if a node appears mid-walk. The hover cursor starts on the tile you're facing, and it's relative to you: it stays put on screen while you move, so hovering at an edge and pressing Enter repeatedly keeps walking/running you that way.
+- [x] Running: `r` (or the settings menu) toggles it; running = two steps per tick, for wasd and hover-walks. "run" shows in the map's top border. Saved.
+- [x] Prediction: the client predicts turns and blocked steps with the same rule (it knows where the nodes are), and the server sends an `EntityMoved` for every step it takes for you (including turns/bumps, and both steps of a running tick), so predictions match one by one.
+- [x] Settings: `,` opens a Settings menu over the tab area (Esc or `,` closes): your color (Left/Right; 8 to pick from, others see it), running on/off, and a Controls list. Keys the menu doesn't use (wasd etc.) still work while it's open. Color/running show immediately and are confirmed by the server.
+- [x] Monsters can never leave their roam radius (it's part of what's passable for them).
+- [x] World schema v5: `game_character.facing`, `color_index`, `running`.
+- [x] Tests: `MovementTest` (blocking, turning, facing-only actions, building in front, walking to nodes, routing around walls, no corner squeezing, straight paths, unreachable targets, running, colors) and `SettingsMenuTest`.
+- [ ] Ideas: running could cost energy (that recovers walking/standing); facing could matter in combat (attack from behind?); the settings menu is the natural home for key rebinding.
+
 # Next steps / ideas
 
 ## Current controls
 - `Left`/`Right` switch tabs. `Down`/`Enter` focuses the current tab, `Esc` backs out (and quits from the top level).
-- Map: unfocused, the right side previews the tile you're standing on. Focused, arrows move a hover cursor and `Enter` walks there. Other players on the tile are listed with their total level.
+- Map: unfocused, the right side previews the tile you're facing. Focused, arrows move a hover cursor and `Enter` walks there (around nodes). Other players / monsters on the tile are listed.
 - Skills: `Up`/`Down` pick a skill (product lines preview on the right), `Right`/`Enter` moves into the product lines, `Left`/`Esc` back. `Up` from the top skill leaves the menu.
-- wasd/q/g/f/`/` work everywhere, even while a menu is focused. `g` = add goal for the locked node you're standing on (after trying it with `q`). `f` = fight the monster next to you (again to stop).
+- wasd/q/g/f/r/`/`/`,` work everywhere, even while a menu is focused. wasd = step (or turn to face a node), `q` = use the node you're facing, `g` = add goal for the locked node you're facing (after trying it with `q`), `f` = fight the monster next to you (again to stop), `r` = run on/off, `,` = settings + controls.
 - Goals tab is view-only for now.
-- `HELP` (`k`) only lists `ConsoleAction`s, so none of the above is discoverable in-game except the Map tab hint. Might want a "controls" section in help.
+- Controls are listed in the settings menu (`,`); `k` still lists every `ConsoleAction` in the log.
 
 ## Map
 - 11x7 visible, centered on the player, world is unbounded. Window is 100x28 (`Layout.TERMINAL_SIZE`); all layout positions derive from `BOARD_WIDTH`/`BOARD_HEIGHT`.
 - Orientation: `o` at the origin, player's coords in the map's top border, and an arrow on the border pointing to the last successful action tile (else origin) when it's off-screen.
 - Home arrow: only cardinal arrows (which edge it's on shows the diagonal). It can overwrite a character of the coords label when home is up-left -- move the label to the bottom border if it bugs you. Could show both origin and last-action arrows at once, or the distance next to the arrow.
   - [ ] ability for player to drop pins that show as separate arrows :) 
-- Hover cursor is clamped to the visible window. To scout further, let the camera follow the cursor while hovering and snap back on Esc.
-- Walking could auto-`q` on arrival, or `Shift+Enter` = walk and perform.
-- Walk speed is one tile per 600ms tick. Running (2 tiles/tick) would be a `Walker` option.
+- Hover cursor is an offset from you, clamped to the visible window (so it moves with you). To scout further, let the camera follow the cursor while hovering and snap back on Esc. Holding Enter (key repeat) already re-walks every press; a proper "keep walking that way" toggle could replace it.
+- Walking to a node could auto-`q` on arrival (you already end up facing it), or `Shift+Enter` = walk and perform.
+- Walk speed is one tile per 600ms tick, running two.
 - Own movement is predicted (see Persistence / multiplayer above); `q` still waits for the tick (up to 600ms) because the server decides whether the action can start.
-- Pathfinding ignores obstacles (there aren't any yet). Swap `Pathfinding.orthogonal` for BFS/A* once tiles can block.
+- Pathfinding is breadth-first within a box around start/target (+16 tiles). Fine for now; A* if paths get long or the map gets busy.
 - Map nodes are data (`Node`); the only kind is "recipe". Other kinds (bank, monster spawn, ...) would add a `kind` to `Node`/`NodeDef` and a branch in `GameCharacter.performOrStop`. Preview text is `MapMenu.describe(node)`; could also show missing components.
 - Placing a node on a tile that already has one replaces it (the old one stays in the content history). Fine for the debug command; real removal would need a "removed nodes" list in `ContentBatch`.
 - Symbol color semantics: bright = normal, dim = tried and too low level. Could add more states (e.g. never seen, depleted) once nodes get richer.

@@ -23,6 +23,23 @@ public class SkillStyle {
             TextColor.ANSI.CYAN,
             TextColor.ANSI.GREEN);
 
+    /** Players pick one of these in settings (index = {@code colorIndex}, {@code Intent.PLAYER_COLORS} of them). */
+    public static final List<TextColor.ANSI> PLAYER_COLORS = List.of(
+            TextColor.ANSI.CYAN_BRIGHT,
+            TextColor.ANSI.GREEN_BRIGHT,
+            TextColor.ANSI.YELLOW_BRIGHT,
+            TextColor.ANSI.MAGENTA_BRIGHT,
+            TextColor.ANSI.RED_BRIGHT,
+            TextColor.ANSI.BLUE_BRIGHT,
+            TextColor.ANSI.WHITE_BRIGHT,
+            TextColor.ANSI.CYAN);
+    public static final List<String> PLAYER_COLOR_NAMES = List.of(
+            "cyan", "green", "yellow", "magenta", "red", "blue", "white", "teal");
+
+    public static TextColor.ANSI playerColor(int index) {
+        return PLAYER_COLORS.get(Math.floorMod(index, PLAYER_COLORS.size()));
+    }
+
     public static TextColor.ANSI getColorForMonster(MonsterType type) {
         return monsterColors.get(type.colorIndex % monsterColors.size());
     }

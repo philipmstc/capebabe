@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.net;
 
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.protocol.Event;
@@ -35,7 +36,7 @@ class NetworkTest {
     void everyIntentRoundTrips() {
         List<Intent> intents = List.of(
                 new Intent.Join("alice"), new Intent.Leave(), new Intent.Move(1, -1),
-                new Intent.WalkTo(new Position(-4, 7)), new Intent.Perform(), new Intent.AddGoal(), new Intent.Attack(),
+                new Intent.WalkTo(new Position(-4, 7)), new Intent.Perform(), new Intent.AddGoal(), new Intent.Attack(), new Intent.SetColor(3), new Intent.SetRunning(true),
                 new Intent.Admin("3", List.of("1", "5", "10")));
         for (Intent intent : intents) {
             assertEquals(intent, Wire.decodeIntent(Wire.encode(intent)));
@@ -50,10 +51,10 @@ class NetworkTest {
         world.content.apply(WorldGenerator.newMonsterType(world));
         world.content.apply(WorldGenerator.newDrop(world, world.content.monsters.get(0).id));
         Event.CharacterSnapshot you = new Event.CharacterSnapshot(7, "alice", new Position(1, 2),
-                Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10);
+                Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10, Direction.LEFT, 3, true);
         List<Event> events = List.of(
                 new Event.Welcome("w", 12, List.copyOf(world.content.history()), you,
-                        List.of(Event.EntityInfo.player(8, "bob", new Position(0, 0), 4, 10, 10),
+                        List.of(Event.EntityInfo.player(8, "bob", new Position(0, 0), Direction.UP, 4, 10, 10, 5),
                                 Event.EntityInfo.monster(-3, "monster0", new Position(2, 2), 77, 3, 9)),
                         List.of(new Event.NodeStatus(9, 0, true, 1))),
                 new Event.Tick(13), new Event.ActionStopped(), new Event.Message("hi \"there\"\n"),
@@ -61,7 +62,9 @@ class NetworkTest {
                 new Event.ContentAdded(world.content.history().get(0)),
                 new Event.ContentAdded(world.content.history().get(world.content.version() - 1)),
                 new Event.FightStarted(-3), new Event.FightEnded(), new Event.Hit(-3, 2, new Position(2, 2)),
-                new Event.HpChanged(4, 10));
+                new Event.HpChanged(4, 10),
+                new Event.EntityMoved(8, new Position(1, 0), Direction.RIGHT), new Event.StepsCleared(new Position(0, 0), Direction.DOWN),
+                new Event.ColorChanged(2), new Event.RunningChanged(true));
         for (Event event : events) {
             assertEquals(event, Wire.decodeEvent(Wire.encode(event)));
         }
@@ -94,9 +97,11 @@ class NetworkTest {
         alice.send(new Intent.Admin("1", List.of("3")));
         tickUntil(server, () -> bob.content.skills.size() == 3, alice, bob);
         assertEquals(server.world.content.history(), bob.content.history());
+        assertEquals(Direction.DOWN, alice.others.get(bob.id).facing());
 
         bob.moveBy(-1, 0);
         tickUntil(server, () -> alice.others.get(bob.id).position().equals(new Position(-1, 0)), alice, bob);
+        assertEquals(Direction.LEFT, alice.others.get(bob.id).facing(), "others see which way you face");
 
         bob.send(new Intent.Leave());
         tickUntil(server, () -> !alice.others.containsKey(bob.id), alice, bob);

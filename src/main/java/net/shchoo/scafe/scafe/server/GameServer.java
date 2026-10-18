@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.ContentBatch;
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
@@ -63,7 +64,7 @@ public class GameServer {
     private final Map<Integer, GameCharacter> online = new LinkedHashMap<>();
     private final NodeStates nodes = new NodeStates(this::broadcast);
     private Discovery discovery = new Discovery(new Random());
-    private final Monsters monsters = new Monsters();
+    private final Monsters monsters = new Monsters(this::passable);
     private final Combat combat = new Combat(this);
     /** Combat rolls, monster wandering and spawn spots. */
     private Random random = new Random();
@@ -120,6 +121,17 @@ public class GameServer {
 
     GameCharacter online(int id) {
         return online.get(id);
+    }
+
+    /** Nodes block movement; players and monsters don't. */
+    boolean passable(Position position) {
+        return world.content.nodeAt(position) == null;
+    }
+
+    /** A tile something new shouldn't appear on: a node, a monster or a player is there. */
+    boolean taken(Position position) {
+        return !passable(position) || monsters.occupied(position)
+                || online.values().stream().anyMatch(c -> c.position().equals(position));
     }
 
     Monster spawnMonster(MonsterType type, Position at) {
@@ -202,24 +214,32 @@ public class GameServer {
             }
         }
         sessions.removeIf(session -> session.closed);
-        List<GameCharacter> moved = new ArrayList<>();
+        List<Map.Entry<GameCharacter, Event>> steps = new ArrayList<>();
         for (GameCharacter character : online.values()) {
-            Position before = character.position();
-            character.walker.tick();
-            if (!character.position().equals(before)) {
-                moved.add(character);
-                character.triggers.add(Discovery.Trigger.MOVED);
+            for (int step = 0; step < (character.running ? 2 : 1); step++) {
+                Position before = character.position();
+                Walker.Result result = character.walker.tick();
+                if (result == Walker.Result.BLOCKED) {
+                    character.say("Something's in the way.");
+                }
+                if (result != Walker.Result.STEPPED) {
+                    break;
+                }
+                // one event per step, even a turn or a bump, so the client can match its predictions one by one
+                steps.add(Map.entry(character, new Event.EntityMoved(character.id, character.position(), character.facing)));
+                if (!character.position().equals(before)) {
+                    character.triggers.add(Discovery.Trigger.MOVED);
+                }
             }
         }
         List<Monster> movedMonsters = monsters.tick(random, online.values());
         updateVisibility();
-        for (GameCharacter mover : moved) {
-            Event event = new Event.EntityMoved(mover.id, mover.position());
-            mover.emit(event);
-            toObservers(mover.id, event);
+        for (Map.Entry<GameCharacter, Event> step : steps) {
+            step.getKey().emit(step.getValue());
+            toObservers(step.getKey().id, step.getValue());
         }
         for (Monster mover : movedMonsters) {
-            toObservers(mover.id, new Event.EntityMoved(mover.id, mover.position()));
+            toObservers(mover.id, new Event.EntityMoved(mover.id, mover.position(), Direction.DOWN));
         }
         for (GameCharacter character : online.values()) {
             if (character.currentAction != null && !character.currentAction.tick(character, tick)) {
@@ -296,19 +316,33 @@ public class GameServer {
             return;
         }
         if (intent instanceof Intent.Move move) {
-            character.queueStep(move.dx(), move.dy());
+            Direction direction = Direction.of(move.dx(), move.dy());
+            if (direction != null) {
+                character.queueStep(direction);
+            }
+        } else if (intent instanceof Intent.SetRunning setRunning) {
+            character.running = setRunning.running();
+            character.saveSoon = true;
+            character.emit(new Event.RunningChanged(character.running));
+        } else if (intent instanceof Intent.SetColor setColor) {
+            if (setColor.colorIndex() >= 0 && setColor.colorIndex() < Intent.PLAYER_COLORS) {
+                character.colorIndex = setColor.colorIndex();
+                character.infoChanged = true;
+                character.saveSoon = true;
+                character.emit(new Event.ColorChanged(character.colorIndex));
+            }
         } else if (intent instanceof Intent.WalkTo walkTo) {
             character.walkTo(walkTo.target());
         } else if (intent instanceof Intent.Perform) {
             if (character.currentFight != null) {
                 combat.endFight(character, "You stop fighting.");
             } else {
-                character.performOrStop(nodeUnder(character), tick);
+                character.performOrStop(nodeAhead(character), tick);
             }
         } else if (intent instanceof Intent.Attack) {
             combat.attack(character, tick);
         } else if (intent instanceof Intent.AddGoal) {
-            character.addGoal(nodeUnder(character));
+            character.addGoal(nodeAhead(character));
         } else if (intent instanceof Intent.Admin admin) {
             if (session.admin) {
                 admin(character, admin.command(), admin.args());
@@ -318,8 +352,9 @@ public class GameServer {
         }
     }
 
-    private Node nodeUnder(GameCharacter character) {
-        return world.content.nodeAt(character.position());
+    /** You act on the node you're facing. */
+    private Node nodeAhead(GameCharacter character) {
+        return world.content.nodeAt(character.ahead());
     }
 
     private void join(Session session, String name) {
@@ -341,6 +376,7 @@ public class GameServer {
         }
         session.character = character;
         character.connect(session.events::add, nodes);
+        character.walker.setPassable(this::passable);
         character.hp = character.maxHp();
         List<GameCharacter> nearby = online.values().stream()
                 .filter(other -> inRange(character.position(), other.position())).toList();
@@ -390,7 +426,7 @@ public class GameServer {
             ContentBatch batch = switch (command) {
                 case "1" -> WorldGenerator.newSkills(world, intArg(args, 0, 1));
                 case "2" -> WorldGenerator.newProductLines(world, intArg(args, 0, 1));
-                case "3" -> WorldGenerator.newNode(world, character.position(),
+                case "3" -> WorldGenerator.newNode(world, character.ahead(),
                         intArg(args, 0, Node.UNLIMITED), intArg(args, 1, Node.UNLIMITED), intArg(args, 2, 10));
                 default -> throw new IllegalArgumentException("Unknown admin command " + command);
             };
@@ -407,7 +443,7 @@ public class GameServer {
         }
         List<MonsterType> kinds = world.content.monsters;
         MonsterType type = newKind ? kinds.get(kinds.size() - 1) : kinds.get(random.nextInt(kinds.size()));
-        Position at = Discovery.freeSpot(world, monsters, character.position(), 1, 1, random);
+        Position at = Discovery.freeSpot(this, character.position(), 1, 1, random);
         spawnMonster(type, at == null ? character.position() : at);
         character.say("A " + type.name + " (Lv. " + type.level + ") appears. Press f next to it to fight.");
         updateVisibility();

@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.ContentBatch;
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
@@ -56,10 +57,19 @@ class Combat {
             endFight(character, "You stop fighting.");
             return;
         }
-        Monster monster = server.monsters().nextTo(character.position());
+        Monster monster = server.monsters().all().stream()
+                .filter(m -> m.position().equals(character.ahead())).findFirst()
+                .orElseGet(() -> server.monsters().nextTo(character.position()));
         if (monster == null) {
             character.say("Nothing to fight here.");
             return;
+        }
+        Direction toward = Direction.toward(character.position(), monster.position());
+        if (toward != null && toward != character.facing) {
+            character.face(toward);
+            Event turned = new Event.EntityMoved(character.id, character.position(), character.facing);
+            character.emit(turned);
+            server.toObservers(character.id, turned);
         }
         character.stopAction(null);
         character.stopWalking();
@@ -181,8 +191,8 @@ class Combat {
         character.stopWalking();
         character.hp = character.maxHp();
         character.moveTo(RESPAWN);
-        character.emit(new Event.StepsCleared(RESPAWN));
-        server.toObservers(character.id, new Event.EntityMoved(character.id, RESPAWN));
+        character.emit(new Event.StepsCleared(RESPAWN, character.facing));
+        server.toObservers(character.id, new Event.EntityMoved(character.id, RESPAWN, character.facing));
         character.emit(new Event.HpChanged(character.hp, character.maxHp()));
         character.say(monster.type.name + " knocked you out. You wake up at the origin.");
     }

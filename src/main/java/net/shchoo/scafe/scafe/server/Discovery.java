@@ -111,8 +111,7 @@ public class Discovery {
     }
 
     private void spawnMonsterNear(GameServer server, GameCharacter character, MonsterType kind) {
-        Position at = freeSpot(server.world, server.monsters(), character.position(),
-                MONSTER_SPAWN_MIN_DISTANCE, MONSTER_SPAWN_MAX_DISTANCE, random);
+        Position at = freeSpot(server, character.position(), MONSTER_SPAWN_MIN_DISTANCE, MONSTER_SPAWN_MAX_DISTANCE, random);
         if (at != null) {
             server.spawnMonster(kind, at);
             character.say("A " + kind.name + " (Lv. " + kind.level + ") shows up nearby.");
@@ -145,8 +144,7 @@ public class Discovery {
     }
 
     private void discoverNode(GameServer server, GameCharacter character) {
-        Position at = freeSpot(server.world, server.monsters(), character.position(),
-                SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE, random);
+        Position at = freeSpot(server, character.position(), SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE, random);
         if (at == null) {
             return;
         }
@@ -171,8 +169,8 @@ public class Discovery {
         return count;
     }
 
-    /** A random tile between min and max tiles away (either axis) with no node or monster on it, or null. */
-    static Position freeSpot(World world, Monsters monsters, Position around, int min, int max, Random random) {
+    /** A random tile between min and max tiles away (either axis) with no node, monster or player on it, or null. */
+    static Position freeSpot(GameServer server, Position around, int min, int max, Random random) {
         List<Position> spots = new ArrayList<>();
         for (int dx = -max; dx <= max; dx++) {
             for (int dy = -max; dy <= max; dy++) {
@@ -180,7 +178,7 @@ public class Discovery {
                     continue;
                 }
                 Position spot = new Position(around.x() + dx, around.y() + dy);
-                if (world.content.nodeAt(spot) == null && !monsters.occupied(spot)) {
+                if (!server.taken(spot)) {
                     spots.add(spot);
                 }
             }

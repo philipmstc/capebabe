@@ -7,6 +7,7 @@ import com.googlecode.lanterna.SGR;
 import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.graphics.TextGraphics;
 import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
 
 import java.util.List;
@@ -19,12 +20,20 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
  */
 public class TabBar extends Widget {
     private final List<Menu> menus;
+    /** Opened with "," over the menu area (settings + controls); takes keys first while open. */
+    private final Menu overlay;
+    private boolean overlayOpen;
     private int selection = 0;
     /** Where a next header would go, for whoever wants the space to the right. */
     private int headersEnd = HEADER_POS_X;
 
-    public TabBar(List<Menu> menus) {
+    public TabBar(List<Menu> menus, Menu overlay) {
         this.menus = menus;
+        this.overlay = overlay;
+    }
+
+    public boolean overlayOpen() {
+        return overlayOpen;
     }
 
     public int headersEnd() {
@@ -50,11 +59,22 @@ public class TabBar extends Widget {
             x = i == 0 ? LIST_ITEM_POS_X + 1 : x + title.length() + HEADER_GAP;
         }
         headersEnd = x;
-        menus.get(selection).draw(screen, player, board);
+        (overlayOpen ? overlay : menus.get(selection)).draw(screen, player, board);
     }
 
     @Override
     public boolean onKey(KeyStroke key, Player player, Board board) {
+        if (key.getKeyType() == KeyType.Character && key.getCharacter() == ',') {
+            overlayOpen = !overlayOpen;
+            return true;
+        }
+        if (overlayOpen) {
+            Menu.Result result = overlay.handleKey(key, player, board);
+            if (result == Menu.Result.RELEASE) {
+                overlayOpen = false;
+            }
+            return result != Menu.Result.IGNORED;
+        }
         Menu menu = menus.get(selection);
         if (menu.isFocused()) {
             Menu.Result result = menu.handleKey(key, player, board);

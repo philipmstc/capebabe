@@ -1,6 +1,7 @@
 package net.shchoo.scafe.scafe.persistence;
 
 import net.shchoo.scafe.scafe.model.ContentBatch;
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
@@ -76,6 +77,12 @@ public class WorldStore extends SqliteStore implements Storage {
             """
             alter table monster_type add column roam_radius integer not null default 3;
             alter table monster_type add column move_ticks integer not null default 2;
+            """,
+            // v5: which way you face, your color, whether you're running
+            """
+            alter table game_character add column facing text not null default 'DOWN';
+            alter table game_character add column color_index integer not null default 0;
+            alter table game_character add column running integer not null default 0;
             """
     );
 
@@ -272,6 +279,9 @@ public class WorldStore extends SqliteStore implements Storage {
                 character = new GameCharacter(rs.getInt("id"), rs.getString("name"));
                 character.x = rs.getInt("x");
                 character.y = rs.getInt("y");
+                character.facing = Direction.valueOf(rs.getString("facing"));
+                character.colorIndex = rs.getInt("color_index");
+                character.running = rs.getInt("running") != 0;
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
                     character.lastActionAt = new Position(lastX, rs.getInt("last_action_y"));
@@ -308,9 +318,10 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ? where id = ?")) {
                 Position last = character.lastActionAt;
-                set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(), character.id);
+                set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
+                        character.facing.name(), character.colorIndex, character.running ? 1 : 0, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node")) {

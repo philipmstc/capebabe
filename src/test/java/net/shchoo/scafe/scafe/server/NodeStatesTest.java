@@ -48,7 +48,7 @@ class NodeStatesTest {
     private Node placeNode(int capacity, int charges, int respawnTicks) {
         Recipe tier0 = server.world.content.skills.get(0).productLines.get(0).recipes.get(0);
         WorldContent scratch = server.world.content.copy();
-        Node node = new Node(scratch.allocateId(), new Position(0, 0), scratch.recipe(tier0.id), capacity, charges, respawnTicks);
+        Node node = new Node(scratch.allocateId(), new Position(0, 1), scratch.recipe(tier0.id), capacity, charges, respawnTicks);
         scratch.addNode(node);
         server.applyContent(scratch.diff(server.world.content));
         tick();

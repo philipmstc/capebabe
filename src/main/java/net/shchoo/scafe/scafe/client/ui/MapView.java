@@ -22,7 +22,6 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 
 /** The map, the action progress bar under it, the home arrow and popups. */
 public class MapView extends Widget {
-    public static final TextColor OTHER_PLAYER_COLOR = TextColor.ANSI.MAGENTA_BRIGHT;
 
     @Override
     public void draw(Screen screen, Player player, Board board) {
@@ -31,7 +30,7 @@ public class MapView extends Widget {
         drawProgressBar(player, screen);
         TextGraphics coords = screen.newTextGraphics();
         coords.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        coords.putString(BOARD_POS_X + 2, BOARD_POS_Y, "(" + player.x + "," + player.y + ")");
+        coords.putString(BOARD_POS_X + 2, BOARD_POS_Y, "(" + player.x + "," + player.y + ")" + (player.running ? " run" : ""));
         if (player.content.combatSkill() != null) {
             String hp = "hp " + player.hp + "/" + player.maxHp;
             coords.setForegroundColor(player.hp * 3 <= player.maxHp ? TextColor.ANSI.RED_BRIGHT : TextColor.ANSI.GREEN);
@@ -134,15 +133,13 @@ public class MapView extends Widget {
         boolean hasAction = node != null;
         boolean isOrigin = worldX == 0 && worldY == 0;
         char result = isPlayerPosition
-                ? hasAction
-                ? '~' : '*'
+                ? player.facing.arrow
                 : hasAction
                 ? SkillStyle.getSymbolForSkill(node.skill())
                 : isOrigin ? 'o' : Symbols.BULLET;
 
         TextColor fg = isPlayerPosition
-                ? hasAction
-                ? TextColor.ANSI.YELLOW : TextColor.ANSI.CYAN
+                ? SkillStyle.playerColor(player.colorIndex)
                 : hasAction
                 ? nodeColor(node, player)
                 : isOrigin ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.BLACK_BRIGHT;
@@ -154,8 +151,8 @@ public class MapView extends Widget {
                 result = type.symbol;
                 fg = SkillStyle.getColorForMonster(type);
             } else if (!here.isEmpty()) {
-                result = '*';
-                fg = OTHER_PLAYER_COLOR;
+                result = here.get(0).facing().arrow;
+                fg = SkillStyle.playerColor(here.get(0).colorIndex());
             }
         }
 

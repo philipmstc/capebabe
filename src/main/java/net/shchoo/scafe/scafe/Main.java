@@ -100,7 +100,8 @@ public class Main {
         screen.startScreen();
         screen.setCursorPosition(null);
 
-        TabBar tabs = new TabBar(List.of(new MapMenu(), new SkillsMenu(), new InventoryMenu(), new GoalsMenu()));
+        TabBar tabs = new TabBar(List.of(new MapMenu(), new SkillsMenu(), new InventoryMenu(), new GoalsMenu()),
+                new SettingsMenu());
         // Order matters: earlier widgets get each key first, later ones draw on top.
         List<Widget> widgets = List.of(
                 new CommandLine(),

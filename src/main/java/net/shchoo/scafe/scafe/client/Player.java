@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.client;
 
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
 import net.shchoo.scafe.scafe.model.Levels;
 import net.shchoo.scafe.scafe.model.Node;
@@ -34,8 +35,17 @@ public class Player {
     /** Where you're drawn: the server's position plus any steps you've taken that it hasn't confirmed yet. */
     public int x;
     public int y;
-    private Position serverPosition = new Position(0, 0);
-    private final Deque<Position> predicted = new ArrayDeque<>();
+    /** Which way you're drawn facing (predicted, like x/y). */
+    public Direction facing = Direction.DOWN;
+    public int colorIndex;
+    public boolean running;
+
+    /** Where you are and which way you face. */
+    record Pose(Position position, Direction facing) {}
+
+    private Pose server = new Pose(new Position(0, 0), Direction.DOWN);
+    /** Steps (or turns) sent but not yet confirmed, each with where it should leave you. */
+    private final Deque<Pose> predicted = new ArrayDeque<>();
     private final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     public final List<Goal> goals = new ArrayList<>();
@@ -78,7 +88,7 @@ public class Player {
         } else if (event instanceof Event.EntityEntered entered) {
             others.put(entered.entity().id(), entered.entity());
         } else if (event instanceof Event.StepsCleared cleared) {
-            serverPosition = cleared.position();
+            server = new Pose(cleared.position(), cleared.facing());
             predicted.clear();
             showPredicted();
         } else if (event instanceof Event.EntityUpdated updated) {
@@ -87,8 +97,8 @@ public class Player {
             others.remove(left.id());
         } else if (event instanceof Event.EntityMoved moved) {
             if (moved.id() == id) {
-                serverPosition = moved.position();
-                if (!predicted.isEmpty() && predicted.peekFirst().equals(serverPosition)) {
+                server = new Pose(moved.position(), moved.facing());
+                if (!predicted.isEmpty() && predicted.peekFirst().equals(server)) {
                     predicted.pollFirst();
                 } else {
                     // the server disagrees with what we guessed: snap to where it says we are
@@ -96,7 +106,7 @@ public class Player {
                 }
                 showPredicted();
             } else {
-                others.computeIfPresent(moved.id(), (k, info) -> info.at(moved.position()));
+                others.computeIfPresent(moved.id(), (k, info) -> info.at(moved.position(), moved.facing()));
             }
         } else if (event instanceof Event.ActionStarted started) {
             currentAction = new ActionView(started.label(), started.startTick(), started.durationTicks());
@@ -123,6 +133,10 @@ public class Player {
             fightingId = started.monsterId();
         } else if (event instanceof Event.FightEnded) {
             fightingId = null;
+        } else if (event instanceof Event.ColorChanged changed) {
+            colorIndex = changed.colorIndex();
+        } else if (event instanceof Event.RunningChanged changed) {
+            running = changed.running();
         } else if (event instanceof Event.HpChanged changed) {
             hp = changed.hp();
             maxHp = changed.maxHp();
@@ -143,9 +157,11 @@ public class Player {
         id = you.id();
         name = you.name();
         worldName = welcome.worldName();
-        serverPosition = you.position();
+        server = new Pose(you.position(), you.facing());
         predicted.clear();
         showPredicted();
+        colorIndex = you.colorIndex();
+        running = you.running();
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
         you.inventory().forEach((productId, count) -> inventory.put(content.product(productId), count));
         you.goals().forEach(def -> goals.add(def.toGoal(content)));
@@ -212,26 +228,47 @@ public class Player {
         return new Position(x, y);
     }
 
-    /** Moves you on screen right away (prediction) and asks the server to do the same on its next tick. */
+    /**
+     * Turns you that way and steps there unless a node is in the way, on screen right away (prediction, using the
+     * same rule the server does), and asks the server to do the same.
+     */
     public void moveBy(int dx, int dy) {
-        if (predicted.size() >= Intent.MAX_QUEUED_STEPS) {
+        Direction direction = Direction.of(dx, dy);
+        if (direction == null || predicted.size() >= Intent.MAX_QUEUED_STEPS) {
             return;
         }
-        Position from = position();
-        predicted.addLast(new Position(from.x() + dx, from.y() + dy));
+        Position target = position().step(direction);
+        predicted.addLast(new Pose(content.nodeAt(target) == null ? target : position(), direction));
         showPredicted();
         send(new Intent.Move(dx, dy));
     }
 
     private void showPredicted() {
-        Position shown = predicted.isEmpty() ? serverPosition : predicted.peekLast();
-        x = shown.x();
-        y = shown.y();
+        Pose shown = predicted.isEmpty() ? server : predicted.peekLast();
+        x = shown.position().x();
+        y = shown.position().y();
+        facing = shown.facing();
     }
 
     /** Where the server last said you are (what actions and other players go by). */
     public Position serverPosition() {
-        return serverPosition;
+        return server.position();
+    }
+
+    /** The tile you're facing: what q / g act on and what the Map tab shows by default. */
+    public Position ahead() {
+        return position().step(facing);
+    }
+
+    /** Shown right away (so quick presses add up) and confirmed by the server's ColorChanged. */
+    public void setColor(int index) {
+        colorIndex = Math.floorMod(index, Intent.PLAYER_COLORS);
+        send(new Intent.SetColor(colorIndex));
+    }
+
+    public void toggleRunning() {
+        running = !running;
+        send(new Intent.SetRunning(running));
     }
 
     public int getLevel(Skill skill) {

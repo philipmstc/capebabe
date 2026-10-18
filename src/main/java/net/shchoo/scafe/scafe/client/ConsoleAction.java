@@ -18,6 +18,8 @@ public enum ConsoleAction {
 
     PERFORM('q', "Perform action (again to stop)", (player, board) -> player.send(new Intent.Perform())),
 
+    RUN('r', "Toggle running (2 tiles per tick)", (player, board) -> player.toggleRunning()),
+
     FIGHT('f', "Fight a monster next to you (again to stop)", (player, board) -> player.send(new Intent.Attack())),
 
     GOAL('g', "Add a goal for the locked action you're standing on", (player, board) -> player.send(new Intent.AddGoal())),

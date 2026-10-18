@@ -20,7 +20,12 @@ import java.util.stream.Collectors;
 import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 
 public class MapMenu extends Menu {
-    private Position cursor;
+    /**
+     * Where the hover cursor is, relative to you -- so it stays put on screen while you move, and "hover at the
+     * edge, press Enter, press Enter again" keeps walking you that way.
+     */
+    private int offsetX;
+    private int offsetY;
 
     public MapMenu() {
         super("Map");
@@ -28,7 +33,13 @@ public class MapMenu extends Menu {
 
     @Override
     protected void onFocus(Player player, Board board) {
-        cursor = new Position(player.x, player.y);
+        offsetX = player.facing.dx;
+        offsetY = player.facing.dy;
+    }
+
+    /** The hovered tile right now (wherever you've got to). */
+    public Position cursor(Player player) {
+        return new Position(player.x + offsetX, player.y + offsetY);
     }
 
     @Override
@@ -39,7 +50,7 @@ public class MapMenu extends Menu {
             case ArrowRight -> dx = 1;
             case ArrowUp -> dy = -1;
             case ArrowDown -> dy = 1;
-            case Enter -> player.send(new Intent.WalkTo(cursor));
+            case Enter -> player.send(new Intent.WalkTo(cursor(player)));
             case Escape -> {
                 return Result.RELEASE;
             }
@@ -47,7 +58,9 @@ public class MapMenu extends Menu {
                 return Result.IGNORED;
             }
         }
-        cursor = clampToView(new Position(cursor.x() + dx, cursor.y() + dy), player.x, player.y);
+        Position moved = clampToView(new Position(player.x + offsetX + dx, player.y + offsetY + dy), player.x, player.y);
+        offsetX = moved.x() - player.x;
+        offsetY = moved.y() - player.y;
         return Result.HANDLED;
     }
 
@@ -59,24 +72,24 @@ public class MapMenu extends Menu {
         int hintRow = LIST_ITEM_POS_Y + LIST_ROWS;
         Position target;
         if (isFocused()) {
-            cursor = clampToView(cursor, player.x, player.y);
+            Position cursor = cursor(player);
             MapView.drawTile(player, board, screen, cursor.x(), cursor.y(), true);
             target = cursor;
             textGraphics.putString(LIST_ITEM_POS_X, hintRow, "[Enter] walk here  [Esc] back");
         } else {
-            target = player.position();
+            target = player.ahead();
             textGraphics.putString(LIST_ITEM_POS_X, hintRow, "[Down] inspect tiles");
         }
 
-        boolean here = target.equals(player.position());
+        boolean here = target.equals(player.ahead());
         textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
         textGraphics.putString(LIST_ITEM_POS_X, LIST_ITEM_POS_Y + 1,
-                (here ? "Here" : "Tile") + " (" + target.x() + "," + target.y() + ")");
+                (here ? "Ahead" : "Tile") + " (" + target.x() + "," + target.y() + ")");
         int row = LIST_ITEM_POS_Y + 2;
         for (Event.EntityInfo other : player.othersAt(target)) {
             MonsterType type = other.isMonster() ? player.content.monster(other.monsterTypeId()) : null;
-            textGraphics.setForegroundColor(type != null ? SkillStyle.getColorForMonster(type) : MapView.OTHER_PLAYER_COLOR);
-            textGraphics.setCharacter(LIST_ITEM_POS_X, row, type != null ? type.symbol : '*');
+            textGraphics.setForegroundColor(type != null ? SkillStyle.getColorForMonster(type) : SkillStyle.playerColor(other.colorIndex()));
+            textGraphics.setCharacter(LIST_ITEM_POS_X, row, type != null ? type.symbol : other.facing().arrow);
             textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
             textGraphics.putString(LIST_ITEM_POS_X + 2, row, other.name());
             textGraphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);

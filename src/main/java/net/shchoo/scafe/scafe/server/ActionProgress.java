@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 
@@ -7,12 +8,14 @@ import net.shchoo.scafe.scafe.model.Position;
 public class ActionProgress {
     final Node node;
     private final Position startedAt;
+    private final Direction startedFacing;
     private final long startTick;
     private int ticksDone = 0;
 
     public ActionProgress(Node node, GameCharacter character, long startTick) {
         this.node = node;
         this.startedAt = character.position();
+        this.startedFacing = character.facing;
         this.startTick = startTick;
     }
 
@@ -21,7 +24,7 @@ public class ActionProgress {
         if (tick == startTick) {
             return true;
         }
-        if (!character.position().equals(startedAt)) {
+        if (!character.position().equals(startedAt) || character.facing != startedFacing) {
             character.say("Interrupted.");
             return false;
         }
