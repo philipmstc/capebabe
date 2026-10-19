@@ -17,6 +17,8 @@ public class WorldContent {
     private final Map<Integer, MonsterType> monstersById = new HashMap<>();
     private final Map<Position, Node> nodesAt = new HashMap<>();
     private final List<ContentBatch> history = new ArrayList<>();
+    /** Whose action made each skill, node and monster kind, and when (absent if unknown). */
+    private final Map<Integer, ContentBatch.Origin> origins = new HashMap<>();
     private int version = 0;
     private int nextId = 1;
 
@@ -31,6 +33,11 @@ public class WorldContent {
     public void apply(ContentBatch batch) {
         if (batch.version() != version + 1) {
             throw new IllegalStateException("Expected content version " + (version + 1) + " but got " + batch.version());
+        }
+        if (batch.origin() != null) {
+            batch.skills().forEach(def -> origins.put(def.id(), batch.origin()));
+            batch.nodes().forEach(def -> origins.put(def.id(), batch.origin()));
+            batch.monsters().forEach(def -> origins.put(def.id(), batch.origin()));
         }
         for (ContentBatch.SkillDef def : batch.skills()) {
             Skill skill = new Skill(def.id(), def.name(), def.type(), def.colorIndex(), def.symbol());
@@ -194,6 +201,16 @@ public class WorldContent {
         return skills.stream().filter(s -> s.type == SkillType.COMBAT).findFirst().orElse(null);
     }
 
+    /** The recipe that makes this product, or null (monster drops aren't made by anything). */
+    public Recipe madeBy(Product product) {
+        for (Recipe recipe : recipesById.values()) {
+            if (recipe.product.equals(product)) {
+                return recipe;
+            }
+        }
+        return null;
+    }
+
     /** The monster that dropped this one-of-a-kind product, or null if it's an ordinary product. */
     public MonsterType droppedBy(Product product) {
         for (MonsterType monster : monsters) {
@@ -228,6 +245,11 @@ public class WorldContent {
 
     public Node nodeAt(Position position) {
         return nodesAt.get(position);
+    }
+
+    /** Whose action made this skill / node / monster kind and when, or null if that wasn't recorded. */
+    public ContentBatch.Origin origin(int id) {
+        return origins.get(id);
     }
 
     public Collection<Node> nodes() {

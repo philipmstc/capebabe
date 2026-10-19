@@ -34,17 +34,17 @@ public class GoalsMenu extends Menu {
         textGraphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
         if (player.goals.isEmpty()) {
             textGraphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            textGraphics.putString(LIST_ITEM_POS_X, LIST_ITEM_POS_Y + 1, "No goals yet. Try (q) a locked node, then press g.");
+            textGraphics.putString(textX(), firstRow(), "No goals yet. Try (q) a locked node, then g.");
             return;
         }
-        for (int i = 0; i < Math.min(player.goals.size(), LIST_ROWS); i++) {
+        for (int i = 0; i < Math.min(player.goals.size(), rows()); i++) {
             Goal goal = player.goals.get(i);
-            int y = LIST_ITEM_POS_Y + 1 + i;
+            int y = firstRow() + i;
             boolean met = goal.isMet(player.getLevel(goal.skill()));
             textGraphics.setForegroundColor(SkillStyle.getColorForSkill(goal.skill()));
-            textGraphics.setCharacter(LIST_ITEM_POS_X, y, SkillStyle.getSymbolForSkill(goal.skill()));
+            textGraphics.setCharacter(textX(), y, SkillStyle.getSymbolForSkill(goal.skill()));
             textGraphics.setForegroundColor(met ? TextColor.ANSI.GREEN_BRIGHT : TextColor.ANSI.DEFAULT);
-            textGraphics.putString(LIST_ITEM_POS_X + 2, y, (met ? "[x] " : "[ ] ") + goal.describe());
+            textGraphics.putString(textX() + 2, y, fit((met ? "[x] " : "[ ] ") + goal.describe(), textWidth() - 2));
         }
     }
 }

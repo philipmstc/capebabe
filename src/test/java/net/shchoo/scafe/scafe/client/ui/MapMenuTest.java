@@ -49,7 +49,7 @@ class MapMenuTest {
 
     @Test
     void theCursorStaysPutOnScreenWhileYouMove() {
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < Layout.BOARD_WIDTH; i++) {
             press(KeyType.ArrowRight);
         }
         int edge = Layout.BOARD_WIDTH - 1 - Layout.VIEW_CENTER_COLUMN;
@@ -62,7 +62,7 @@ class MapMenuTest {
         assertEquals(new Position(player.x + edge, player.y + 1), map.cursor(player), "the cursor moved with you");
 
         press(KeyType.Enter);
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 2 * edge; i++) {
             tick();
         }
         assertTrue(player.x > edge, "pressing Enter again keeps going the same way (now at " + player.x + ")");

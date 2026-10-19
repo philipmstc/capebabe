@@ -4,7 +4,6 @@ import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 
 import com.googlecode.lanterna.input.KeyStroke;
-import com.googlecode.lanterna.screen.Screen;
 
 /**
  * A top-level tab (Map, Skills, ...). Main switches between menus with Left/Right;

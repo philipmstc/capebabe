@@ -102,7 +102,7 @@ public class Discovery {
     }
 
     private void discoverMonsterKind(GameServer server, GameCharacter character) {
-        server.applyContent(WorldGenerator.newMonsterType(server.world));
+        server.applyContent(WorldGenerator.newMonsterType(server.world), character);
         List<MonsterType> kinds = server.world.content.monsters;
         MonsterType kind = kinds.get(kinds.size() - 1);
         character.say("Something new is out there: " + kind.name + " (Lv. " + kind.level + ").");
@@ -137,7 +137,7 @@ public class Discovery {
 
     private void discoverSkill(GameServer server, GameCharacter character) {
         ContentBatch batch = WorldGenerator.newSkills(server.world, 1);
-        server.applyContent(batch);
+        server.applyContent(batch, character);
         ContentBatch.SkillDef skill = batch.skills().get(0);
         character.say("You discovered a new skill: " + skill.name() + " (" + skill.type().name().toLowerCase() + ")!");
         server.tellOthers(character, character.name + " discovered a new skill: " + skill.name() + ".");
@@ -153,7 +153,7 @@ public class Discovery {
         int respawnTicks = 20 + random.nextInt(41);
         ContentBatch batch = WorldGenerator.newNode(server.world, at, capacity, charges, respawnTicks,
                 recipe -> recipe.levelMet(character.getLevel(recipe.skill)) ? UNLOCKED_WEIGHT : 1);
-        server.applyContent(batch);
+        server.applyContent(batch, character);
         Node node = server.world.content.node(batch.nodes().get(0).id());
         character.say("A " + node.skill().name + " node (" + node.label() + ") appeared nearby.");
     }

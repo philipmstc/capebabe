@@ -50,7 +50,8 @@ class WorldStoreTest {
     @Test
     void eachWorldIsItsOwnFileAndRemembersItsSeed() throws Exception {
         try (WorldStore one = open(1); WorldStore two = open(2)) {
-            assertEquals(5, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run");
+            assertEquals(7, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
+                    + "v6 auto-investigate, v7 content origins");
             assertEquals(777, one.loadOrCreateWorld(1, "w1", 777).seed);
             assertEquals(888, two.loadOrCreateWorld(2, "w2", 888).seed);
         }
@@ -180,6 +181,7 @@ class WorldStoreTest {
             alice.moveBy(1, 0);
             alice.send(new Intent.SetColor(4));
             alice.send(new Intent.SetRunning(true));
+            alice.send(new Intent.SetAutoInvestigate(true));
             server.tick();
             server.tick();
             alice.receive();
@@ -201,6 +203,10 @@ class WorldStoreTest {
             assertEquals(Direction.RIGHT, alice.facing);
             assertEquals(4, alice.colorIndex);
             assertTrue(alice.running);
+            assertTrue(alice.autoInvestigate);
+            ContentBatch.Origin origin = alice.content.origin(alice.content.skills.get(0).id);
+            assertEquals("alice", origin.by(), "whose action made the skill is saved with it");
+            assertTrue(origin.at() > 0);
             assertFalse(alice.inventory.isEmpty());
         }
     }
@@ -251,7 +257,7 @@ class WorldStoreTest {
             statement.execute("insert into world_meta (id, name, seed) values (1, 'old', 55)");
         }
         try (WorldStore store = open(7)) {
-            assertEquals(5, store.schemaVersion());
+            assertEquals(7, store.schemaVersion());
             World world = store.loadOrCreateWorld(7, "ignored", 0);
             assertEquals("old", world.name);
             save(store, world, WorldGenerator.newSkills(world, 1));
@@ -293,6 +299,44 @@ class WorldStoreTest {
         }
         try (WorldStore reopened = open(1)) {
             assertEquals(1, reopened.loadOrCreateWorld(1, "w", 0).content.version(), "only the monster batch, not the drop");
+        }
+    }
+
+    private Player logIn(GameServer server, String name, String password) {
+        Player player = new Player(new LocalConnection(server.connect()));
+        player.login(name, password);
+        server.tick();
+        player.receive();
+        if (player.loginAccepted != null) {
+            player.enterWorld(null);
+            server.tick();
+            player.receive();
+        }
+        return player;
+    }
+
+    @Test
+    void passwordsAreSavedHashedAndOldAccountsGetOneOnTheirFirstLogin() throws Exception {
+        try (WorldStore store = open(1)) {
+            GameServer server = new GameServer(store.loadOrCreateWorld(1, "w", 0), store);
+            server.setDiscovery(Discovery.off());
+            store.loadOrCreateCharacter("oldtimer");
+            assertNull(store.passwordHash("oldtimer"), "an account from before logins");
+
+            assertTrue(logIn(server, "oldtimer", "claimed").inWorld(), "first login sets it");
+            assertTrue(logIn(server, "newbie", "brand-new").inWorld());
+            String stored = store.passwordHash("newbie");
+            assertTrue(stored.startsWith("pbkdf2$") && !stored.contains("brand-new"), "hashed, not the password");
+            server.stop();
+        }
+        try (WorldStore store = open(1)) {
+            GameServer server = new GameServer(store.loadOrCreateWorld(1, "w", 0), store);
+            server.setDiscovery(Discovery.off());
+            Player wrong = logIn(server, "oldtimer", "something else");
+            assertFalse(wrong.inWorld());
+            assertEquals("Wrong name or password.", wrong.loginRefused);
+            assertTrue(logIn(server, "oldtimer", "claimed").inWorld(), "kept across restarts");
+            server.stop();
         }
     }
 }

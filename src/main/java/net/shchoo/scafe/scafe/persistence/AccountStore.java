@@ -16,6 +16,10 @@ public class AccountStore extends SqliteStore {
             """
             create table account (id integer primary key autoincrement, name text not null unique,
                                   created_at text not null default current_timestamp);
+            """,
+            // v2: logins (null until the account's first login after this)
+            """
+            alter table account add column password_hash text;
             """
     );
 
@@ -43,6 +47,25 @@ public class AccountStore extends SqliteStore {
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : null;
             }
+        }
+    }
+
+    /** The account's password hash, or null if there's no such account or it has no password yet. */
+    public synchronized String passwordHash(String name) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement("select password_hash from account where name = ?")) {
+            ps.setString(1, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString(1) : null;
+            }
+        }
+    }
+
+    public synchronized void setPasswordHash(String name, String hash) throws SQLException {
+        idFor(name);
+        try (PreparedStatement ps = connection.prepareStatement("update account set password_hash = ? where name = ?")) {
+            ps.setString(1, hash);
+            ps.setString(2, name);
+            ps.executeUpdate();
         }
     }
 

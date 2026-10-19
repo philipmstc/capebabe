@@ -25,6 +25,10 @@ public class GameCharacter implements Walker.Mobile {
     public int colorIndex;
     /** Running = two steps per tick. */
     public boolean running;
+    /** While moving, head for nodes that appear nearby. */
+    public boolean autoInvestigate;
+    /** The last tick this character took a step (or turned), for "is moving right now". */
+    long lastSteppedTick = -1;
     public final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     public final List<Goal> goals = new ArrayList<>();
@@ -264,7 +268,7 @@ public class GameCharacter implements Walker.Mobile {
         inventory.forEach((product, count) -> inventoryById.put(product.id, count));
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
-                facing, colorIndex, running);
+                facing, colorIndex, running, autoInvestigate);
     }
 
     Event.EntityInfo info() {

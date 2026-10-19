@@ -172,7 +172,7 @@ class Combat {
         ContentBatch batch = WorldGenerator.newDrop(server.world, type.id, finder.name);
         int productId = batch.drops().get(0).productId();
         try {
-            server.applyContent(batch, new Storage.Grant(finder.id, productId, 1));
+            server.applyContent(batch, new Storage.Grant(finder.id, productId, 1), finder);
         } catch (RuntimeException e) {
             e.printStackTrace();
             finder.say("Something glinted on the ground, but it's gone.");

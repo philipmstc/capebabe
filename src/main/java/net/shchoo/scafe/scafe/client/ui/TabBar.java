@@ -10,40 +10,52 @@ import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 
 /**
- * The tab headers and whichever {@link Menu} is selected. Left/Right switch tabs, Down/Enter focuses the
- * menu, and while it's focused the menu gets keys first.
+ * The tab headers (Inventory over the inventory, the rest over the map, Settings last) and the right-column box
+ * holding the selected tab's content. Left/Right switch tabs, Down/Enter focuses the tab, "i" jumps into the
+ * inventory, "," into the settings (and "," again back to where you were), and while a tab is focused it gets
+ * keys first.
  */
 public class TabBar extends Widget {
-    private final List<Menu> menus;
-    /** Opened with "," over the menu area (settings + controls); takes keys first while open. */
-    private final Menu overlay;
-    private boolean overlayOpen;
-    private int selection = 0;
-    /** Where a next header would go, for whoever wants the space to the right. */
-    private int headersEnd = HEADER_POS_X;
+    private final InventoryPanel inventory;
+    private final Menu settings;
+    /** The inventory first, then the menus, then the settings. */
+    private final List<Menu> tabs = new ArrayList<>();
+    private int selection;
+    /** Where "," came from, so a second "," goes back there. */
+    private int beforeSettings;
 
-    public TabBar(List<Menu> menus, Menu overlay) {
-        this.menus = menus;
-        this.overlay = overlay;
+    /** {@code bounds} = the box the selected tab draws in. */
+    public TabBar(Rect bounds, InventoryPanel inventory, List<Menu> menus, Menu settings) {
+        super(bounds);
+        this.inventory = inventory;
+        this.settings = settings;
+        tabs.add(inventory);
+        tabs.addAll(menus);
+        tabs.add(settings);
+        tabs.forEach(tab -> tab.setBounds(bounds));
+        selection = menus.isEmpty() ? 0 : 1;
+        beforeSettings = selection;
     }
 
-    public boolean overlayOpen() {
-        return overlayOpen;
+    /** Whether you're in the settings (focused on them). */
+    public boolean settingsOpen() {
+        return settings.isFocused();
     }
 
-    public int headersEnd() {
-        return headersEnd;
+    public Menu selected() {
+        return tabs.get(selection);
     }
 
     @Override
     public void draw(Screen screen, Player player, Board board) {
-        int x = HEADER_POS_X;
-        for (int i = 0; i < menus.size(); i++) {
+        int x = INVENTORY.x() + 1;
+        for (int i = 0; i < tabs.size(); i++) {
             TextGraphics header = screen.newTextGraphics();
             if (i == selection) {
                 header.setForegroundColor(TextColor.ANSI.DEFAULT);
@@ -53,39 +65,54 @@ public class TabBar extends Widget {
                 header.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
                 header.setBackgroundColor(TextColor.ANSI.DEFAULT);
             }
-            String title = menus.get(i).title();
-            header.putString(x, HEADER_POS_Y, title);
-            // the first header sits over the map, the rest over the menu area
-            x = i == 0 ? LIST_ITEM_POS_X + 1 : x + title.length() + HEADER_GAP;
+            String title = tabs.get(i).title();
+            header.putString(x, HEADER_ROW, title);
+            // the inventory's header sits over the inventory, the rest over the map
+            x = i == 0 ? MAP.right() + 2 : x + title.length() + HEADER_GAP;
         }
-        headersEnd = x;
-        (overlayOpen ? overlay : menus.get(selection)).draw(screen, player, board);
+        inventory.drawGrid(screen, player);
+        drawFrame(screen);
+        TextGraphics title = screen.newTextGraphics();
+        title.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+        title.putString(textX(), bounds().y(), selected().title());
+        selected().draw(screen, player, board);
     }
 
     @Override
     public boolean onKey(KeyStroke key, Player player, Board board) {
+        Menu menu = selected();
         if (key.getKeyType() == KeyType.Character && key.getCharacter() == ',') {
-            overlayOpen = !overlayOpen;
+            menu.unfocus();
+            if (menu == settings) {
+                selection = beforeSettings;
+            } else {
+                beforeSettings = selection;
+                selection = tabs.indexOf(settings);
+                settings.focus(player, board);
+            }
             return true;
         }
-        if (overlayOpen) {
-            Menu.Result result = overlay.handleKey(key, player, board);
-            if (result == Menu.Result.RELEASE) {
-                overlayOpen = false;
-            }
-            return result != Menu.Result.IGNORED;
-        }
-        Menu menu = menus.get(selection);
         if (menu.isFocused()) {
             Menu.Result result = menu.handleKey(key, player, board);
             if (result == Menu.Result.RELEASE) {
                 menu.unfocus();
             }
-            return result != Menu.Result.IGNORED;
+            if (result != Menu.Result.IGNORED) {
+                return true;
+            }
+        }
+        if (key.getKeyType() == KeyType.Character && key.getCharacter() == 'i') {
+            menu.unfocus();
+            selection = 0;
+            inventory.focus(player, board);
+            return true;
+        }
+        if (menu.isFocused()) {
+            return false;
         }
         switch (key.getKeyType()) {
             case ArrowLeft -> selection = Math.max(0, selection - 1);
-            case ArrowRight -> selection = Math.min(menus.size() - 1, selection + 1);
+            case ArrowRight -> selection = Math.min(tabs.size() - 1, selection + 1);
             case ArrowDown, Enter -> menu.focus(player, board);
             default -> {
                 return false;

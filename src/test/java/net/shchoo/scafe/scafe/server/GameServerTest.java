@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
+import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
@@ -42,6 +43,45 @@ class GameServerTest {
         for (Player player : players) {
             player.receive();
         }
+    }
+
+    @Test
+    void newContentRemembersWhoseActionMadeItAndWhen() {
+        Player alice = join("alice");
+        long before = System.currentTimeMillis();
+        alice.send(new Intent.Admin("1", List.of("1")));
+        tick(alice);
+        long after = System.currentTimeMillis();
+        ContentBatch.Origin origin = alice.content.origin(alice.content.skills.get(0).id);
+        assertEquals("alice", origin.by());
+        assertTrue(origin.at() >= before && origin.at() <= after);
+
+        Player bob = join("bob");
+        assertEquals(origin, bob.content.origin(bob.content.skills.get(0).id), "players joining later see it too");
+    }
+
+    @Test
+    void adminFiveGivesExperienceBySkillNameOrId() {
+        Player alice = join("alice");
+        alice.send(new Intent.Admin("1", List.of("1")));
+        tick(alice);
+        Skill skill = alice.content.skills.get(0);
+
+        alice.send(new Intent.Admin("5", List.of(skill.name)));
+        tick(alice);
+        assertEquals(10_000, alice.getExperience(skill));
+        alice.send(new Intent.Admin("5", List.of(String.valueOf(skill.id), "500")));
+        tick(alice);
+        assertEquals(10_500, alice.getExperience(skill));
+
+        alice.send(new Intent.Admin("5", List.of(skill.name, "-50")));
+        alice.send(new Intent.Admin("5", List.of("nope")));
+        alice.send(new Intent.Admin("5", List.of()));
+        tick(alice);
+        assertEquals(10_500, alice.getExperience(skill));
+        assertTrue(log.contains("Experience has to be more than 0."));
+        assertTrue(log.contains("No skill called nope."));
+        assertTrue(log.contains("Usage: /5 <skill name or id> [amount]"));
     }
 
     @Test

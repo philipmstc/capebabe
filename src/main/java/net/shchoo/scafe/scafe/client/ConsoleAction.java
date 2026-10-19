@@ -57,7 +57,10 @@ public enum ConsoleAction {
             (player, board, args) -> player.send(new Intent.Admin("3", args))),
 
     DEBUG_SPAWN_MONSTER('4', "Spawn a monster next to you [new = a new kind]",
-            (player, board, args) -> player.send(new Intent.Admin("4", args)));
+            (player, board, args) -> player.send(new Intent.Admin("4", args))),
+
+    DEBUG_GAIN_XP('5', "Gain experience: <skill name or id> [amount, default 10000]",
+            (player, board, args) -> player.send(new Intent.Admin("5", args)));
 
     private static SkillType getSkillType(List<String> additionalInputs) {
         SkillType filter = null;

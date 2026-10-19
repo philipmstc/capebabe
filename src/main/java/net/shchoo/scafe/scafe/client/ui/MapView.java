@@ -4,6 +4,7 @@ import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.Popup;
 import net.shchoo.scafe.scafe.client.SkillStyle;
+import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
@@ -11,7 +12,6 @@ import net.shchoo.scafe.scafe.protocol.Event;
 
 import com.googlecode.lanterna.SGR;
 import com.googlecode.lanterna.Symbols;
-import com.googlecode.lanterna.TerminalPosition;
 import com.googlecode.lanterna.TextCharacter;
 import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.graphics.TextGraphics;
@@ -20,76 +20,52 @@ import java.util.List;
 
 import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 
-/** The map, the action progress bar under it, the home arrow and popups. */
+/**
+ * The map (always on screen), the home arrow, waypoints and popups. Tile positions come from {@link Layout}'s view
+ * math, which uses {@link Layout#MAP}, so this should be given that box.
+ */
 public class MapView extends Widget {
+
+    public MapView(Rect bounds) {
+        super(bounds);
+    }
 
     @Override
     public void draw(Screen screen, Player player, Board board) {
-        drawBox(screen, BOARD_POS_X, BOARD_POS_Y, BOARD_WIDTH, BOARD_HEIGHT, 2);
-        drawBox(screen, BOARD_POS_X, BOARD_POS_Y + 2 * BOARD_HEIGHT + 1, BOARD_POS_X + 2 * BOARD_WIDTH, 2, 1);
-        drawProgressBar(player, screen);
+        Rect map = bounds();
+        drawFrame(screen);
         TextGraphics coords = screen.newTextGraphics();
         coords.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        coords.putString(BOARD_POS_X + 2, BOARD_POS_Y, "(" + player.x + "," + player.y + ")" + (player.running ? " run" : ""));
+        coords.putString(map.x() + 2, map.y(), "(" + player.x + "," + player.y + ")" + (player.running ? " run" : ""));
         if (player.content.combatSkill() != null) {
             String hp = "hp " + player.hp + "/" + player.maxHp;
             coords.setForegroundColor(player.hp * 3 <= player.maxHp ? TextColor.ANSI.RED_BRIGHT : TextColor.ANSI.GREEN);
-            coords.putString(BOARD_POS_X + 2 * BOARD_WIDTH - 1 - hp.length(), BOARD_POS_Y, hp);
+            coords.putString(map.right() - 1 - hp.length(), map.y(), hp);
         }
         for (int i = 0; i < BOARD_HEIGHT; i++) {
             for (int j = 0; j < BOARD_WIDTH; j++) {
                 drawTile(player, board, screen, viewToWorldX(j, player.x), viewToWorldY(i, player.y), false);
             }
         }
-        drawHomeIndicator(player, screen);
-        drawPopups(player, screen);
+        drawHomeIndicator(map, player, screen);
+        drawWaypoint(map, player, screen);
+        drawPopups(map, player, screen);
     }
 
-    /** The action you're doing (green, filling up), or the monster you're fighting (red = its hp left). */
-    private static void drawProgressBar(Player player, Screen screen) {
-        Event.EntityInfo monster = player.fightingMonster();
-        double fraction;
-        String label;
-        TextColor fill;
-        if (monster != null) {
-            fraction = monster.maxHp() == 0 ? 0 : (double) monster.hp() / monster.maxHp();
-            label = monster.name() + " " + monster.hp() + "/" + monster.maxHp();
-            fill = TextColor.ANSI.RED;
-        } else if (player.currentAction != null) {
-            fraction = player.actionFraction();
-            label = player.currentAction.label();
-            fill = TextColor.ANSI.GREEN;
-        } else {
-            return;
-        }
-        int width = 2 * BOARD_WIDTH - 1;
-        int y = BOARD_POS_Y + 2 * BOARD_HEIGHT + 2;
-        int filled = (int) Math.round(fraction * width);
-        if (label.length() > width) {
-            label = label.substring(0, width);
-        }
-        int labelStart = (width - label.length()) / 2;
-        for (int i = 0; i < width; i++) {
-            int l = i - labelStart;
-            char c = l >= 0 && l < label.length() ? label.charAt(l) : ' ';
-            TextColor bg = i < filled ? fill : TextColor.ANSI.DEFAULT;
-            screen.setCharacter(BOARD_POS_X + 1 + i, y, TextCharacter.fromCharacter(c, TextColor.ANSI.WHITE_BRIGHT, bg)[0]);
-        }
-    }
-
-    private static void drawPopups(Player player, Screen screen) {
+    private static void drawPopups(Rect map, Player player, Screen screen) {
         TextGraphics graphics = screen.newTextGraphics();
         graphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
+        int innerWidth = map.width() - 2;
         for (Popup popup : player.popups) {
             Position at = popup.at();
-            if (!clampToView(at, player.x, player.y).equals(at)) {
+            if (!inView(at, player.x, player.y)) {
                 continue;
             }
-            String text = popup.text.length() > 2 * BOARD_WIDTH - 1 ? popup.text.substring(0, 2 * BOARD_WIDTH - 1) : popup.text;
-            int tileX = BOARD_POS_X + 1 + (at.x() - player.x + VIEW_CENTER_COLUMN) * 2;
-            int tileY = BOARD_POS_Y + 1 + (at.y() - player.y + VIEW_CENTER_ROW) * 2;
-            int y = Math.max(BOARD_POS_Y + 1, tileY - popup.rise());
-            int x = Math.max(BOARD_POS_X + 1, Math.min(BOARD_POS_X + 2 * BOARD_WIDTH - text.length(), tileX - text.length() / 2));
+            String text = popup.text.length() > innerWidth ? popup.text.substring(0, innerWidth) : popup.text;
+            int tileX = tileScreenX(at.x(), player.x);
+            int tileY = tileScreenY(at.y(), player.y);
+            int y = Math.max(map.y() + 1, tileY - popup.rise());
+            int x = Math.max(map.x() + 1, Math.min(map.right() - text.length(), tileX - text.length() / 2));
             graphics.setForegroundColor(popup.color);
             graphics.setBackgroundColor(popup.background);
             graphics.enableModifiers(SGR.BOLD);
@@ -98,33 +74,105 @@ public class MapView extends Widget {
     }
 
     /** Arrow on the map border pointing at the last place the player made something (or the origin), when it's off-screen. */
-    private static void drawHomeIndicator(Player player, Screen screen) {
+    private static void drawHomeIndicator(Rect map, Player player, Screen screen) {
         Position home = player.lastActionAt != null ? player.lastActionAt : new Position(0, 0);
-        if (clampToView(home, player.x, player.y).equals(home)) {
-            return;
+        if (!inView(home, player.x, player.y)) {
+            drawEdgeArrow(map, player, screen, home,
+                    player.lastActionAt != null ? TextColor.ANSI.YELLOW_BRIGHT : TextColor.ANSI.WHITE_BRIGHT);
         }
-        int centerX = BOARD_POS_X + 1 + VIEW_CENTER_COLUMN * 2;
-        int centerY = BOARD_POS_Y + 1 + VIEW_CENTER_ROW * 2;
-        int halfWidth = BOARD_WIDTH, halfHeight = BOARD_HEIGHT;
-        double dx = (home.x() - player.x) * 2.0;
-        double dy = (home.y() - player.y) * 2.0;
+    }
+
+    /** Each waypoint's node in [brackets] when it's on screen, else an arrow on the border (drawn over the home arrow). */
+    private static void drawWaypoint(Rect map, Player player, Screen screen) {
+        for (Node waypoint : player.waypoints.nodes()) {
+            Position at = waypoint.position;
+            if (!inView(at, player.x, player.y)) {
+                drawEdgeMarker(map, player, screen, at, WAYPOINT_COLOR);
+            }
+            else {
+                int x = tileScreenX(at.x(), player.x), y = tileScreenY(at.y(), player.y);
+                screen.setCharacter(x - 1, y, TextCharacter.fromCharacter('[', WAYPOINT_COLOR, TextColor.ANSI.DEFAULT)[0]);
+                screen.setCharacter(x + 1, y, TextCharacter.fromCharacter(']', WAYPOINT_COLOR, TextColor.ANSI.DEFAULT)[0]);
+            }
+        }
+    }
+
+    public static final TextColor WAYPOINT_COLOR = TextColor.ANSI.MAGENTA_BRIGHT;
+
+    private static void drawEdgeArrow(Rect map, Player player, Screen screen, Position target, TextColor color) {
+        Edge edge = edgeTowards(map, player, target);
+        screen.setCharacter(edge.x, edge.y, TextCharacter.fromCharacter(arrow(edge.side), color, TextColor.ANSI.DEFAULT)[0]);
+    }
+
+    /**
+     * A waypoint off-screen: three cells of the border in double lines with an arrow in the middle (along the
+     * top: double line, arrow, double line; down a side the same, vertically). Within a cell of a corner it wraps
+     * round the corner instead -- the double corner symbol with one double line along each edge, no arrow.
+     */
+    private static void drawEdgeMarker(Rect map, Player player, Screen screen, Position target, TextColor color) {
+        Edge edge = edgeTowards(map, player, target);
+        boolean horizontal = edge.side == Direction.UP || edge.side == Direction.DOWN;
+        int stepX = horizontal ? 1 : 0, stepY = horizontal ? 0 : 1;
+        for (int i = -1; i <= 1; i++) {
+            int x = edge.x + i * stepX, y = edge.y + i * stepY;
+            if (corner(map, x, y) != 0) {
+                int inX = x == map.x() ? 1 : -1, inY = y == map.y() ? 1 : -1;
+                put(screen, x, y, corner(map, x, y), color);
+                put(screen, x + inX, y, Symbols.DOUBLE_LINE_HORIZONTAL, color);
+                put(screen, x, y + inY, Symbols.DOUBLE_LINE_VERTICAL, color);
+                return;
+            }
+        }
+        char line = horizontal ? Symbols.DOUBLE_LINE_HORIZONTAL : Symbols.DOUBLE_LINE_VERTICAL;
+        put(screen, edge.x - stepX, edge.y - stepY, line, color);
+        put(screen, edge.x, edge.y, arrow(edge.side), color);
+        put(screen, edge.x + stepX, edge.y + stepY, line, color);
+    }
+
+    private static void put(Screen screen, int x, int y, char c, TextColor color) {
+        screen.setCharacter(x, y, TextCharacter.fromCharacter(c, color, TextColor.ANSI.DEFAULT)[0]);
+    }
+
+    /** The double-line corner symbol if (x, y) is one of the map box's corners, else 0. */
+    private static char corner(Rect map, int x, int y) {
+        boolean left = x == map.x(), right = x == map.right(), top = y == map.y(), bottom = y == map.bottom();
+        if (top && left) return Symbols.DOUBLE_LINE_TOP_LEFT_CORNER;
+        if (top && right) return Symbols.DOUBLE_LINE_TOP_RIGHT_CORNER;
+        if (bottom && left) return Symbols.DOUBLE_LINE_BOTTOM_LEFT_CORNER;
+        if (bottom && right) return Symbols.DOUBLE_LINE_BOTTOM_RIGHT_CORNER;
+        return 0;
+    }
+
+    private static char arrow(Direction side) {
+        return switch (side) {
+            case UP -> Symbols.ARROW_UP;
+            case DOWN -> Symbols.ARROW_DOWN;
+            case LEFT -> Symbols.ARROW_LEFT;
+            case RIGHT -> Symbols.ARROW_RIGHT;
+        };
+    }
+
+    /** A cell on the map's border (never a corner) and which side it's on. */
+    private record Edge(int x, int y, Direction side) {}
+
+    /** Where the line from you towards {@code target} (off-screen) crosses the map's border. */
+    private static Edge edgeTowards(Rect map, Player player, Position target) {
+        int centerX = tileScreenX(player.x, player.x);
+        int centerY = tileScreenY(player.y, player.y);
+        // screen distance from the center to the border, and to the target (tiles are 2 columns by 1 row)
+        int halfWidth = map.right() - centerX, halfHeight = map.bottom() - centerY;
+        double dx = (target.x() - player.x) * 2.0;
+        double dy = target.y() - player.y;
         double scale = Math.min(dx == 0 ? Double.MAX_VALUE : halfWidth / Math.abs(dx),
                 dy == 0 ? Double.MAX_VALUE : halfHeight / Math.abs(dy));
         int x = (int) Math.round(centerX + dx * scale);
         int y = (int) Math.round(centerY + dy * scale);
-
-        char arrow;
         if (Math.abs(dx) * halfHeight >= Math.abs(dy) * halfWidth) {
-            x = dx > 0 ? BOARD_POS_X + 2 * BOARD_WIDTH : BOARD_POS_X;
-            y = Math.max(BOARD_POS_Y + 1, Math.min(BOARD_POS_Y + 2 * BOARD_HEIGHT - 1, y));
-            arrow = dx > 0 ? Symbols.ARROW_RIGHT : Symbols.ARROW_LEFT;
-        } else {
-            y = dy > 0 ? BOARD_POS_Y + 2 * BOARD_HEIGHT : BOARD_POS_Y;
-            x = Math.max(BOARD_POS_X + 1, Math.min(BOARD_POS_X + 2 * BOARD_WIDTH - 1, x));
-            arrow = dy > 0 ? Symbols.ARROW_DOWN : Symbols.ARROW_UP;
+            return new Edge(dx > 0 ? map.right() : map.x(), Math.max(map.y() + 1, Math.min(map.bottom() - 1, y)),
+                    dx > 0 ? Direction.RIGHT : Direction.LEFT);
         }
-        TextColor color = player.lastActionAt != null ? TextColor.ANSI.YELLOW_BRIGHT : TextColor.ANSI.WHITE_BRIGHT;
-        screen.setCharacter(x, y, TextCharacter.fromCharacter(arrow, color, TextColor.ANSI.DEFAULT)[0]);
+        return new Edge(Math.max(map.x() + 1, Math.min(map.right() - 1, x)), dy > 0 ? map.bottom() : map.y(),
+                dy > 0 ? Direction.DOWN : Direction.UP);
     }
 
     public static void drawTile(Player player, Board board, Screen screen, int worldX, int worldY, boolean highlighted) {
@@ -142,7 +190,7 @@ public class MapView extends Widget {
                 ? SkillStyle.playerColor(player.colorIndex)
                 : hasAction
                 ? nodeColor(node, player)
-                : isOrigin ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.BLACK_BRIGHT;
+                : worldX % 10 == 0 && worldY % 10 == 0 ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.BLACK_BRIGHT;
         if (!isPlayerPosition) {
             List<Event.EntityInfo> here = player.othersAt(new Position(worldX, worldY));
             Event.EntityInfo monster = here.stream().filter(Event.EntityInfo::isMonster).findFirst().orElse(null);
@@ -156,8 +204,8 @@ public class MapView extends Widget {
             }
         }
 
-        int screenX = BOARD_POS_X + 1 + (worldX - player.x + VIEW_CENTER_COLUMN) * 2;
-        int screenY = BOARD_POS_Y + 1 + (worldY - player.y + VIEW_CENTER_ROW) * 2;
+        int screenX = tileScreenX(worldX, player.x);
+        int screenY = tileScreenY(worldY, player.y);
         TextColor bg = highlighted ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT;
         if (highlighted) {
             if (fg == TextColor.ANSI.BLACK_BRIGHT) {
@@ -175,28 +223,5 @@ public class MapView extends Widget {
         }
         TextColor.ANSI color = SkillStyle.getColorForSkill(node.skill());
         return player.hasTried(node) && player.isLockedFor(node) ? SkillStyle.dim(color) : color;
-    }
-
-    private static void drawBox(Screen screen,
-                                int xStart,
-                                int yStart,
-                                int width,
-                                int height,
-                                int scale) {
-        TextGraphics graphics = screen.newTextGraphics();
-        TerminalPosition topLeft = new TerminalPosition(xStart, yStart);
-        TerminalPosition topRight = new TerminalPosition(xStart + scale * width, yStart);
-        TerminalPosition bottomLeft = new TerminalPosition(xStart, yStart + scale * height);
-        TerminalPosition bottomRight = new TerminalPosition(xStart + scale * width, yStart + scale * height);
-        graphics.setForegroundColor(TextColor.ANSI.DEFAULT);
-        graphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        graphics.drawLine(topLeft, topRight, Symbols.SINGLE_LINE_HORIZONTAL);
-        graphics.drawLine(topLeft, bottomLeft, Symbols.SINGLE_LINE_VERTICAL);
-        graphics.drawLine(topRight, bottomRight, Symbols.SINGLE_LINE_VERTICAL);
-        graphics.drawLine(bottomLeft, bottomRight, Symbols.SINGLE_LINE_HORIZONTAL);
-        graphics.setCharacter(topLeft, Symbols.SINGLE_LINE_TOP_LEFT_CORNER);
-        graphics.setCharacter(topRight, Symbols.SINGLE_LINE_TOP_RIGHT_CORNER);
-        graphics.setCharacter(bottomLeft, Symbols.SINGLE_LINE_BOTTOM_LEFT_CORNER);
-        graphics.setCharacter(bottomRight, Symbols.SINGLE_LINE_BOTTOM_RIGHT_CORNER);
     }
 }

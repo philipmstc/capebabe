@@ -6,6 +6,7 @@ import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
+import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.protocol.GameClock;
@@ -29,9 +30,23 @@ public class GameServer {
         private volatile boolean closed;
         /** May use the debug / world-building commands. */
         private final boolean admin;
+        /** Connected over the network (needs the world password, if the world has one), and from where. */
+        private final boolean remote;
+        private final String address;
+        /** Set once Login passes; EnterWorld then joins as this name. */
+        private String loggedInAs;
+        /** For a new account (or one without a password yet): the password to save once EnterWorld passes. */
+        private String pendingPasswordHash;
 
-        Session(boolean admin) {
+        Session(boolean admin, boolean remote, String address) {
             this.admin = admin;
+            this.remote = remote;
+            this.address = address;
+        }
+
+        /** True once the server has ended the session (left, or refused for good); its last events still drain. */
+        public boolean isClosed() {
+            return closed;
         }
 
         public void send(Intent intent) {
@@ -56,6 +71,12 @@ public class GameServer {
     public static final int AUTOSAVE_TICKS = 50;
     /** You hear about characters and monsters within this many tiles (either axis). The map shows 5 x 3 each way. */
     public static final int VIEW_RANGE = 16;
+    /** How close (in steps) a new node has to appear for auto-investigate to go and look. */
+    public static final int AUTO_INVESTIGATE_RANGE = 10;
+    /** Failed logins (wrong password / world password) one address gets within the window before it's locked out. */
+    public static final int MAX_FAILED_LOGINS = 5;
+    public static final long FAILED_LOGIN_WINDOW_MILLIS = 10 * 60 * 1000;
+    public static final int MIN_PASSWORD_LENGTH = 4;
 
     public final World world;
     /** Null = nothing is saved (tests, throwaway worlds). */
@@ -72,6 +93,12 @@ public class GameServer {
     private long tick = 0;
     private volatile boolean running;
     private Thread thread;
+    /** Network players must give this to enter; null = no world password. */
+    private String worldPassword;
+    /** Recent failed logins (wall-clock millis) per address. */
+    private final Map<String, Deque<Long>> failedLogins = new HashMap<>();
+    /** Passwords when nothing is saved (store == null). */
+    private final Map<String, String> unsavedPasswords = new HashMap<>();
 
     public GameServer(World world) {
         this(world, null);
@@ -88,9 +115,27 @@ public class GameServer {
     }
 
     public Session connect(boolean admin) {
-        Session session = new Session(admin);
+        return connect(admin, false, "local");
+    }
+
+    /** A network client from {@code address}: has to log in, and give the world password if there is one. */
+    public Session connectRemote(boolean admin, String address) {
+        return connect(admin, true, address);
+    }
+
+    private Session connect(boolean admin, boolean remote, String address) {
+        Session session = new Session(admin, remote, address);
         sessions.add(session);
         return session;
+    }
+
+    public void setWorldPassword(String worldPassword) {
+        this.worldPassword = worldPassword == null || worldPassword.isEmpty() ? null : worldPassword;
+    }
+
+    /** Characters in the world right now. Server thread (or tests driving tick()) only. */
+    public int onlineCount() {
+        return online.size();
     }
 
     public long currentTick() {
@@ -225,6 +270,7 @@ public class GameServer {
                 if (result != Walker.Result.STEPPED) {
                     break;
                 }
+                character.lastSteppedTick = tick;
                 // one event per step, even a turn or a bump, so the client can match its predictions one by one
                 steps.add(Map.entry(character, new Event.EntityMoved(character.id, character.position(), character.facing)));
                 if (!character.position().equals(before)) {
@@ -301,8 +347,24 @@ public class GameServer {
     }
 
     private void handle(Session session, Intent intent) {
-        if (intent instanceof Intent.Join join) {
+        if (intent instanceof Intent.Login login) {
             if (session.character == null) {
+                login(session, login);
+            }
+            return;
+        }
+        if (intent instanceof Intent.EnterWorld enter) {
+            if (session.character == null) {
+                enterWorld(session, enter.worldPassword());
+            }
+            return;
+        }
+        if (intent instanceof Intent.Join join) {
+            if (session.remote) {
+                refuse(session, "This server needs a newer version of the game. Update and try again.");
+                session.events.add(new Event.Message("This server needs a newer version of the game. Update and try again."));
+                endSession(session);
+            } else if (session.character == null) {
                 join(session, join.name());
             }
             return;
@@ -324,6 +386,10 @@ public class GameServer {
             character.running = setRunning.running();
             character.saveSoon = true;
             character.emit(new Event.RunningChanged(character.running));
+        } else if (intent instanceof Intent.SetAutoInvestigate set) {
+            character.autoInvestigate = set.on();
+            character.saveSoon = true;
+            character.emit(new Event.AutoInvestigateChanged(character.autoInvestigate));
         } else if (intent instanceof Intent.SetColor setColor) {
             if (setColor.colorIndex() >= 0 && setColor.colorIndex() < Intent.PLAYER_COLORS) {
                 character.colorIndex = setColor.colorIndex();
@@ -355,6 +421,111 @@ public class GameServer {
     /** You act on the node you're facing. */
     private Node nodeAhead(GameCharacter character) {
         return world.content.nodeAt(character.ahead());
+    }
+
+    private void login(Session session, Intent.Login login) {
+        if (login.protocolVersion() != Intent.PROTOCOL_VERSION) {
+            refuse(session, "Your game is version " + login.protocolVersion() + " but this server is version "
+                    + Intent.PROTOCOL_VERSION + ". " + (login.protocolVersion() < Intent.PROTOCOL_VERSION
+                    ? "Update your game." : "The server needs updating."));
+            endSession(session);
+            return;
+        }
+        if (lockedOut(session.address)) {
+            refuse(session, "Too many failed logins. Try again in a few minutes.");
+            endSession(session);
+            return;
+        }
+        String name = login.name();
+        if (!isValidName(name)) {
+            refuse(session, "Names are 1-20 letters, digits, - or _.");
+            return;
+        }
+        if (online.values().stream().anyMatch(c -> c.name.equals(name))) {
+            refuse(session, name + " is already playing in this world.");
+            return;
+        }
+        String password = login.password() == null ? "" : login.password();
+        String stored;
+        try {
+            stored = store == null ? unsavedPasswords.get(name) : store.passwordHash(name);
+        } catch (Exception e) {
+            e.printStackTrace();
+            refuse(session, "Couldn't check that account: " + e.getMessage());
+            return;
+        }
+        boolean newAccount = stored == null;
+        if (newAccount) {
+            if (password.length() < MIN_PASSWORD_LENGTH) {
+                refuse(session, "New here? Pick a password of at least " + MIN_PASSWORD_LENGTH + " characters.");
+                return;
+            }
+            session.pendingPasswordHash = Passwords.hash(password);
+        } else if (!Passwords.matches(password, stored)) {
+            failedLogin(session, "Wrong name or password.");
+            return;
+        }
+        session.loggedInAs = name;
+        session.events.add(new Event.LoginAccepted(session.remote && worldPassword != null, newAccount));
+    }
+
+    private void enterWorld(Session session, String given) {
+        if (session.loggedInAs == null) {
+            refuse(session, "Log in first.");
+            return;
+        }
+        if (session.remote && worldPassword != null && !Passwords.sameSecret(worldPassword, given)) {
+            failedLogin(session, "Wrong world password.");
+            return;
+        }
+        if (session.pendingPasswordHash != null) {
+            try {
+                if (store == null) {
+                    unsavedPasswords.put(session.loggedInAs, session.pendingPasswordHash);
+                } else {
+                    store.setPasswordHash(session.loggedInAs, session.pendingPasswordHash);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                refuse(session, "Couldn't save your account: " + e.getMessage());
+                return;
+            }
+            session.pendingPasswordHash = null;
+        }
+        join(session, session.loggedInAs);
+    }
+
+    private void refuse(Session session, String reason) {
+        session.events.add(new Event.LoginRefused(reason));
+    }
+
+    /** A wrong password: counts towards the address's lockout, and ends the session once it's locked out. */
+    private void failedLogin(Session session, String reason) {
+        long now = System.currentTimeMillis();
+        Deque<Long> recent = failedLogins.computeIfAbsent(session.address, a -> new ArrayDeque<>());
+        recent.addLast(now);
+        refuse(session, reason);
+        if (lockedOut(session.address)) {
+            refuse(session, "Too many failed logins. Try again in a few minutes.");
+            endSession(session);
+        }
+    }
+
+    private boolean lockedOut(String address) {
+        Deque<Long> recent = failedLogins.get(address);
+        if (recent == null) {
+            return false;
+        }
+        long cutoff = System.currentTimeMillis() - FAILED_LOGIN_WINDOW_MILLIS;
+        while (!recent.isEmpty() && recent.peekFirst() < cutoff) {
+            recent.removeFirst();
+        }
+        return recent.size() >= MAX_FAILED_LOGINS;
+    }
+
+    /** Refused for good: the network side sends what's queued, then hangs up. */
+    private void endSession(Session session) {
+        session.closed = true;
     }
 
     private void join(Session session, String name) {
@@ -423,6 +594,10 @@ public class GameServer {
                 spawnMonsterNextTo(character, !args.isEmpty() && args.get(0).equals("new"));
                 return;
             }
+            if (command.equals("5")) {
+                giveExperience(character, args);
+                return;
+            }
             ContentBatch batch = switch (command) {
                 case "1" -> WorldGenerator.newSkills(world, intArg(args, 0, 1));
                 case "2" -> WorldGenerator.newProductLines(world, intArg(args, 0, 1));
@@ -430,7 +605,7 @@ public class GameServer {
                         intArg(args, 0, Node.UNLIMITED), intArg(args, 1, Node.UNLIMITED), intArg(args, 2, 10));
                 default -> throw new IllegalArgumentException("Unknown admin command " + command);
             };
-            applyContent(batch);
+            applyContent(batch, character);
         } catch (RuntimeException e) {
             character.say("Couldn't run " + command + ": " + e.getMessage());
         }
@@ -439,7 +614,7 @@ public class GameServer {
     /** Debug "/4" (random known kind) or "/4 new" (a new kind): a monster right next to you. */
     private void spawnMonsterNextTo(GameCharacter character, boolean newKind) {
         if (newKind || world.content.monsters.isEmpty()) {
-            applyContent(WorldGenerator.newMonsterType(world));
+            applyContent(WorldGenerator.newMonsterType(world), character);
         }
         List<MonsterType> kinds = world.content.monsters;
         MonsterType type = newKind ? kinds.get(kinds.size() - 1) : kinds.get(random.nextInt(kinds.size()));
@@ -447,6 +622,27 @@ public class GameServer {
         spawnMonster(type, at == null ? character.position() : at);
         character.say("A " + type.name + " (Lv. " + type.level + ") appears. Press f next to it to fight.");
         updateVisibility();
+    }
+
+    /** Debug "/5 skill [amount]": skill is its name ("skill1", "combat") or id; amount defaults to 10,000. */
+    private void giveExperience(GameCharacter character, List<String> args) {
+        if (args.isEmpty()) {
+            character.say("Usage: /5 <skill name or id> [amount]");
+            return;
+        }
+        String wanted = args.get(0);
+        Skill skill = world.content.skills.stream().filter(s -> s.name.equalsIgnoreCase(wanted)).findFirst()
+                .orElseGet(() -> wanted.matches("\\d+") ? world.content.skill(Integer.parseInt(wanted)) : null);
+        if (skill == null) {
+            character.say("No skill called " + wanted + ".");
+            return;
+        }
+        int amount = intArg(args, 1, 10_000);
+        if (amount <= 0) {
+            character.say("Experience has to be more than 0.");
+            return;
+        }
+        character.gainExperience(skill, amount);
     }
 
     private static int intArg(List<String> args, int index, int fallback) {
@@ -459,13 +655,25 @@ public class GameServer {
 
     /** The only way content changes: save the whole batch, apply it, then tell everyone in one event. */
     void applyContent(ContentBatch batch) {
-        applyContent(batch, null);
+        applyContent(batch, null, null);
     }
 
     /** Like {@link #applyContent(ContentBatch)}, also saving {@code grant} in the same transaction. */
+    /** Like {@link #applyContent(ContentBatch)}, recording that {@code by}'s action made it, and when. */
+    void applyContent(ContentBatch batch, GameCharacter by) {
+        applyContent(batch, null, by);
+    }
+
     void applyContent(ContentBatch batch, Storage.Grant grant) {
+        applyContent(batch, grant, null);
+    }
+
+    void applyContent(ContentBatch batch, Storage.Grant grant, GameCharacter by) {
         if (batch.isEmpty()) {
             return;
+        }
+        if (by != null) {
+            batch = batch.withOrigin(new ContentBatch.Origin(by.name, System.currentTimeMillis()));
         }
         if (store != null) {
             try {
@@ -476,6 +684,21 @@ public class GameServer {
         }
         world.content.apply(batch);
         broadcast(new Event.ContentAdded(batch));
+        for (ContentBatch.NodeDef node : batch.nodes()) {
+            investigate(new Position(node.x(), node.y()));
+        }
+    }
+
+    /** Auto-investigate: characters on the move near a new node change course for it (standing still = left alone). */
+    private void investigate(Position node) {
+        for (GameCharacter character : online.values()) {
+            boolean moving = character.walker.isWalking() || character.lastSteppedTick >= tick - 1;
+            int distance = Math.max(Math.abs(node.x() - character.x), Math.abs(node.y() - character.y));
+            if (character.autoInvestigate && moving && distance <= AUTO_INVESTIGATE_RANGE && distance > 1) {
+                character.say("You spot something new nearby and head over.");
+                character.walkTo(node);
+            }
+        }
     }
 
     void tellOthers(GameCharacter except, String text) {

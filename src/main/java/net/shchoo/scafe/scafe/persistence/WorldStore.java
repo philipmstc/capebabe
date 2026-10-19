@@ -12,14 +12,20 @@ import net.shchoo.scafe.scafe.model.WorldContent;
 import net.shchoo.scafe.scafe.server.GameCharacter;
 import net.shchoo.scafe.scafe.server.Storage;
 
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.sql.*;
 import java.util.*;
 
 /**
  * One world's database (its own SQLite file): the world's seed, its content (stored per {@link ContentBatch},
  * one transaction each, reloaded by replaying the batches) and the characters living in it. Characters point
- * at accounts in the shared {@link AccountStore}. Only that world's server thread uses it.
+ * at accounts in the shared {@link AccountStore}. Only that world's server thread uses it, and only one process
+ * may have it open at a time (a lock on {@code world-<id>.db.lock}, released by the OS even if the process dies).
  */
 public class WorldStore extends SqliteStore implements Storage {
     private static final List<String> MIGRATIONS = List.of(
@@ -83,6 +89,15 @@ public class WorldStore extends SqliteStore implements Storage {
             alter table game_character add column facing text not null default 'DOWN';
             alter table game_character add column color_index integer not null default 0;
             alter table game_character add column running integer not null default 0;
+            """,
+            // v6: auto-investigate setting
+            """
+            alter table game_character add column auto_investigate integer not null default 0;
+            """,
+            // v7: whose action made each content batch, and when (older batches have no row)
+            """
+            create table content_batch (content_version integer primary key, created_by text not null,
+                                        created_at integer not null);
             """
     );
 
@@ -92,6 +107,41 @@ public class WorldStore extends SqliteStore implements Storage {
     public WorldStore(Path file, AccountStore accounts) throws Exception {
         super(file, MIGRATIONS);
         this.accounts = accounts;
+        try {
+            lockChannel = FileChannel.open(Path.of(file.toAbsolutePath() + ".lock"),
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            FileLock acquired;
+            try {
+                acquired = lockChannel.tryLock();
+            } catch (OverlappingFileLockException e) {
+                acquired = null;
+            }
+            if (acquired == null) {
+                throw new WorldInUseException(file.getFileName() + " is already open in another game (another window, "
+                        + "or one hosting it). Close that one first, or join it with --connect.");
+            }
+            lock = acquired;
+        } catch (RuntimeException | IOException e) {
+            if (lockChannel != null) {
+                lockChannel.close();
+            }
+            super.close();
+            throw e;
+        }
+    }
+
+    private FileChannel lockChannel;
+    private FileLock lock;
+
+    @Override
+    public void close() throws SQLException {
+        super.close();
+        try {
+            lock.release();
+            lockChannel.close();
+        } catch (IOException e) {
+            // the OS drops the lock when we exit anyway
+        }
     }
 
     /** {@code <data dir>/worlds/world-<id>.db} */
@@ -144,6 +194,13 @@ public class WorldStore extends SqliteStore implements Storage {
     private void writeContent(ContentBatch batch) throws SQLException {
         int v = batch.version();
         int ordinal = 0;
+        if (batch.origin() != null) {
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "insert into content_batch (content_version, created_by, created_at) values (?,?,?)")) {
+                set(ps, v, batch.origin().by(), batch.origin().at());
+                ps.executeUpdate();
+            }
+        }
         try (PreparedStatement ps = connection.prepareStatement(
                 "insert into skill (id, content_version, ordinal, name, type, color_index, symbol) values (?,?,?,?,?,?,?)")) {
             for (ContentBatch.SkillDef d : batch.skills()) {
@@ -250,15 +307,29 @@ public class WorldStore extends SqliteStore implements Storage {
                 drops.get(rs.getInt("content_version") - 1).add(new ContentBatch.DropDef(rs.getInt("monster_id"),
                         rs.getInt("product_id"), rs.getInt("one_in"), rs.getString("found_by"))));
 
+        Map<Integer, ContentBatch.Origin> origins = new HashMap<>();
+        all("select * from content_batch", rs -> origins.put(rs.getInt("content_version"),
+                new ContentBatch.Origin(rs.getString("created_by"), rs.getLong("created_at"))));
+
         List<ContentBatch> batches = new ArrayList<>();
         for (int i = 0; i < version; i++) {
             batches.add(new ContentBatch(i + 1, skills.get(i), products.get(i), productLines.get(i), recipes.get(i), nodes.get(i),
-                    monsters.get(i), drops.get(i)));
+                    monsters.get(i), drops.get(i), origins.get(i + 1)));
         }
         return batches;
     }
 
     // ---- characters ----
+
+    @Override
+    public String passwordHash(String accountName) throws SQLException {
+        return accounts.passwordHash(accountName);
+    }
+
+    @Override
+    public void setPasswordHash(String accountName, String hash) throws SQLException {
+        accounts.setPasswordHash(accountName, hash);
+    }
 
     @Override
     public GameCharacter loadOrCreateCharacter(String accountName) throws SQLException {
@@ -282,6 +353,7 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.facing = Direction.valueOf(rs.getString("facing"));
                 character.colorIndex = rs.getInt("color_index");
                 character.running = rs.getInt("running") != 0;
+                character.autoInvestigate = rs.getInt("auto_investigate") != 0;
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
                     character.lastActionAt = new Position(lastX, rs.getInt("last_action_y"));
@@ -318,10 +390,11 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
-                        character.facing.name(), character.colorIndex, character.running ? 1 : 0, character.id);
+                        character.facing.name(), character.colorIndex, character.running ? 1 : 0,
+                        character.autoInvestigate ? 1 : 0, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node")) {

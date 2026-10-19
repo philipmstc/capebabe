@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v1, worlds v5). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v7). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -13,6 +13,7 @@ or wherever `--data <dir>` points. It doesn't depend on where you run the jar fr
 ~/.capebabe/
   accounts.db             one global account database, shared by every world
   worlds/world-1.db       one database per world (--world <id>)
+  worlds/world-1.db.lock  held (OS file lock) by whichever game has that world open; harmless to delete when none is running
   capebabe.db             old single-file format from before the split -- no longer read, safe to delete
 ```
 
@@ -29,6 +30,10 @@ Only the server side writes these (single player, `--host`, `--server`); `--conn
   `monster_drop`): every row has the `content_version` of the `ContentBatch` that added it and its `ordinal`
   within that batch. Loading replays the batches in order; ids are unique across all content in a world.
   `world_meta.content_version` is the latest batch, checked and bumped in the same transaction as each new batch.
+  `content_batch` says whose action made each batch (`created_by`, a character name) and when (`created_at`, epoch
+  milliseconds); batches saved before v7 have no row.
+- **Accounts** (`accounts.db`): `password_hash` is `pbkdf2$<iterations>$<salt>$<hash>` (PBKDF2-HMAC-SHA256),
+  never the password. Null for accounts from before logins; their first login sets it.
 - **Characters** (`game_character` + `character_skill_xp`, `inventory`, `goal`, `character_tried_node`): one
   character per account per world (`account_id` points into `accounts.db`; no foreign key across files). Levels
   aren't stored, only xp. Saved whole (delete + reinsert the child rows) in one transaction.
@@ -41,7 +46,7 @@ Only the server side writes these (single player, `--host`, `--server`); `--conn
 ```sql
 -- accounts.db (schema version 1)
 CREATE TABLE account (id integer primary key autoincrement, name text not null unique,
-                      created_at text not null default current_timestamp);
+                      created_at text not null default current_timestamp, password_hash text);
 
 -- worlds/world-<id>.db (schema version 5)
 CREATE TABLE world_meta (id integer primary key check (id = 1), name text not null, seed integer not null,
@@ -64,7 +69,7 @@ CREATE TABLE node (id integer primary key, content_version integer not null, ord
                    capacity integer not null, max_charges integer not null, respawn_ticks integer not null);
 CREATE TABLE game_character (id integer primary key autoincrement, account_id integer not null unique,
                              name text not null, x integer not null, y integer not null,
-                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0);
+                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0);
 CREATE TABLE character_skill_xp (character_id integer not null references game_character(id),
                                  skill_id integer not null references skill(id), xp integer not null,
                                  primary key (character_id, skill_id));
@@ -84,6 +89,8 @@ CREATE TABLE monster_drop (monster_id integer not null references monster_type(i
                            product_id integer not null references product(id),
                            content_version integer not null, ordinal integer not null, one_in integer not null, found_by text,
                            primary key (monster_id, product_id));
+CREATE TABLE content_batch (content_version integer primary key, created_by text not null,
+                            created_at integer not null);
 ```
 
 When the schema changes, regenerate the Tables section from a fresh data folder (run the game once with

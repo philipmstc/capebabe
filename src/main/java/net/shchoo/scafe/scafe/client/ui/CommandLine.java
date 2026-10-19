@@ -5,29 +5,25 @@ import net.shchoo.scafe.scafe.client.ConsoleAction;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
 
-import com.googlecode.lanterna.TextColor;
-import com.googlecode.lanterna.graphics.TextGraphics;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
 
-import static net.shchoo.scafe.scafe.client.ui.Layout.COMMAND_POS_X;
-import static net.shchoo.scafe.scafe.client.ui.Layout.COMMAND_POS_Y;
 
-/** "/" starts typing a command (e.g. "/1 5"); while typing, it takes every key. */
+/**
+ * "/" starts typing a command (e.g. "/1 5"); while typing, it takes every key. It's first in line for keys, so
+ * it can't draw on top of anything -- {@link MessageLogView} shows what's being typed.
+ */
 public class CommandLine extends Widget {
     private String typed = null;
 
-    @Override
-    public void draw(Screen screen, Player player, Board board) {
-        if (typed == null) {
-            return;
-        }
-        TextGraphics graphics = screen.newTextGraphics();
-        graphics.setForegroundColor(TextColor.ANSI.DEFAULT);
-        graphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        graphics.putString(COMMAND_POS_X, COMMAND_POS_Y, "/" + typed);
+    /** What's typed so far (without the "/"), or null when not typing a command. */
+    public String typed() {
+        return typed;
     }
+
+    @Override
+    public void draw(Screen screen, Player player, Board board) {}
 
     @Override
     public boolean onKey(KeyStroke key, Player player, Board board) {
@@ -44,6 +40,7 @@ public class CommandLine extends Widget {
             case Enter -> {
                 GameLog.say("/" + typed);
                 ConsoleAction.submit(typed, player, board);
+                System.out.println(typed);
                 typed = null;
             }
             case Escape -> typed = null;

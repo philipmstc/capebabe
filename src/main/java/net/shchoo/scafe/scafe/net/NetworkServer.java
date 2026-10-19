@@ -55,7 +55,7 @@ public class NetworkServer implements AutoCloseable {
     }
 
     private void serve(Socket client) throws IOException {
-        GameServer.Session session = game.connect(remoteAdmin);
+        GameServer.Session session = game.connectRemote(remoteAdmin, client.getInetAddress().getHostAddress());
         Reader in = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
         Writer out = new BufferedWriter(new OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8));
         String who = String.valueOf(client.getRemoteSocketAddress());
@@ -87,6 +87,9 @@ public class NetworkServer implements AutoCloseable {
                     }
                     if (wrote) {
                         out.flush();
+                    } else if (session.isClosed()) {
+                        // the server ended it (e.g. refused a login) and everything it said has been sent
+                        closeQuietly(client);
                     } else {
                         Thread.sleep(WRITE_POLL_MILLIS);
                     }

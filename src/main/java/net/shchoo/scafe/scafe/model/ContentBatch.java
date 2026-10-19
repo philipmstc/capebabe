@@ -5,7 +5,8 @@ import java.util.Map;
 
 /**
  * Everything one generation step added to a world, as plain data (ids instead of references),
- * so it can be applied atomically, saved, and sent to clients.
+ * so it can be applied atomically, saved, and sent to clients. {@code origin} says whose action made it and
+ * when (null if unknown, e.g. batches saved before this was recorded).
  */
 public record ContentBatch(int version,
                            List<SkillDef> skills,
@@ -14,7 +15,20 @@ public record ContentBatch(int version,
                            List<RecipeDef> recipes,
                            List<NodeDef> nodes,
                            List<MonsterDef> monsters,
-                           List<DropDef> drops) {
+                           List<DropDef> drops,
+                           Origin origin) {
+
+    public ContentBatch(int version, List<SkillDef> skills, List<ProductDef> products, List<ProductLineDef> productLines,
+                        List<RecipeDef> recipes, List<NodeDef> nodes, List<MonsterDef> monsters, List<DropDef> drops) {
+        this(version, skills, products, productLines, recipes, nodes, monsters, drops, null);
+    }
+
+    /** Who caused this content (a character's name) and when, in epoch milliseconds. */
+    public record Origin(String by, long at) {}
+
+    public ContentBatch withOrigin(Origin origin) {
+        return new ContentBatch(version, skills, products, productLines, recipes, nodes, monsters, drops, origin);
+    }
 
     public record SkillDef(int id, String name, SkillType type, int colorIndex, char symbol) {}
 

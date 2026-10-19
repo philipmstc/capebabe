@@ -175,6 +175,14 @@ class CombatTest {
 
             @Override
             public void saveCharacter(GameCharacter character) {}
+
+            @Override
+            public String passwordHash(String accountName) {
+                return null;
+            }
+
+            @Override
+            public void setPasswordHash(String accountName, String hash) {}
         });
         server.setDiscovery(Discovery.off());
         server.setRandom(random);

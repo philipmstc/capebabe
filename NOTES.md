@@ -18,7 +18,7 @@
 4. **(partly done -- skills + product lines browsable, recipes not yet)** Skill menu navigable with submenu showing recipe list :)
 
 ## Shit to do some other time
-- Inventory navigable and prettier (low prio) -- `InventoryMenu` exists but can't be focused yet
+- **(done, see "Screen layout" below)** Inventory navigable and prettier
 - **(first pass done, see "Monsters" below)** Monsters and a fighting system of some kind involving the items
 - **(first pass done: monster drops)** "neutral" items that are not tied to any skill or recipe -- probably dropped by monsters, in addition to maybe other sources (think Feathers in runescape)
 - Bank a la runescape -- see "Towns, banks, limited inventory, weapons" in the backlog below
@@ -97,7 +97,7 @@
   - `Main` starts a `GameServer`, connects with a `LocalConnection` and joins with your OS user name. World seed is random per run until persistence (step 4).
   - Tests: `GameServerTest` (two clients, content sync, movement, actions/xp/items, interrupt, goals, bad admin commands).
 - [x] Step 4: SQLite persistence. *(Reorganised 2026-10-18, see "Refactors" below: one database per world + a global accounts database.)* Saves go to `~/.capebabe/` by default: `accounts.db` and `worlds/world-<id>.db`.
-  - Run options: `--name <name>` (default: OS user name), `--world <id>` (default 1), `--data <dir>`.
+  - Run options: `--name <name>` (pre-fills the login screen; default: OS user name), `--world <id>` (default 1), `--data <dir>`.
   - Schemas versioned with `PRAGMA user_version` (a `MIGRATIONS` list per store; add a new string for v2).
   - World seed is stored, so a world grows the same way every time. Content is stored per batch (rows keep their batch version + order) and reloaded by replaying the batches -- reload gives identical `ContentBatch`es (tested).
   - A new batch is written in one transaction *before* it's applied/broadcast; if the write fails, nothing changes and the admin gets an error. The world's `content_version` is checked in the same transaction.
@@ -120,7 +120,7 @@
   - `NetworkServer` bridges each TCP client to a `GameServer.Session` (one reader + one writer thread per client); `SocketConnection` is the client side. The game itself didn't change -- it only ever saw sessions.
   - Admin (1/2/3) is per session: local player always, network players only with `--admin`.
   - Names must be 1-20 of `A-Z a-z 0-9 _ -` (OS user name is cleaned up for the default). Still no passwords -- anyone can join as anyone; fine among friends, not for the public internet.
-  - Default port 43594 (RuneScape's, for luck). Open it in the firewall / forward it on the router to play over the internet.
+  - Default port 43594 (RuneScape's, for luck). LAN how-to: "Multiplayer on a home network" under Next steps. Don't forward it to the internet until there's login.
   - Tests: `NetworkTest` (wire round trips incl. a whole world, unknown types rejected, long lines refused, two players over real TCP, admin denied).
 - [x] Client-side prediction for your own movement (the "rollback" part of the timing decision).
   - wasd moves your `*` immediately; `Player` keeps the predicted steps (max 2, same cap as the server) and drops each one as the server's `EntityMoved` confirms it. If the server says something else, or sends `StepsCleared` (it threw your queued steps away: you started an action, hover-walked, ...), the client snaps to the server's position.
@@ -158,6 +158,7 @@
   - Things to decide later: what happens if a recipe ever consumes one (it's gone from the world forever -- fine?), trading them (they'd need to move between inventories in one transaction too), and a "who owns what" view (the drop rows know the finder, not the current owner).
 - [x] Client: monsters draw as their letter in their kind's color, hover shows `M monster0 Lv. 3  hp 7/10` + `[f] fight` when you're next to it (players now show hp too). Your hp sits in the map's top border once the world has monsters. While fighting, the progress bar shows the monster's hp in red. Hits pop up as `-3` (red on you, yellow on monsters) or `miss`.
 - [x] `/4` spawns a monster next to you (`/4 new` = a new kind). Admin only, like 1/2/3.
+- [x] `/5 <skill name or id> [amount]` gives you experience (default 10,000; for testing goals / level-gated stuff quickly). Name as shown in the Skills tab (`skill1`, `combat`) or the skill's content id; amount must be > 0. Test in `GameServerTest`.
 - [x] Saves: world schema v2 adds `monster_type` + `monster_drop`; v1 world files upgrade in place (tested, and tried on a real v1 file).
 - [x] Tests: `CombatTest` (combat skill arrives with the first monster, xp, first-ever drops, drop0 becoming regular loot, no-luck kills, knock-out, walking away, toggling, others see hp, combat levels raise hp, wander leash + despawn, negative ids), plus monster cases in `WorldGeneratorTest`, `WorldStoreTest`, `NetworkTest`, `DiscoveryTest`.
 - [ ] **Back burner -- how combat fits the skill tree** (needs a proper discussion): a single dedicated `combat` skill fights the premise of an infinitely growing skill tree. Idea: each monster *is* its own skill, by analogy skill -> product line -> tier, so `monster0-drop0` would really be `monster0{0}-0` (fighting monster0 trains "monster0", its drops are that skill's product lines/tiers, and drops could feed other skills' recipes). Not convinced yet; open questions: what levels mean per monster, hp/damage without a shared combat level, how drops being one of a kind fits "tiers", and whether fighting stays a separate system or becomes "a node that fights back".
@@ -172,24 +173,37 @@
 - [x] Hover + `Enter` uses real pathfinding (`Pathfinding.path`, breadth-first): around nodes, diagonal steps allowed and counting as one move (but never squeezing between two nodes on a corner), straight-looking routes preferred. Walking to a node ends orthogonally next to it, facing it. "Can't find a way there." if it's walled off; "Something's in the way." if a node appears mid-walk. The hover cursor starts on the tile you're facing, and it's relative to you: it stays put on screen while you move, so hovering at an edge and pressing Enter repeatedly keeps walking/running you that way.
 - [x] Running: `r` (or the settings menu) toggles it; running = two steps per tick, for wasd and hover-walks. "run" shows in the map's top border. Saved.
 - [x] Prediction: the client predicts turns and blocked steps with the same rule (it knows where the nodes are), and the server sends an `EntityMoved` for every step it takes for you (including turns/bumps, and both steps of a running tick), so predictions match one by one.
-- [x] Settings: `,` opens a Settings menu over the tab area (Esc or `,` closes): your color (Left/Right; 8 to pick from, others see it), running on/off, and a Controls list. Keys the menu doesn't use (wasd etc.) still work while it's open. Color/running show immediately and are confirmed by the server.
+- [x] Settings: the last tab (after Goals; a row is only highlighted while it's focused, and focusing starts on the first row), or `,` from anywhere to jump in (`,` again goes back to the tab you were on; Esc / Up from the top row backs out): your color (Left/Right; 8 to pick from, others see it), running on/off, auto-investigate on/off, and a Controls list. Keys the menu doesn't use (wasd etc.) still work while it's open. Color/running show immediately and are confirmed by the server.
 - [x] Monsters can never leave their roam radius (it's part of what's passable for them).
 - [x] World schema v5: `game_character.facing`, `color_index`, `running`.
 - [x] Tests: `MovementTest` (blocking, turning, facing-only actions, building in front, walking to nodes, routing around walls, no corner squeezing, straight paths, unreachable targets, running, colors) and `SettingsMenuTest`.
 - [ ] Ideas: running could cost energy (that recovers walking/standing); facing could matter in combat (attack from behind?); the settings menu is the natural home for key rebinding.
 
+## Screen layout (2026-10-18, from the paint mockup)
+- [x] Window is 142x40 (`Layout.TERMINAL_SIZE`). One header row (row 1): "Inventory" over the inventory, the XP tracker (one unframed line: skill, level, progress bar, xp/h) over the map with the `FrameRateAnimation` spinner at its right end, and the tab headers (Map, Skills, Goals, Settings) over the tab box. Under it: Inventory box (left) with the action progress box below, the map (29x23 tiles, one row per tile, two columns), the selected tab's box (right). Bottom: log box under inventory + map (the `/command` being typed shows on its top border), and the tile detail box (`MapDetailView`) bottom right.
+- [x] Every panel is one `Rect` in `Layout` (`MAP`, `INVENTORY`, `PROGRESS`, `XP`, `TABS`, `LOG`, `DETAIL`), all worked out from the terminal size, the map's tile count and the left column's width -- change one number and the rest follow. Each widget is constructed with its `Rect` and draws relative to `bounds()` (`textX()`, `textWidth()`, `firstRow()`, `hintRow()`, `rows()` on `Widget`); tab menus get the `TABS` box from `TabBar`.
+- [x] Tile details (what's ahead of you / under the hover cursor) are always on screen in `MapDetailView`, whatever tab is selected. It only knows the map tab through a `Function<Player, Position>` (`MapMenu::hovered`: the cursor while hovering, else null = the tile ahead). The Map tab's own box lists your waypoints. The progress bar is its own widget (`ProgressBarView`).
+- [x] The `/command` text is drawn by `MessageLogView` (from `CommandLine.typed()`): `CommandLine` has to be first in line for keys, which made it draw first too, under the log box's frame.
+- [x] Inventory (`InventoryPanel`, was `InventoryMenu`): always drawn on the left, 3 across x 5 visible, scrolls (`^`/`v` on the border, a double-line scrollbar thumb on the right border sized to how much is visible -- `Widget.drawScrollbar`, reusable for other lists -- item count bottom-left), unlimited size. One item per slot (3 logs = 3 cells). Cells are 5x2: `skillN{P}-t` -> `SN-P` / `  Tt`, `monsterN-dropK` -> `MN-DK`, colored by the making skill / dropping monster (`WorldContent.madeBy`). It's the leftmost tab: select it with Left/Right or jump in with `i`, arrows move the selection, Esc backs out; the right box shows the selected item (count, made with which skill + level, or one of a kind + who found it).
+- [x] Tests: `InventoryPanelTest` (labels, one per slot, `i`, navigation + scrolling, scrollbar size/position).
+- [ ] Cells are 5 wide, so two-digit product lines get cut (`skill12{10}-15` shows `S12-1`). Widen to 6 (the box has room) or drop the dash if it matters.
+- [ ] Next for the inventory: "use" the selected item on the node you're facing (the plan: nodes need items from the inventory), stacking once inventory space is limited, "used in" for the selected item.
+
 # Next steps / ideas
 
 ## Current controls
-- `Left`/`Right` switch tabs. `Down`/`Enter` focuses the current tab, `Esc` backs out (and quits from the top level).
-- Map: unfocused, the right side previews the tile you're facing. Focused, arrows move a hover cursor and `Enter` walks there (around nodes). Other players / monsters on the tile are listed.
-- Skills: `Up`/`Down` pick a skill (product lines preview on the right), `Right`/`Enter` moves into the product lines, `Left`/`Esc` back. `Up` from the top skill leaves the menu.
-- wasd/q/g/f/r/`/`/`,` work everywhere, even while a menu is focused. wasd = step (or turn to face a node), `q` = use the node you're facing, `g` = add goal for the locked node you're facing (after trying it with `q`), `f` = fight the monster next to you (again to stop), `r` = run on/off, `,` = settings + controls.
+- `Left`/`Right` switch tabs (Inventory, Map, Skills, Goals, Settings). `Down`/`Enter` focuses the current tab, `Esc` backs out (and quits from the top level). `i` jumps into the inventory, `,` into the settings (again: back).
+- Inventory: arrows move between cells (like the hover cursor), the right box describes the selected item. `Up` from the top row leaves it.
+- Map: the bottom-right box always describes the tile you're facing. Focus the Map tab and arrows move a hover cursor (the box follows it) and `Enter` walks there (around nodes). Other players / monsters on the tile are listed. The Map tab's box lists your waypoints.
+- Skills: `Up`/`Down` pick a skill (product lines preview on the right), `Right`/`Enter` moves into the product lines. There `Up`/`Down` pick a line, `Left`/`Right` a tier (Left from the first tier goes back), `Enter` sets a waypoint to the nearest node for that recipe (again to clear), `Esc` back. `Up` from the top skill leaves the menu.
+- wasd/q/g/f/r/`/`/`,` work everywhere, even while a menu is focused. wasd = step (or turn to face a node), `q` = use the node you're facing, `g` = add goal for the locked node you're facing (after trying it with `q`), `f` = fight the monster next to you (again to stop), `r` = run on/off, `,` = settings + controls (again to go back).
 - Goals tab is view-only for now.
 - Controls are listed in the settings menu (`,`); `k` still lists every `ConsoleAction` in the log.
 
 ## Map
-- 11x7 visible, centered on the player, world is unbounded. Window is 100x28 (`Layout.TERMINAL_SIZE`); all layout positions derive from `BOARD_WIDTH`/`BOARD_HEIGHT`.
+- 29x23 visible, centered on the player, world is unbounded. Window is 142x40 (`Layout.TERMINAL_SIZE`, see "Screen layout" above).
+- [x] Auto-investigate (setting, off by default, saved -- world schema v6): while you're moving (walking a path, or stepped in the last tick), a node that appears within 10 steps (`GameServer.AUTO_INVESTIGATE_RANGE`) turns you towards it: "You spot something new nearby and head over.", then you walk (or run, per your setting) to it and stop facing it. Standing still or doing an action is never interrupted. Server-side (`GameServer.investigate`, called for each new node in `applyContent`), so it works the same for network players. Tests: `AutoInvestigateTest`.
+- [ ] Auto-investigate ideas: only nodes you can use yet (or locked ones you haven't tried), a "resume where you were going" after looking, a range setting.
 - Orientation: `o` at the origin, player's coords in the map's top border, and an arrow on the border pointing to the last successful action tile (else origin) when it's off-screen.
 - Home arrow: only cardinal arrows (which edge it's on shows the diagonal). It can overwrite a character of the coords label when home is up-left -- move the label to the bottom border if it bugs you. Could show both origin and last-action arrows at once, or the distance next to the arrow.
   - [ ] ability for player to drop pins that show as separate arrows :) 
@@ -197,39 +211,81 @@
 - Walking to a node could auto-`q` on arrival (you already end up facing it), or `Shift+Enter` = walk and perform.
 - Walk speed is one tile per 600ms tick, running two.
 - Own movement is predicted (see Persistence / multiplayer above); `q` still waits for the tick (up to 600ms) because the server decides whether the action can start.
+- [ ] Movement sometimes feels a little clunky (2026-10-18; not acting on it yet). `FrameRateAnimation` (a little spinner top right of the map, one sprite step per drawn frame) makes the frame rate visible. Likely causes, all timing: three clocks that don't line up -- the client loop (draw, then poll keys, then sleep to `GameClock.FRAME_MILLIS` = 60ms, so a key can wait up to a frame before it's seen and another before it's drawn), the server tick (600ms, steps happen only then) and OS key repeat (its own rate, not a multiple of either). A held key queues at most `Intent.MAX_QUEUED_STEPS` (2) steps, so repeats beyond that are dropped and the walk goes step-pause-step depending on where in the tick they land; prediction shows the step at once but the next one can't start until the server catches up. Things to try when it matters: poll input before drawing (and redraw right after a key), treat a held key as "keep walking that way" instead of a stream of repeats (like hover + Enter), tween the player between tiles over the tick (`Player.partialTick()` already exists), and measure: log frame time / key-to-draw latency.
+- `FrameRateAnimation` places itself (a fixed `Rect` next to the map's top-right corner); for the configurable layout it should get its `Rect` from `Layout` like the others.
 - Pathfinding is breadth-first within a box around start/target (+16 tiles). Fine for now; A* if paths get long or the map gets busy.
-- Map nodes are data (`Node`); the only kind is "recipe". Other kinds (bank, monster spawn, ...) would add a `kind` to `Node`/`NodeDef` and a branch in `GameCharacter.performOrStop`. Preview text is `MapMenu.describe(node)`; could also show missing components.
+- Map nodes are data (`Node`); the only kind is "recipe". Other kinds (bank, monster spawn, ...) would add a `kind` to `Node`/`NodeDef` and a branch in `GameCharacter.performOrStop`. Preview text is `MapDetailView.describe(node)`; could also show missing components.
 - Placing a node on a tile that already has one replaces it (the old one stays in the content history). Fine for the debug command; real removal would need a "removed nodes" list in `ContentBatch`.
 - Symbol color semantics: bright = normal, dim = tried and too low level. Could add more states (e.g. never seen, depleted) once nodes get richer.
 
 ## Skills
+- [x] Who made it, and when (2026-10-19): every content batch can carry an `Origin` (the character whose action caused it + epoch millis), stamped by the server in `GameServer.applyContent(batch, ..., by)` -- discoveries (skills, nodes, monster kinds) credit the character who triggered them, `/1`-`/4` credit whoever typed them, one-of-a-kind drops their finder. Saved per batch (world schema v7, `content_batch` table), sent to clients with the batch, kept per skill/node/monster id in `WorldContent.origin(id)`. The Skills tab's detail column shows "found by alice" / "on 2026-10-19 08:29" (local time). Content from before v7 shows "found by ?". Tests: `GameServerTest.newContentRemembersWhoseActionMadeItAndWhen`, plus the save/reload and wire round-trip tests.
+- [ ] Same origin could show elsewhere: node details ("placed by"), monster kinds on hover, a world history / "discoveries" log tab, first-discovery bragging in the log for everyone.
+- [x] Waypoints (2026-10-18): `Enter` on a tier in the product lines adds a waypoint to the nearest known node making that recipe (steps, diagonals = 1; ties -> lowest id); `Enter` on it again removes it. Any number at once, one per recipe. On the map: `[#]` in magenta when on screen; off-screen, three cells of the map's border in magenta double lines with an arrow in the middle (along the top: double line, `^`, double line; down a side the same, vertically), drawn over the home arrow. Within a cell of a corner it wraps round it instead: the double corner symbol plus one double line along each edge, no arrow (`MapView.drawEdgeMarker`; the home arrow is still a single arrow). Test: `WaypointTest.offScreenWaypointsMarkThreeBorderCells`. A waypoint goes away when you're facing its node. "No known node makes X yet." if there isn't one. Waypoint recipes' tiers show magenta in the Lv row.
+  - Code: `client.Waypoints` (`Player.waypoints`), client-only and not saved. The "reached" check runs in `Player.frame()` (per-frame client state, like popups), not `receive()` (which only applies server events). Tests: `WaypointTest` (nearest, toggle, two at once with one reached, none known).
+- [ ] Waypoint ideas: Shift+Enter (or a key on the Map tab) to walk/run straight there (pathfinding already exists); re-target when a closer node appears or the node depletes; a waypoint per goal; show the distance next to the border arrow; different colors/symbols per waypoint once there are several; save them. Design question: should "reached" be facing the node (now) or starting to use it?
 - Next for #4: drill one more level into a product line to list each tier's recipe in full (product, components, xp), basically the `l` command's output but browsable. Would probably be a third column, or replace the skill list column.
 - Product line names are derived by stripping `-tier` off the tier 0 product name. `ProductLine` should probably get a real `name` field.
 - The "from" line could be colored with the source skill's color/symbol, and the product line view could show how many of each tier's product are in the inventory.
-- Skill list column is 32 wide (rows cut with `~`), product lines at `SkillsMenu.DETAIL_POS_X` get ~42 cols at 100 wide. If menus grow, derive widths from `screen.getTerminalSize()`.
+- In the right box the skill list is the full width (46) until focused, then 24 wide with the product lines in the remaining ~20 (rows cut with `~`). Xp shows compact (`1.2k/1.5k`).
 
 ## Actions / progress
 - Durations are in game ticks (`GameClock.TICK_MILLIS` = 600ms), from `Node.durationTicks()`. Per-tier durations would be a `durationTicks` field on `Recipe` / `RecipeDef`.
 - Feedback for `q` waits for the next tick (up to 600ms). Could show a "queued" hint on the bar meanwhile.
 - Skills list shows `xp/14921909` at Lv. 100; could show "MAX" instead (the XP tracker already does).
-- XP tracker ideas: keep per-skill sessions instead of resetting on switch, show "time to level" (remaining xp / rate), let `/` command reset it. If a lot more tabs get added the header row runs out of room -- the tracker could move to its own row.
+- [x] XP tracker heads for your nearest goal (2026-10-19): if the tracked skill has an unmet goal, the bar aims at the lowest one ("Lv. 54->70" in yellow, `604k/1.9M`), else the next level as before (`XpTarget`). For a goal the bar is all your xp out of what the goal level needs, so it only fills up (counting from the current level would empty it at every level up on the way). After the xp/h comes a time estimate, remaining xp / rate ("~4h 40m"; to the next level when there's no goal); a long skill name is cut before it's dropped. Tests: `XpTargetTest`, `XpTrackerDurationTest`.
+- XP tracker ideas: fill a goal's bar from where you were when you set it (needs the xp at that moment stored on the goal: `Goal`, `GoalDef`, the `goal` table); keep per-skill sessions instead of resetting on switch; let a `/` command reset it.
 - Popups are generic (`new Popup(position, text, color)` on `player.popups`) and purely client-side -- the client creates them from events (`XpGained`, `LevelUp`). Item drops etc. would do the same.
 
 ## Goals
+- Goals are saved (`goal` table, with the character). Lost goals on 2026-10-18 weren't a goals bug: closing the window with X only disposed it (lanterna then returns `EOF` forever, which nothing handled), so the process -- server, autosave and all -- kept running unseen and kept saving its stale copy of the character over newer sessions every 30s. Fixed: `Main` quits (and saves) on `EOF`.
+- One process per world: `WorldStore` takes an OS lock on `world-<id>.db.lock` (dropped by the OS even on a crash / kill, so it can't go stale); a second local run of the same world fails with `WorldInUseException` -> a popup ("already open in another game... join it with --connect") and exit. Within one server, a name that's already online can't join twice (`GameServer.join`). Tests: `WorldLockTest`. Other worlds (`--world 2`) still open fine alongside.
 - Make the tab focusable to remove goals / sort them; maybe auto-remove (or archive) completed ones.
 - Goals could hook into TODO #1 (spawning skills/nodes from player actions) -- e.g. completing a goal is a trigger.
 - TODO #1 can hook into the server: `GameCharacter.gainExperience` / `perform` are where level ups and production happen; a trigger there calls `WorldGenerator` and `GameServer.applyContent`. Clients already handle `ContentAdded`.
 
 ## Inventory
-- Could reuse the Skills browse pattern: "made by" / "used in" for each item.
+- See "Screen layout" above for what's there and what's next.
+
+## Coming: player-configurable widget layout (not started -- requirement on its way)
+- Players will set each widget's size and position from the settings menu.
+- Groundwork done: every panel is a `Rect` and every widget draws inside the `Rect` it's given, so a layout is just "which `Rect` each widget gets".
+- Still to do:
+  - Turn `Layout`'s static `Rect`s into a `Layout` instance (the default one = today's numbers) that `Main` builds the widgets from, and that settings can change and save (per account, client-side, or a `layout` table).
+  - Map tile math (`tileScreenX`/`Y`, `clampToView`, `BOARD_WIDTH`/`HEIGHT`) still reads the static `Layout.MAP`; move it onto `MapView`/a map-geometry object so a resized map box shows more or fewer tiles. `MapMenu` (cursor highlight, clamping) and popups use it too.
+  - `TabBar`'s headers sit over the inventory and the map; they'd need their own `Rect` (or to sit on the tab box's top border).
+  - Widgets should cope with small boxes: most text is already cut with `fit(...)` and lists stop at `hintRow()`; the inventory's cell grid and the skills two-column view assume a minimum size.
+  - Settings UI: pick a widget, arrows to move, shift+arrows to resize, live preview, reset to default. Overlap check or allow it (later widgets draw on top).
+  - The terminal size could follow the window too (lanterna reports resizes), with the default layout scaling from it.
+
+## Logins (2026-10-19)
+- [x] The client opens on a login screen (`LoginScreen`): bold lowercase "capebabe", Name / Password / Log In / Exit (Up/Down/Tab, Enter, Esc). If the server wants a world password, it asks next (Enter / Back). `--name` only pre-fills the name; `--connect host:port` still picks the server.
+- [x] Protocol: `Intent.Login(version, name, password)` -> `LoginAccepted(worldPasswordNeeded, newAccount)` or `LoginRefused(reason)`; then `Intent.EnterWorld(worldPassword)` -> `Welcome` or `LoginRefused`. `Intent.PROTOCOL_VERSION` (now 1) must match, else "update your game". `Intent.Join(name)` still works for in-process clients (tests); from the network it's an old client, so it's told to update.
+- [x] Accounts: passwords hashed (PBKDF2, `server.Passwords`) in `accounts.db` (v2, `account.password_hash`). A new name, or an old account without a password, takes the password you typed, but only once the world password passes. At least 4 characters.
+- [x] World password: `--world-password <secret>` (or `CAPEBABE_WORLD_PASSWORD`); network players only, the host's own window and local play skip it. `--host`/`--server` refuse to start without one unless `--no-world-password`.
+- [x] Lockout: 5 wrong passwords per IP per 10 minutes (`GameServer.MAX_FAILED_LOGINS`), then that IP is refused and disconnected for the rest of the window (in memory, so a server restart clears it).
+- [x] Tests: `NetworkTest` (world password, account password kept, accounts not created before the world password, old clients / other versions told to update, lockout), `WorldStoreTest` (hashes saved, old accounts claimed, kept across restarts), `LoginScreenTest` (typing, hidden password, logging in, Exit/Esc).
+- Bold text now actually renders (`BoldMode.EVERYTHING_BUT_SYMBOLS` in `Main`); before, every `SGR.BOLD` in the UI was ignored.
+- [ ] Next: TLS (passwords are plain text on the wire), connection / message rate limits, `--admins` allowlist, `--bind`. A "change password" option in Settings. Remember-me (a token saved client-side) so friends don't retype passwords. Hashing runs on the server's tick thread (~tens of ms per login): fine for a few friends, move it off-thread if logins ever cause hitches. See `HOSTING.md` "Port forwarding with logins".
+
+## Multiplayer on a home network
+- Playing with friends outside the house (Tailscale now, an always-on VM later, what to change in code first, getting friends a client): see `HOSTING.md`.
+- Nothing to change in code: `NetworkServer` listens on every interface, not just localhost.
+- Both machines run the same `gradlew shadowJar` build; the login checks `Intent.PROTOCOL_VERSION` and says "update your game" if they differ. Java 17+ on the other machine.
+- Host: `java -jar build/libs/capebabe-1.0-SNAPSHOT-all.jar --host --world-password <secret>` (`--no-world-password` on a trusted home network; add `--admin` to let friends world-build). Other machine: `java -jar capebabe-1.0-SNAPSHOT-all.jar --connect <host ip>`, then log in on the login screen -- each player needs their own name.
+- Windows firewall on the host is the usual blocker: the home Wi-Fi was set to *Public*, which blocks inbound. Either switch the network to Private, or (admin PowerShell) `New-NetFirewallRule -DisplayName "capebabe" -Direction Inbound -Protocol TCP -LocalPort 43594 -Action Allow -Profile Private,Public`.
+- The host's IP (192.168.2.39 on 2026-10-18) comes from the router's DHCP and can change; `ipconfig` -> IPv4 under Wi-Fi. A DHCP reservation on the router, or LAN discovery (UDP broadcast "who's hosting?" + a server picker), would remove the guesswork.
+- Debugging: `Test-NetConnection <host ip> -Port 43594` from the other machine (`TcpTestSucceeded : True` = network is fine); guest networks / router "AP isolation" stop devices seeing each other; `--connect localhost` (log in as someone else) on the host tests the network path minus the firewall.
+- [ ] No passwords: anyone on the network can join as any name that isn't online, yours included. Fine at home; needs login (passwords / tokens on `account`) before forwarding the port to the internet.
+- [ ] The font (ComicMono Nerd Font) is hardcoded; other machines without it get a fallback. Could be a setting / `--font` option.
 
 ## Database
 - Full schema, where the files live (`~/.capebabe/accounts.db`, `~/.capebabe/worlds/world-<id>.db`) and how to open them in DBeaver: `SCHEMA.md`. Keep it regenerated when a migration is added.
 
 ## Code structure
-- Screen = a list of `Widget`s (`client.ui`): `CommandLine`, `MapView`, `TabBar` (headers + the selected `Menu`), `XpTrackerView`, `MessageLogView`, `KeyCommands`. Each frame `Main` calls `draw` on each in order; each key goes to `onKey` in the same order until one returns true. So: earlier = gets keys first, later = drawn on top. A new screen element = subclass `Widget` and add it to the list in `Main.runClient`.
+- Screen = a list of `Widget`s (`client.ui`): `CommandLine`, `MapView`, `ProgressBarView`, `TabBar` (headers, the inventory grid, the right box with the selected `Menu`), `MapDetailView`, `XpTrackerView`, `MessageLogView`, `KeyCommands`. Each one is given its `Rect` from `Layout` in `Main`. Each frame `Main` calls `draw` on each in order; each key goes to `onKey` in the same order until one returns true. So: earlier = gets keys first, later = drawn on top. A new screen element = subclass `Widget` and add it to the list in `Main.runClient`.
 - New tab = subclass `Menu` (itself a `Widget`) and add it to the `TabBar`. Menus only get keys while focused; keys they return `IGNORED` for fall through to `KeyCommands` (wasd/q/g/...). `/` is caught by `CommandLine` first.
-- Map drawing (+ progress bar, home arrow, popups) is `MapView`, skill colors/symbols `SkillStyle`, all screen positions and the map's view math `Layout`.
+- Map drawing (+ home arrow, waypoints, popups) is `MapView`, skill colors/symbols `SkillStyle`, all screen positions and the map's view math `Layout`. The inventory is a `Menu` too (`InventoryPanel`) but `TabBar` takes it separately because its grid is always drawn.
 - Packages (under `net.shchoo.scafe.scafe`), dependencies only point downwards in this list:
   - `model` -- shared game data: `Position`, `Skill`, `Product`, `ProductLine`, `Recipe`, `Node`, `Goal`, `Levels`, `ContentBatch`, `WorldContent`, `World`. Depends on nothing.
   - `generation` -- `WorldGenerator`, `SkillFactory`, `ProductLineFactory` (model only).

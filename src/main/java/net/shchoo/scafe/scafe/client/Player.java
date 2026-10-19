@@ -1,19 +1,12 @@
 package net.shchoo.scafe.scafe.client;
 
-import net.shchoo.scafe.scafe.model.Direction;
-import net.shchoo.scafe.scafe.model.Goal;
-import net.shchoo.scafe.scafe.model.Levels;
-import net.shchoo.scafe.scafe.model.Node;
-import net.shchoo.scafe.scafe.model.Position;
-import net.shchoo.scafe.scafe.model.Product;
-import net.shchoo.scafe.scafe.model.Skill;
-import net.shchoo.scafe.scafe.model.WorldContent;
+import com.googlecode.lanterna.TextColor;
+import net.shchoo.scafe.scafe.model.*;
 import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.protocol.GameClock;
 import net.shchoo.scafe.scafe.protocol.GameConnection;
 import net.shchoo.scafe.scafe.protocol.Intent;
 
-import com.googlecode.lanterna.TextColor;
 import java.util.*;
 
 /**
@@ -39,6 +32,7 @@ public class Player {
     public Direction facing = Direction.DOWN;
     public int colorIndex;
     public boolean running;
+    public boolean autoInvestigate;
 
     /** Where you are and which way you face. */
     record Pose(Position position, Direction facing) {}
@@ -51,6 +45,11 @@ public class Player {
     public final List<Goal> goals = new ArrayList<>();
     private final Set<Integer> triedNodes = new HashSet<>();
     public Position lastActionAt;
+    public final Waypoints waypoints = new Waypoints();
+    /** Login progress, for the login screen: the server's latest answer (cleared once read). */
+    public Event.LoginAccepted loginAccepted;
+    public String loginRefused;
+    private boolean inWorld;
     public ActionView currentAction;
     /** Other players and monsters you can see, by id (monsters have negative ids). */
     public final Map<Integer, Event.EntityInfo> others = new LinkedHashMap<>();
@@ -77,12 +76,38 @@ public class Player {
         connection.poll().forEach(this::apply);
     }
 
+    /** The closest node (in steps, diagonals counting one) that makes {@code recipe}, or null if none is known. */
+    public Node nearestNode(Recipe recipe) {
+        Node nearest = null;
+        int best = Integer.MAX_VALUE;
+        for (Node node : content.nodes()) {
+            if (!node.recipe.equals(recipe) || status(node).depleted()) {
+                continue;
+            }
+            int distance = stepsTo(node.position);
+            if (distance < best || distance == best && node.id < nearest.id) {
+                nearest = node;
+                best = distance;
+            }
+        }
+        return nearest;
+    }
+
+    public int stepsTo(Position position) {
+        return Math.max(Math.abs(position.x() - x), Math.abs(position.y() - y));
+    }
+
     public void apply(Event event) {
         if (event instanceof Event.Tick tick) {
             serverTick = tick.tick();
             lastTickAt = System.currentTimeMillis();
         } else if (event instanceof Event.Welcome welcome) {
             welcome(welcome);
+            inWorld = true;
+        } else if (event instanceof Event.LoginAccepted accepted) {
+            loginAccepted = accepted;
+        } else if (event instanceof Event.LoginRefused refused) {
+            loginRefused = refused.reason();
         } else if (event instanceof Event.ContentAdded added) {
             content.apply(added.batch());
         } else if (event instanceof Event.EntityEntered entered) {
@@ -137,6 +162,8 @@ public class Player {
             colorIndex = changed.colorIndex();
         } else if (event instanceof Event.RunningChanged changed) {
             running = changed.running();
+        } else if (event instanceof Event.AutoInvestigateChanged changed) {
+            autoInvestigate = changed.on();
         } else if (event instanceof Event.HpChanged changed) {
             hp = changed.hp();
             maxHp = changed.maxHp();
@@ -162,6 +189,7 @@ public class Player {
         showPredicted();
         colorIndex = you.colorIndex();
         running = you.running();
+        autoInvestigate = you.autoInvestigate();
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
         you.inventory().forEach((productId, count) -> inventory.put(content.product(productId), count));
         you.goals().forEach(def -> goals.add(def.toGoal(content)));
@@ -199,6 +227,7 @@ public class Player {
     /** One render frame. */
     public void frame() {
         popups.removeIf(Popup::advanceFrame);
+        waypoints.update(ahead());
     }
 
     /** 0.0 right after a server tick, approaching 1.0 just before the next one. */
@@ -266,9 +295,32 @@ public class Player {
         send(new Intent.SetColor(colorIndex));
     }
 
+    /** Step 1 of joining (the server answers LoginAccepted / LoginRefused). */
+    public void login(String name, String password) {
+        loginAccepted = null;
+        loginRefused = null;
+        send(new Intent.Login(Intent.PROTOCOL_VERSION, name, password));
+    }
+
+    /** Step 2: the world's password, or null if it doesn't need one. */
+    public void enterWorld(String worldPassword) {
+        loginRefused = null;
+        send(new Intent.EnterWorld(worldPassword));
+    }
+
+    /** True once the server has let you in (Welcome). */
+    public boolean inWorld() {
+        return inWorld;
+    }
+
     public void toggleRunning() {
         running = !running;
         send(new Intent.SetRunning(running));
+    }
+
+    public void toggleAutoInvestigate() {
+        autoInvestigate = !autoInvestigate;
+        send(new Intent.SetAutoInvestigate(autoInvestigate));
     }
 
     public int getLevel(Skill skill) {

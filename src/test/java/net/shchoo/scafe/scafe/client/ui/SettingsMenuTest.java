@@ -38,8 +38,11 @@ class SettingsMenuTest {
         board = new Board(player.content);
         player.send(new Intent.Join("alice"));
         tick();
-        tabs = new TabBar(List.of(new MapMenu(), new SkillsMenu(), new InventoryMenu(), new GoalsMenu()), new SettingsMenu());
-        widgets = List.of(new CommandLine(), new MapView(), tabs, new MessageLogView(), new KeyCommands(() -> quit = true));
+        tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), List.of(new MapMenu(), new SkillsMenu(), new GoalsMenu()),
+                new SettingsMenu());
+        CommandLine commandLine = new CommandLine();
+        widgets = List.of(commandLine, new MapView(Layout.MAP), tabs, new MessageLogView(Layout.LOG, commandLine),
+                new KeyCommands(() -> quit = true));
     }
 
     private void tick() {
@@ -82,17 +85,55 @@ class SettingsMenuTest {
     }
 
     @Test
-    void commaOpensSettingsOverTheTabsAndEscClosesIt() throws IOException {
-        assertFalse(tabs.overlayOpen());
+    void commaJumpsIntoSettingsAndEscBacksOut() throws IOException {
+        assertFalse(tabs.settingsOpen());
         type(',');
-        assertTrue(tabs.overlayOpen());
+        assertTrue(tabs.settingsOpen());
         String shown = screenText();
         assertTrue(shown.contains("Settings"));
         assertTrue(shown.contains("Controls"));
         assertTrue(shown.contains("< cyan >"));
         press(KeyType.Escape);
-        assertFalse(tabs.overlayOpen());
+        assertFalse(tabs.settingsOpen());
         assertFalse(quit, "Esc closes the menu first, it doesn't quit");
+    }
+
+    @Test
+    void settingsIsTheLastTabAndCommaAgainGoesBack() {
+        Menu map = tabs.selected();
+        type(',');
+        type(',');
+        assertSame(map, tabs.selected(), "back where you were");
+        assertFalse(tabs.settingsOpen());
+
+        for (int i = 0; i < 10; i++) {
+            press(KeyType.ArrowRight);
+        }
+        assertEquals("Settings", tabs.selected().title(), "reachable with the arrows too");
+        press(KeyType.Enter);
+        assertTrue(tabs.settingsOpen());
+        press(KeyType.ArrowUp);
+        assertFalse(tabs.settingsOpen(), "Up from the top row leaves it, like the other tabs");
+    }
+
+    @Test
+    void onlyAFocusedSettingsTabHighlightsARow() throws IOException {
+        for (int i = 0; i < 10; i++) {
+            press(KeyType.ArrowRight);
+        }
+        String shown = screenText();
+        assertTrue(shown.contains("Color"));
+        assertFalse(shown.contains("> Color"), "selected but not focused: nothing highlighted");
+        assertEquals(1, shown.split("Settings", -1).length - 2, "the box title says Settings once, besides the tab header");
+
+        press(KeyType.Enter);
+        assertTrue(screenText().contains("> Color"));
+        press(KeyType.ArrowDown);
+        press(KeyType.Escape);
+        String unfocused = screenText();
+        assertFalse(unfocused.contains("> Color") || unfocused.contains("> Running"), "unfocused again");
+        press(KeyType.Enter);
+        assertTrue(screenText().contains("> Color"), "back on the first row");
     }
 
     @Test
@@ -129,6 +170,6 @@ class SettingsMenuTest {
     void aCommaWhileTypingACommandIsJustText() {
         type('/');
         type(',');
-        assertFalse(tabs.overlayOpen());
+        assertFalse(tabs.settingsOpen());
     }
 }
