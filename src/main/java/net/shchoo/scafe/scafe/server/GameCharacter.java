@@ -28,6 +28,7 @@ public class GameCharacter implements Walker.Mobile {
     /** While moving, head for nodes that appear nearby. */
     public boolean autoInvestigate;
     public boolean showProductTiers;
+    public boolean showTimeEstimate;
     /** The last tick this character took a step (or turned), for "is moving right now". */
     long lastSteppedTick = -1;
     /** Walking over to use an item on the node here; its action starts on arrival. */
@@ -331,7 +332,7 @@ public class GameCharacter implements Walker.Mobile {
         inventory.forEach((product, count) -> inventoryById.put(product.id, count));
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
-                facing, colorIndex, running, autoInvestigate, showProductTiers);
+                facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate);
     }
 
     Event.EntityInfo info() {

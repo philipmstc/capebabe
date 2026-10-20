@@ -332,4 +332,26 @@ class GameServerTest {
         server.applyContent(scratch.diff(server.world.content));
         return node;
     }
+
+    @Test
+    void everyoneHearsWhoLogsInAndOut() {
+        Player alice = join("alice");
+        log.clear();
+        Player bob = new Player(new LocalConnection(server.connect()));
+        bob.send(new Intent.Join("bob"));
+        server.tick();
+        alice.receive();
+        assertTrue(log.contains("bob logged in."));
+        log.clear();
+        bob.receive();
+        assertTrue(log.contains("Welcome to test, bob!"));
+        assertTrue(log.contains("Also here: alice."));
+        assertFalse(log.contains("bob logged in."), "not to yourself");
+
+        bob.send(new Intent.Leave());
+        server.tick();
+        log.clear();
+        alice.receive();
+        assertTrue(log.contains("bob logged out."));
+    }
 }

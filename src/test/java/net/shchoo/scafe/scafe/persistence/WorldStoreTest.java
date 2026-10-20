@@ -50,8 +50,8 @@ class WorldStoreTest {
     @Test
     void eachWorldIsItsOwnFileAndRemembersItsSeed() throws Exception {
         try (WorldStore one = open(1); WorldStore two = open(2)) {
-            assertEquals(9, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
-                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers");
+            assertEquals(10, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
+                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate");
             assertEquals(777, one.loadOrCreateWorld(1, "w1", 777).seed);
             assertEquals(888, two.loadOrCreateWorld(2, "w2", 888).seed);
         }
@@ -259,7 +259,7 @@ class WorldStoreTest {
             statement.execute("insert into world_meta (id, name, seed) values (1, 'old', 55)");
         }
         try (WorldStore store = open(7)) {
-            assertEquals(9, store.schemaVersion());
+            assertEquals(10, store.schemaVersion());
             World world = store.loadOrCreateWorld(7, "ignored", 0);
             assertEquals("old", world.name);
             save(store, world, WorldGenerator.newSkills(world, 1));
@@ -373,5 +373,21 @@ class WorldStoreTest {
         }
         Product drop = world.content.monsters.get(0).drops.get(0).product();
         assertEquals(Product.NO_TIER, drop.tier, "one-of-a-kinds have no tier");
+    }
+
+    @Test
+    void worldsCanBePickedByName() throws Exception {
+        assertEquals("gabes-world", WorldStore.fileName("Gabe's World"));
+        assertEquals("named-2", WorldStore.fileName("2!"), "never mistaken for a numbered world");
+        Path file = WorldStore.fileFor(dir, "Gabe's World");
+        assertEquals("world-gabes-world.db", file.getFileName().toString());
+        try (WorldStore store = new WorldStore(file, accounts)) {
+            assertEquals("Gabe's World", store.loadOrCreateWorld(0, "Gabe's World", 4).name);
+        }
+        try (WorldStore store = new WorldStore(WorldStore.fileFor(dir, "gabe's world"), accounts)) {
+            World again = store.loadOrCreateWorld(0, "gabe's world", 99);
+            assertEquals("Gabe's World", again.name, "same file, and it keeps the name it was made with");
+            assertEquals(4, again.seed);
+        }
     }
 }

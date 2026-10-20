@@ -14,7 +14,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 4;
+    int PROTOCOL_VERSION = 5;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -41,6 +41,7 @@ public sealed interface Intent {
     /** Auto-investigate: while you're moving, a node appearing nearby turns you towards it. */
     record SetAutoInvestigate(boolean on) implements Intent {}
     record SetShowProductTiers(boolean on) implements Intent {}
+    record SetShowTimeEstimate(boolean on) implements Intent {}
     /** Debug / world-building commands (the 1 / 2 / 3 keys). */
     record Admin(String command, List<String> args) implements Intent {}
 }

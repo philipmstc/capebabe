@@ -110,4 +110,12 @@ class LoginScreenTest {
         assertEquals(LoginScreen.Outcome.EXIT, press(KeyType.Enter), "the Exit button");
         assertEquals(LoginScreen.Outcome.EXIT, press(KeyType.Escape));
     }
+
+    @Test
+    void theFingerprintGoesOnTheVeryBottomLine() throws IOException {
+        login = new LoginScreen(player, "server 1.2.3.4:43594", "server fingerprint AB:CD:EF", "");
+        String[] lines = screenText().split("\n");
+        assertTrue(lines[lines.length - 1].contains("server fingerprint AB:CD:EF"));
+        assertFalse(lines[10].contains("fingerprint"), "not up by the title any more");
+    }
 }

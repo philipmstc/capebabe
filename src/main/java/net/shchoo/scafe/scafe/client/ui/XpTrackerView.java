@@ -75,8 +75,11 @@ public class XpTrackerView extends Widget {
 
         graphics.setForegroundColor(rate == null ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT);
         graphics.putString(barX + BAR_WIDTH, row, rateText);
-        graphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        graphics.putString(barX + BAR_WIDTH + rateText.length(), row, etaText);
+
+        if (player.showTimeEstimate) {
+            graphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+            graphics.putString(barX + BAR_WIDTH + rateText.length(), row, etaText);
+        }
     }
 
     private static final long MILLIS_PER_HOUR = 60 * 60 * 1000;

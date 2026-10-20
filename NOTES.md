@@ -111,7 +111,7 @@
   - Full node: "Someone else is using that (1/1)." Empty node: "It's empty -- back in about Ns." Running out stops *everyone* using it ("The X ran out."), which is the first of the "fun interruptions".
   - Client: empty nodes draw grey; Map preview shows "3/10 left" / "empty -- respawning" and "in use: 1/2".
   - Tests: `NodeStatesTest`.
-- [x] Step 6: network transport. How to run (jar from `gradlew shadowJar`, `build/libs/capebabe-1.0-SNAPSHOT-all.jar`):
+- [x] Step 6: network transport. How to run (jar from `gradlew shadowJar`, `build/libs/capebabe-0.0.1-all.jar`):
   - `java -jar capebabe.jar` -- single player, as before.
   - `java -jar capebabe.jar --host [--port 43594] [--admin]` -- play locally *and* let friends connect.
   - `java -jar capebabe.jar --server [--port 43594] [--admin] [--world 2] [--data dir]` -- headless world, no window.
@@ -191,6 +191,62 @@
 
 # Next steps / ideas
 
+## Next session: settings refactor (plan, not started -- yours to poke at)
+Why: adding "Contrast tiers" touched ~10 places, all the same per setting: `Intent.SetX`, `Event.XChanged`, a `CharacterSnapshot` field, a `GameCharacter` field, a `GameServer` handler, a `WorldStore` migration + load SQL + save SQL, `Player` field + event branch + `welcome()` line + toggle method, a hand-built `SettingsMenu` row, `NetworkTest`'s hand-built snapshot. Goal: a new setting = one line defining it + the code that actually uses it.
+
+Decided: settings are **per character** (stored in the world's db, next to `game_character`) and **stay on the server** (they follow you to any computer; players will have strong opinions).
+
+- **Table (key/value, a.k.a. entity-attribute-value).** Good fit for preferences: few per player, read/written as a whole set, never searched by value, list keeps growing. The db can't type-check values (all text), so *all* reads/writes go through one typed definition in code. Not for real game state (position, xp, inventory, hp) -- those stay proper columns/tables.
+  ```sql
+  create table character_setting (
+      character_id integer not null references game_character(id),
+      key   text not null,
+      value text not null,
+      primary key (character_id, key)
+  );
+  ```
+  Real foreign key (`foreign_keys` is already on in `SqliteStore`); `text` is SQLite's idiom for varchar; the primary key = one value per setting per character and easy upserts. Per-account settings would need an `account_setting` in `accounts.db` instead (SQLite can't do foreign keys across files) -- not needed now.
+- **Typed keys in code** (an enum can't give each constant its own value type, a small generic class can):
+  ```java
+  // model/Setting.java -- the one place a setting is defined
+  public final class Setting<T> {
+      public static final Setting<Integer> COLOR = intRange("color.index", "Color", 0, 0, Intent.PLAYER_COLORS - 1).visibleToOthers();
+      public static final Setting<Boolean> RUNNING = bool("running", "Running", false);
+      public static final Setting<Boolean> AUTO_INVESTIGATE = bool("auto.investigate", "Auto-investigate", false);
+      public static final Setting<Boolean> CONTRAST_TIERS = bool("contrast.tiers", "Contrast tiers", false);
+      public static final List<Setting<?>> ALL = List.of(COLOR, RUNNING, AUTO_INVESTIGATE, CONTRAST_TIERS);
+
+      final String key;        // in the db and on the wire: never rename once shipped
+      final String label;      // settings menu
+      final T defaultValue;
+      final Codec<T> codec;    // text <-> value, allowed values, next/previous for Left/Right
+  }
+
+  // model/Settings.java -- one character's values
+  public final class Settings {
+      public <T> T get(Setting<T> setting);
+      public <T> void set(Setting<T> setting, T value);
+      public Map<String, String> asText();                       // save / send
+      public static Settings fromText(Map<String, String> text); // unknown keys ignored, bad values -> default
+  }
+  ```
+- **What each place becomes:**
+  - 4x `Intent.SetX` -> one `Intent.SetSetting(String key, String value)`; the server checks it against the definition, refuses unknown keys / bad values.
+  - 4x `Event.XChanged` -> one `Event.SettingChanged(String key, String value)`.
+  - 4 snapshot fields -> `Map<String, String> settings` in `CharacterSnapshot`.
+  - fields on `GameCharacter` / `Player` -> `Settings settings`; code reads `settings.get(Setting.RUNNING)`.
+  - per-setting server handlers -> one handler; only `visibleToOthers()` settings (color) also set `infoChanged` so others see it.
+  - columns + migration + SQL per setting -> `character_setting`, saved with the character like the other child tables (delete + reinsert in the same transaction).
+  - hand-built `SettingsMenu` rows -> generated from `Setting.ALL` (label, current value, Left/Right = codec's next/previous).
+- **Steps** (each keeps the build green):
+  1. `Setting`, `Settings`, codecs (bool, int range) in `model`, with unit tests (parsing, defaults, rejected values, next/previous).
+  2. World schema v10: create `character_setting`; copy the old columns over (`insert into character_setting select id, 'running', running from game_character`, same for `color_index` -> `color.index`, `auto_investigate` -> `auto.investigate`, `show_product_tiers` -> `contrast.tiers`); then drop them (`alter table game_character drop column ...`, SQLite 3.35+; we're on 3.44). Load/save through `Settings`. Test: an old save with those columns upgrades with everyone's values intact.
+  3. Protocol v5: `SetSetting` / `SettingChanged` replace the 4 intents + 4 events, the snapshot carries the map, one generic server handler. Color still reaches others via `EntityInfo`.
+  4. Client: `Player.settings` -- change locally right away (like `setColor`/`toggleRunning` do now), send, server confirms. Readers use `player.settings.get(...)`; `SettingsMenu` rows come from `Setting.ALL`.
+  5. Tests: one round trip over every setting for save/reload and for the wire, so new settings are covered for free. Update SCHEMA.md.
+- Later, if wanted: an `account_setting` scope in `accounts.db` for settings that should follow you across worlds; enum-valued settings (a codec over an enum's values); per-setting "client only" flag if some ever shouldn't hit the server.
+
+
 ## Current controls
 - `Left`/`Right` switch tabs (Inventory, Map, Skills, Goals, Settings). `Down`/`Enter` focuses the current tab, `Esc` backs out (and quits from the top level). `i` jumps into the inventory, `,` into the settings (again: back).
 - Inventory: arrows move between cells (like the hover cursor), the right box describes the selected item. `Up` from the top row leaves it. `Enter` on an item = use it on a node: the Map tab takes over with the cursor on the nearest node that takes it, arrows aim, `Enter` uses it, `Esc` cancels.
@@ -266,6 +322,17 @@
   - Settings UI: pick a widget, arrows to move, shift+arrows to resize, live preview, reset to default. Overlap check or allow it (later widgets draw on top).
   - The terminal size could follow the window too (lanterna reports resizes), with the default layout scaling from it.
 
+## Encryption and connection limits (2026-10-20)
+- [x] TLS 1.3 for all network play (`net/Tls.java`). The host's key is self-signed, made once with the JDK's `keytool` (EC P-256, 10 years) into `<data>/tls/server.p12` with a random password in `server.p12.pass`. Clients trust on first use: they remember `host:port fingerprint` in `<data>/known-servers` and refuse a different key later (delete the line if the host really made a new key). Both login screens show the full fingerprint on their bottom line so people can compare (a friend's also says "first visit" under the title the first time); `--server` prints it too. A plain-text client gets nowhere. Connection failures (refused, untrusted key, nothing listening) now show a popup instead of a stack trace.
+- [x] Limits (`NetworkServer.Limits`): 1 connection per IP (`--max-per-ip n`), 32 total, 30s to finish the TLS handshake + logging in (players already in can idle), ~40 messages/s with bursts of 80 (extras dropped; 400 dropped in a row = disconnected). Turned-away connections get a `LoginRefused` with the reason, which the login screen shows.
+- [x] Tests (`NetworkTest`): one per address (and free again after leaving), the login timeout, flooding, a plain-text client getting no game messages, a remembered server accepted and a different key refused. Other network tests use roomier limits so two test players can connect from localhost.
+- [ ] TODO: bring back the login screen's "New name -- that password will be yours once you're in." hint (hidden for now, 2026-10-20) -- maybe reworded, or only shown after a short pause on the world password step.
+- [ ] Ideas: show the fingerprint somewhere in game too (Settings?), an option to pin a fingerprint up front (`--connect host --fingerprint AB:CD...`), `--admins` allowlist, `--bind`.
+
+## Named worlds, login announcements (2026-10-20)
+- [x] `--world` takes a number (as before: `world-2.db`, named "world2") or a name: `--world "Gabe's World"` -> `worlds/world-gabes-world.db` (`WorldStore.fileName`: lowercase, apostrophes dropped, other runs -> "-", never just digits), and the world is created with exactly that name, which the client shows as "Welcome to Gabe's World, alice!". The name's case/punctuation can differ next time; it's the same file and keeps its original name. Accounts are shared by every world (`accounts.db`); characters are per world.
+- [x] Everyone online hears "<name> logged in." / "<name> logged out."; whoever joins also gets "Also here: a, b." Test: `GameServerTest.everyoneHearsWhoLogsInAndOut`, `WorldStoreTest.worldsCanBePickedByName`.
+
 ## Logins (2026-10-19)
 - [x] The client opens on a login screen (`LoginScreen`): bold lowercase "capebabe", Name / Password / Log In / Exit (Up/Down/Tab, Enter, Esc). If the server wants a world password, it asks next (Enter / Back). `--name` only pre-fills the name; `--connect host:port` still picks the server.
 - [x] Protocol: `Intent.Login(version, name, password)` -> `LoginAccepted(worldPasswordNeeded, newAccount)` or `LoginRefused(reason)`; then `Intent.EnterWorld(worldPassword)` -> `Welcome` or `LoginRefused`. `Intent.PROTOCOL_VERSION` (now 1) must match, else "update your game". `Intent.Join(name)` still works for in-process clients (tests); from the network it's an old client, so it's told to update.
@@ -274,13 +341,13 @@
 - [x] Lockout: 5 wrong passwords per IP per 10 minutes (`GameServer.MAX_FAILED_LOGINS`), then that IP is refused and disconnected for the rest of the window (in memory, so a server restart clears it).
 - [x] Tests: `NetworkTest` (world password, account password kept, accounts not created before the world password, old clients / other versions told to update, lockout), `WorldStoreTest` (hashes saved, old accounts claimed, kept across restarts), `LoginScreenTest` (typing, hidden password, logging in, Exit/Esc).
 - Bold text now actually renders (`BoldMode.EVERYTHING_BUT_SYMBOLS` in `Main`); before, every `SGR.BOLD` in the UI was ignored.
-- [ ] Next: TLS (passwords are plain text on the wire), connection / message rate limits, `--admins` allowlist, `--bind`. A "change password" option in Settings. Remember-me (a token saved client-side) so friends don't retype passwords. Hashing runs on the server's tick thread (~tens of ms per login): fine for a few friends, move it off-thread if logins ever cause hitches. See `HOSTING.md` "Port forwarding with logins".
+- [ ] Next (TLS and limits are done, see "Encryption and connection limits"): `--admins` allowlist, `--bind`. A "change password" option in Settings. Remember-me (a token saved client-side) so friends don't retype passwords. Hashing runs on the server's tick thread (~tens of ms per login): fine for a few friends, move it off-thread if logins ever cause hitches. See `HOSTING.md` "Port forwarding with logins".
 
 ## Multiplayer on a home network
 - Playing with friends outside the house (Tailscale now, an always-on VM later, what to change in code first, getting friends a client): see `HOSTING.md`.
 - Nothing to change in code: `NetworkServer` listens on every interface, not just localhost.
 - Both machines run the same `gradlew shadowJar` build; the login checks `Intent.PROTOCOL_VERSION` and says "update your game" if they differ. Java 17+ on the other machine.
-- Host: `java -jar build/libs/capebabe-1.0-SNAPSHOT-all.jar --host --world-password <secret>` (`--no-world-password` on a trusted home network; add `--admin` to let friends world-build). Other machine: `java -jar capebabe-1.0-SNAPSHOT-all.jar --connect <host ip>`, then log in on the login screen -- each player needs their own name.
+- Host: `java -jar build/libs/capebabe-0.0.1-all.jar --host --world-password <secret>` (`--no-world-password` on a trusted home network; add `--admin` to let friends world-build). Other machine: `java -jar capebabe-0.0.1-all.jar --connect <host ip>`, then log in on the login screen -- each player needs their own name.
 - Windows firewall on the host is the usual blocker: the home Wi-Fi was set to *Public*, which blocks inbound. Either switch the network to Private, or (admin PowerShell) `New-NetFirewallRule -DisplayName "capebabe" -Direction Inbound -Protocol TCP -LocalPort 43594 -Action Allow -Profile Private,Public`.
 - The host's IP (192.168.2.39 on 2026-10-18) comes from the router's DHCP and can change; `ipconfig` -> IPv4 under Wi-Fi. A DHCP reservation on the router, or LAN discovery (UDP broadcast "who's hosting?" + a server picker), would remove the guesswork.
 - Debugging: `Test-NetConnection <host ip> -Port 43594` from the other machine (`TcpTestSucceeded : True` = network is fine); guest networks / router "AP isolation" stop devices seeing each other; `--connect localhost` (log in as someone else) on the host tests the network path minus the firewall.

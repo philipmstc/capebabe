@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.net;
 
+import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.ContentBatch;
@@ -13,18 +14,54 @@ import net.shchoo.scafe.scafe.server.Discovery;
 import net.shchoo.scafe.scafe.server.GameServer;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class NetworkTest {
+    /** Lets several test players in from localhost; the limits themselves have their own tests. */
+    private static final NetworkServer.Limits ROOMY = NetworkServer.Limits.defaults().withPerAddress(10);
+
+    @TempDir
+    static Path keys;
+    private static Tls.Server tls;
+    @TempDir
+    Path clientDir;
     private NetworkServer network;
+
+    @BeforeAll
+    static void makeKey() throws Exception {
+        tls = Tls.server(keys);
+    }
+
+    private NetworkServer start(GameServer server, boolean admin, NetworkServer.Limits limits) throws IOException {
+        network = new NetworkServer(server, 0, admin, tls, limits);
+        network.startInBackground();
+        return network;
+    }
+
+    private Player connect() throws Exception {
+        String server = "localhost:" + network.port();
+        return new Player(new SocketConnection("localhost", network.port(),
+                Tls.client(clientDir.resolve("known-servers"), server)));
+    }
 
     @AfterEach
     void tearDown() throws IOException {
@@ -53,7 +90,7 @@ class NetworkTest {
         world.content.apply(WorldGenerator.newMonsterType(world));
         world.content.apply(WorldGenerator.newDrop(world, world.content.monsters.get(0).id));
         Event.CharacterSnapshot you = new Event.CharacterSnapshot(7, "alice", new Position(1, 2),
-                Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10, Direction.LEFT, 3, true, true, true);
+                Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10, Direction.LEFT, 3, true, true, true, true);
         List<Event> events = List.of(
                 new Event.Welcome("w", 12, List.copyOf(world.content.history()), you,
                         List.of(Event.EntityInfo.player(8, "bob", new Position(0, 0), Direction.UP, 4, 10, 10, 5),
@@ -90,10 +127,9 @@ class NetworkTest {
     void twoPlayersOverTcp() throws Exception {
         GameServer server = new GameServer(new World(1, "net", 8));
         server.setDiscovery(Discovery.off());
-        network = new NetworkServer(server, 0, true);
-        network.startInBackground();
-        Player alice = new Player(new SocketConnection("localhost", network.port()));
-        Player bob = new Player(new SocketConnection("localhost", network.port()));
+        start(server, true, ROOMY);
+        Player alice = connect();
+        Player bob = connect();
         logIn(alice, "alice");
         logIn(bob, "bob");
         tickUntil(server, () -> alice.joined && bob.joined && alice.others.containsKey(bob.id), alice, bob);
@@ -115,9 +151,8 @@ class NetworkTest {
     void remotePlayersCanBeDeniedAdmin() throws Exception {
         GameServer server = new GameServer(new World(1, "net", 8));
         server.setDiscovery(Discovery.off());
-        network = new NetworkServer(server, 0, false);
-        network.startInBackground();
-        Player alice = new Player(new SocketConnection("localhost", network.port()));
+        start(server, false, ROOMY);
+        Player alice = connect();
         logIn(alice, "alice");
         tickUntil(server, () -> alice.joined, alice);
         alice.send(new Intent.Admin("1", List.of("3")));
@@ -153,13 +188,8 @@ class NetworkTest {
         GameServer server = new GameServer(new World(1, "net", 8));
         server.setDiscovery(Discovery.off());
         server.setWorldPassword("open sesame");
-        network = new NetworkServer(server, 0, false);
-        network.startInBackground();
+        start(server, false, ROOMY);
         return server;
-    }
-
-    private Player connect() throws Exception {
-        return new Player(new SocketConnection("localhost", network.port()));
     }
 
     @Test
@@ -235,5 +265,109 @@ class NetworkTest {
         later.login("bob", "password");
         tickUntil(server, () -> later.loginRefused != null, later);
         assertTrue(later.loginRefused.startsWith("Too many failed logins"), "the whole address is locked out for a while");
+    }
+
+    private GameServer quietServer() {
+        GameServer server = new GameServer(new World(1, "net", 8));
+        server.setDiscovery(Discovery.off());
+        return server;
+    }
+
+    @Test
+    void oneConnectionPerAddress() throws Exception {
+        GameServer server = quietServer();
+        start(server, false, NetworkServer.Limits.defaults());
+        Player alice = connect();
+        alice.login("alice", "password1");
+        alice.enterWorld(null);
+        tickUntil(server, alice::inWorld, alice);
+
+        Player second = connect();
+        tickUntil(server, () -> second.loginRefused != null, second);
+        assertTrue(second.loginRefused.contains("already someone connected from your address"), second.loginRefused);
+
+        alice.send(new Intent.Leave());
+        tickUntil(server, () -> server.onlineCount() == 0, alice);
+        Thread.sleep(200);
+        Player again = connect();
+        again.login("alice", "password1");
+        again.enterWorld(null);
+        tickUntil(server, again::inWorld, again);
+    }
+
+    @Test
+    void connectionsThatDontLogInInTimeAreDropped() throws Exception {
+        GameServer server = quietServer();
+        start(server, false, new NetworkServer.Limits(10, 32, 300, 40, 80, 400));
+        Player idle = connect();
+        List<String> said = new ArrayList<>();
+        Consumer<String> listener = said::add;
+        GameLog.subscribe(listener);
+        try {
+            tickUntil(server, () -> said.stream().anyMatch(m -> m.startsWith("Disconnected from server")), idle);
+        } finally {
+            GameLog.unsubscribe(listener);
+        }
+    }
+
+    @Test
+    void floodingGetsYouDisconnected() throws Exception {
+        GameServer server = quietServer();
+        start(server, false, new NetworkServer.Limits(10, 32, 30_000, 5, 5, 20));
+        Player spammer = connect();
+        spammer.login("spam", "password1");
+        spammer.enterWorld(null);
+        tickUntil(server, spammer::inWorld, spammer);
+        for (int i = 0; i < 200; i++) {
+            spammer.send(new Intent.Move(1, 0));
+        }
+        tickUntil(server, () -> server.onlineCount() == 0, spammer);
+    }
+
+    @Test
+    void theConnectionIsEncrypted() throws Exception {
+        start(quietServer(), false, ROOMY);
+        try (Socket plain = new Socket("localhost", network.port())) {
+            plain.setSoTimeout(2000);
+            OutputStream out = plain.getOutputStream();
+            out.write((Wire.encode(new Intent.Login(Intent.PROTOCOL_VERSION, "alice", "hunter22")) + "\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            InputStream in = plain.getInputStream();
+            byte[] reply = new byte[512];
+            int n;
+            try {
+                n = in.read(reply);
+            } catch (IOException e) {
+                n = -1;
+            }
+            String text = n <= 0 ? "" : new String(reply, 0, n, StandardCharsets.UTF_8);
+            assertFalse(text.contains("LoginAccepted") || text.contains("LoginRefused"),
+                    "a plain-text client gets no game messages: " + text);
+        }
+    }
+
+    @Test
+    void clientsRememberTheServerAndRefuseADifferentOne() throws Exception {
+        start(quietServer(), false, ROOMY);
+        Path known = clientDir.resolve("known-servers");
+        Tls.Client first = Tls.client(known, "friend.example:43594");
+        new SocketConnection("localhost", network.port(), first).close();
+        assertTrue(first.trust().firstVisit());
+        assertEquals(tls.fingerprint(), first.trust().fingerprint());
+        assertTrue(Files.readString(known).contains(tls.fingerprint()), "remembered");
+
+        Tls.Client second = Tls.client(known, "friend.example:43594");
+        new SocketConnection("localhost", network.port(), second).close();
+        assertFalse(second.trust().firstVisit(), "same server, same key: fine");
+
+        Tls.Server impostor = Tls.server(clientDir.resolve("impostor"));
+        try (NetworkServer other = new NetworkServer(quietServer(), 0, false, impostor, ROOMY)) {
+            other.startInBackground();
+            IOException refused = assertThrows(IOException.class, () -> new SocketConnection("localhost", other.port(),
+                    Tls.client(known, "friend.example:43594")));
+            assertTrue(String.valueOf(refused.getMessage()).contains("isn't the one you connected to before")
+                    || String.valueOf(refused.getCause()).contains("isn't the one you connected to before"), refused.toString());
+        }
     }
 }

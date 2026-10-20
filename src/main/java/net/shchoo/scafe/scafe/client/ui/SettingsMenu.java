@@ -21,7 +21,8 @@ public class SettingsMenu extends Menu {
     private static final int RUN_ROW = 1;
     private static final int INVESTIGATE_ROW = 2;
     private static final int SHOW_PRODUCT_TIER_ROW = 3;
-    private static final int ROWS = 4;
+    private static final int SHOW_TIME_ESTIMATE_ROW = 4;
+    private static final int ROWS = 5;
     private static final int VALUE_X = 19;
 
     private static final List<String[]> CONTROLS = List.of(
@@ -66,6 +67,7 @@ public class SettingsMenu extends Menu {
                     case RUN_ROW -> player.toggleRunning();
                     case INVESTIGATE_ROW -> player.toggleAutoInvestigate();
                     case SHOW_PRODUCT_TIER_ROW -> player.toggleShowProductTiers();
+                    case SHOW_TIME_ESTIMATE_ROW -> player.toggleShowTimeEstimate();
                 }
             }
             case Escape -> {
@@ -90,6 +92,7 @@ public class SettingsMenu extends Menu {
         settingRow(g, y++, isFocused() && row == RUN_ROW, "Running", player.running ? "on" : "off");
         settingRow(g, y++, isFocused() && row == INVESTIGATE_ROW, "Auto-investigate", player.autoInvestigate ? "on" : "off");
         settingRow(g, y++, isFocused() && row == SHOW_PRODUCT_TIER_ROW, "Contrast tiers", player.showProductTiers ? "on" : "off");
+        settingRow(g, y++, isFocused() && row == SHOW_TIME_ESTIMATE_ROW, "Show time to goal", player.showTimeEstimate ? "on" : "off");
 
         y++;
         g.setForegroundColor(TextColor.ANSI.DEFAULT);

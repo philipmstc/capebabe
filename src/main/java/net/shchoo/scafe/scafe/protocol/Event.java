@@ -15,7 +15,7 @@ public sealed interface Event {
     record CharacterSnapshot(int id, String name, Position position, Map<Integer, Long> xp,
                              Map<Integer, Integer> inventory, List<GoalDef> goals, Set<Integer> triedNodes,
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
-                             boolean running, boolean autoInvestigate, boolean showProductTiers) {}
+                             boolean running, boolean autoInvestigate, boolean showProductTiers, boolean showTimeEstimate) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -99,6 +99,7 @@ public sealed interface Event {
     record RunningChanged(boolean running) implements Event {}
     record AutoInvestigateChanged(boolean on) implements Event {}
     record ShowProductTiersChanged(boolean on) implements Event {}
+    record ShowTimeEstimateChanged(boolean on) implements Event {}
     /** Your name and password are fine; next send EnterWorld (with the world's password if it needs one). */
     record LoginAccepted(boolean worldPasswordNeeded, boolean newAccount) implements Event {}
     record LoginRefused(String reason) implements Event {}

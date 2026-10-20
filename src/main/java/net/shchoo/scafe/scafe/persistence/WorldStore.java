@@ -108,6 +108,10 @@ public class WorldStore extends SqliteStore implements Storage {
             // v9: show product tiers player setting
             """
             alter table game_character add column show_product_tiers integer not null default 0;
+            """,
+            // v10: show time estimate setting
+            """ 
+            alter table game_character add column show_time_estimate integer not null default 0;
             """
     );
 
@@ -157,6 +161,18 @@ public class WorldStore extends SqliteStore implements Storage {
     /** {@code <data dir>/worlds/world-<id>.db} */
     public static Path fileFor(Path dataDir, int worldId) {
         return dataDir.resolve("worlds").resolve("world-" + worldId + ".db");
+    }
+
+    /** A world picked by name: {@code <data dir>/worlds/world-<file name>.db}, e.g. "Gabe's World" -> world-gabes-world.db. */
+    public static Path fileFor(Path dataDir, String worldName) {
+        return dataDir.resolve("worlds").resolve("world-" + fileName(worldName) + ".db");
+    }
+
+    /** Lowercase letters and digits with dashes between words ("Gabe's World" -> "gabes-world"); never just digits. */
+    public static String fileName(String worldName) {
+        String name = worldName.toLowerCase(Locale.ROOT).replace("'", "")
+                .replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        return name.matches("\\d*") ? "named-" + name : name;
     }
 
     /** Loads the world (replaying its content batches), or creates it with {@code seedIfNew}. */
@@ -379,6 +395,7 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.running = rs.getInt("running") != 0;
                 character.autoInvestigate = rs.getInt("auto_investigate") != 0;
                 character.showProductTiers = rs.getInt("show_product_tiers") != 0;
+                character.showTimeEstimate = rs.getInt("show_time_estimate") != 0;
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
                     character.lastActionAt = new Position(lastX, rs.getInt("last_action_y"));
@@ -415,11 +432,12 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
-                        character.autoInvestigate ? 1 : 0, character.showProductTiers ? 1 : 0, character.id);
+                        character.autoInvestigate ? 1 : 0, character.showProductTiers ? 1 : 0,
+                        character.showTimeEstimate ? 1 : 0, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node")) {

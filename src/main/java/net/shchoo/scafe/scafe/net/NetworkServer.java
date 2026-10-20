@@ -4,27 +4,56 @@ import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.protocol.Wire;
 import net.shchoo.scafe.scafe.server.GameServer;
 
+import javax.net.ssl.SSLServerSocket;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
-/** Accepts TCP clients and bridges each one to a {@link GameServer.Session} (JSON lines, see {@link Wire}). */
+/**
+ * Accepts clients over TLS ({@link Tls}) and bridges each one to a {@link GameServer.Session} (JSON lines, see
+ * {@link Wire}), within {@link Limits}: connections per address and in total, time to log in, messages per second.
+ */
 public class NetworkServer implements AutoCloseable {
     public static final int DEFAULT_PORT = 43594;
     private static final long WRITE_POLL_MILLIS = 15;
 
+    /**
+     * {@code perAddress}: connections from one IP at once (friends sharing a house share an IP).
+     * {@code loginMillis}: time to finish logging in before being dropped (idle players already in are fine).
+     * {@code messagesPerSecond} / {@code burst}: messages a client may send (more are dropped; {@code floodLimit}
+     * dropped ones in a row and it's disconnected).
+     */
+    public record Limits(int perAddress, int total, long loginMillis, double messagesPerSecond, int burst, int floodLimit) {
+        public static Limits defaults() {
+            return new Limits(1, 32, 30_000, 40, 80, 400);
+        }
+
+        public Limits withPerAddress(int perAddress) {
+            return new Limits(perAddress, total, loginMillis, messagesPerSecond, burst, floodLimit);
+        }
+    }
+
     private final GameServer game;
     private final ServerSocket socket;
     private final boolean remoteAdmin;
+    private final Limits limits;
+    private final Map<String, Integer> connectionsByAddress = new HashMap<>();
+    private int connections;
     private volatile boolean running = true;
 
     /** remoteAdmin: whether network players may use admin (world-building) commands. */
-    public NetworkServer(GameServer game, int port, boolean remoteAdmin) throws IOException {
+    public NetworkServer(GameServer game, int port, boolean remoteAdmin, Tls.Server tls, Limits limits) throws IOException {
         this.game = game;
-        this.socket = new ServerSocket(port);
+        SSLServerSocket secure = (SSLServerSocket) tls.context().getServerSocketFactory().createServerSocket(port);
+        secure.setEnabledProtocols(new String[]{Tls.PROTOCOL});
+        this.socket = secure;
         this.remoteAdmin = remoteAdmin;
+        this.limits = limits;
     }
 
     public int port() {
@@ -37,7 +66,13 @@ public class NetworkServer implements AutoCloseable {
             try {
                 Socket client = socket.accept();
                 client.setTcpNoDelay(true);
-                serve(client);
+                String address = client.getInetAddress().getHostAddress();
+                String refusal = admit(address);
+                if (refusal != null) {
+                    refuse(client, refusal);
+                } else {
+                    serve(client, address);
+                }
             } catch (SocketException e) {
                 if (running) {
                     e.printStackTrace();
@@ -54,16 +89,84 @@ public class NetworkServer implements AutoCloseable {
         thread.start();
     }
 
-    private void serve(Socket client) throws IOException {
-        GameServer.Session session = game.connectRemote(remoteAdmin, client.getInetAddress().getHostAddress());
-        Reader in = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
-        Writer out = new BufferedWriter(new OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8));
+    /** Counts the connection in, or says why not. */
+    private synchronized String admit(String address) {
+        if (connections >= limits.total()) {
+            return "The server is full. Try again later.";
+        }
+        int fromHere = connectionsByAddress.getOrDefault(address, 0);
+        if (fromHere >= limits.perAddress()) {
+            return "There's already someone connected from your address (one connection each).";
+        }
+        connectionsByAddress.put(address, fromHere + 1);
+        connections++;
+        return null;
+    }
+
+    private synchronized void release(String address) {
+        connectionsByAddress.computeIfPresent(address, (a, n) -> n <= 1 ? null : n - 1);
+        connections--;
+    }
+
+    /** Tells a turned-away client why (over TLS, on its own thread so a slow handshake can't hold up others). */
+    private void refuse(Socket client, String reason) {
+        Thread thread = new Thread(() -> {
+            try {
+                client.setSoTimeout(5_000);
+                Writer out = new OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8);
+                out.write(Wire.encode(new Event.LoginRefused(reason)));
+                out.write('\n');
+                out.flush();
+            } catch (IOException ignored) {
+                // they'll just see the connection close
+            } finally {
+                closeQuietly(client);
+            }
+        }, "net-refuse");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void serve(Socket client, String address) throws IOException {
+        GameServer.Session session = game.connectRemote(remoteAdmin, address);
         String who = String.valueOf(client.getRemoteSocketAddress());
+        // the TLS handshake and logging in both have to happen within this, or the connection is dropped
+        client.setSoTimeout((int) limits.loginMillis());
 
         Thread reader = new Thread(() -> {
             try {
-                String line;
-                while ((line = Wire.readLine(in, Wire.MAX_INTENT_CHARS)) != null) {
+                Reader in = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
+                double tokens = limits.burst();
+                long last = System.nanoTime();
+                int droppedInARow = 0;
+                while (true) {
+                    String line;
+                    try {
+                        line = Wire.readLine(in, Wire.MAX_INTENT_CHARS);
+                    } catch (SocketTimeoutException e) {
+                        if (!session.inWorld()) {
+                            throw new IOException("didn't log in within " + limits.loginMillis() / 1000 + "s");
+                        }
+                        client.setSoTimeout(0);
+                        continue;
+                    }
+                    if (line == null) {
+                        break;
+                    }
+                    if (session.inWorld()) {
+                        client.setSoTimeout(0);
+                    }
+                    long now = System.nanoTime();
+                    tokens = Math.min(limits.burst(), tokens + (now - last) / 1e9 * limits.messagesPerSecond());
+                    last = now;
+                    if (tokens < 1) {
+                        if (++droppedInARow > limits.floodLimit()) {
+                            throw new IOException("sending too fast");
+                        }
+                        continue;
+                    }
+                    tokens--;
+                    droppedInARow = 0;
                     if (!line.isBlank()) {
                         session.send(Wire.decodeIntent(line));
                     }
@@ -73,11 +176,13 @@ public class NetworkServer implements AutoCloseable {
             } finally {
                 session.close();
                 closeQuietly(client);
+                release(address);
             }
         }, "net-in-" + who);
 
         Thread writer = new Thread(() -> {
             try {
+                Writer out = new BufferedWriter(new OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8));
                 while (!client.isClosed()) {
                     boolean wrote = false;
                     for (Event event : session.drain()) {

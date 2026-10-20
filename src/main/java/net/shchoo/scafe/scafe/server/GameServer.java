@@ -26,7 +26,7 @@ public class GameServer {
     public static class Session {
         private final Queue<Intent> intents = new ConcurrentLinkedQueue<>();
         private final Queue<Event> events = new ConcurrentLinkedQueue<>();
-        private GameCharacter character;
+        private volatile GameCharacter character;
         private volatile boolean closed;
         /** May use the debug / world-building commands. */
         private final boolean admin;
@@ -42,6 +42,11 @@ public class GameServer {
             this.admin = admin;
             this.remote = remote;
             this.address = address;
+        }
+
+        /** Logged in and playing. */
+        public boolean inWorld() {
+            return character != null;
         }
 
         /** True once the server has ended the session (left, or refused for good); its last events still drain. */
@@ -399,7 +404,11 @@ public class GameServer {
             character.showProductTiers = set.on();
             character.saveSoon = true;
             character.emit(new Event.ShowProductTiersChanged(character.showProductTiers));
-        } else if (intent instanceof Intent.SetColor setColor) {
+        } else if (intent instanceof Intent.SetShowTimeEstimate set) {
+            character.showTimeEstimate = set.on();
+            character.saveSoon = true;
+            character.emit(new Event.ShowTimeEstimateChanged(character.showTimeEstimate));
+        }else if (intent instanceof Intent.SetColor setColor) {
             if (setColor.colorIndex() >= 0 && setColor.colorIndex() < Intent.PLAYER_COLORS) {
                 character.colorIndex = setColor.colorIndex();
                 character.infoChanged = true;
@@ -574,6 +583,11 @@ public class GameServer {
         nearbyMonsters.forEach(monster -> others.add(monster.info()));
         character.emit(new Event.Welcome(world.name, tick, List.copyOf(world.content.history()), character.snapshot(),
                 others, nodes.snapshot()));
+        List<String> alsoHere = online.values().stream().filter(c -> c != character).map(c -> c.name).toList();
+        if (!alsoHere.isEmpty()) {
+            character.say("Also here: " + String.join(", ", alsoHere) + ".");
+        }
+        tellOthers(character, name + " logged in.");
         for (GameCharacter other : nearby) {
             other.seen.add(character.id);
             other.emit(new Event.EntityEntered(character.info()));
@@ -595,6 +609,7 @@ public class GameServer {
         online.remove(character.id);
         character.disconnect();
         save(character);
+        tellOthers(character, character.name + " logged out.");
         for (GameCharacter other : online.values()) {
             if (other.seen.remove(character.id)) {
                 other.emit(new Event.EntityLeft(character.id));

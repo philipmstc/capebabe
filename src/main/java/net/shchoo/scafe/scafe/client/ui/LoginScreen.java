@@ -36,6 +36,8 @@ public class LoginScreen {
     private final Player player;
     /** Where we're connecting, for the line under the title ("your own world", "server 1.2.3.4:43594"). */
     private final String where;
+    /** The bottom line: the server's encryption fingerprint, to compare with the host's (empty when playing alone). */
+    private final String footer;
 
     private Step step = Step.LOGIN;
     /** What we were doing before WAITING, to go back to if we're refused. */
@@ -49,8 +51,13 @@ public class LoginScreen {
     private boolean newAccount;
 
     public LoginScreen(Player player, String where, String defaultName) {
+        this(player, where, "", defaultName);
+    }
+
+    public LoginScreen(Player player, String where, String footer, String defaultName) {
         this.player = player;
         this.where = where;
+        this.footer = footer == null ? "" : footer;
         this.name = defaultName == null ? "" : defaultName;
         selected = this.name.isEmpty() ? NAME : PASSWORD;
     }
@@ -93,6 +100,12 @@ public class LoginScreen {
             return Outcome.IN_WORLD;
         }
         if (step != Step.WAITING) {
+            if (player.loginRefused != null) {
+                // turned away before we even asked (e.g. already connected from this address)
+                status = player.loginRefused;
+                statusIsError = true;
+                player.loginRefused = null;
+            }
             return null;
         }
         if (player.loginRefused != null) {
@@ -113,7 +126,7 @@ public class LoginScreen {
             if (accepted.worldPasswordNeeded()) {
                 step = Step.WORLD_PASSWORD;
                 selected = WORLD;
-                status = newAccount ? "New name -- that password will be yours once you're in." : "";
+                status = newAccount ? "" : "";
                 statusIsError = false;
             } else {
                 player.enterWorld(null);
@@ -258,7 +271,7 @@ public class LoginScreen {
                 String visible = shownText.length() > FIELD_WIDTH ? shownText.substring(shownText.length() - FIELD_WIDTH) : shownText;
                 g.setBackgroundColor(isSelected ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT);
                 String cell = visible + (isSelected ? "_" : "");
-                g.putString(fieldX, y, cell + (isSelected ? " " : "_").repeat(Math.max(0, FIELD_WIDTH - cell.length())));
+                g.putString(fieldX, y, cell + (isSelected || !item.value().isEmpty() ? " " : "_").repeat(Math.max(0, FIELD_WIDTH - cell.length())));
                 g.setBackgroundColor(TextColor.ANSI.DEFAULT);
                 y += 2;
             } else {
@@ -282,6 +295,10 @@ public class LoginScreen {
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         String hint = waiting ? "[Esc] quit" : "[Up/Down/Tab] move  [Enter] next / press  [Esc] " + (step == Step.LOGIN ? "quit" : "back");
         g.putString((columns - hint.length()) / 2, rows - 2, hint);
+        if (!footer.isEmpty()) {
+            String line = Layout.fit(footer, columns - 2);
+            g.putString((columns - line.length()) / 2, rows - 1, line);
+        }
     }
 
     private record Item(String label, String value, boolean secret) {}

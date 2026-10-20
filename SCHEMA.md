@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v2, worlds v9). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v10). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -13,6 +13,7 @@ or wherever `--data <dir>` points. It doesn't depend on where you run the jar fr
 ~/.capebabe/
   accounts.db             one global account database, shared by every world
   worlds/world-1.db       one database per world (--world <id>)
+  worlds/world-gabes-world.db   a world picked by name (--world "Gabe's World"); the exact name is in world_meta
   worlds/world-1.db.lock  held (OS file lock) by whichever game has that world open; harmless to delete when none is running
   capebabe.db             old single-file format from before the split -- no longer read, safe to delete
 ```
@@ -72,7 +73,7 @@ CREATE TABLE node (id integer primary key, content_version integer not null, ord
                    capacity integer not null, max_charges integer not null, respawn_ticks integer not null);
 CREATE TABLE game_character (id integer primary key autoincrement, account_id integer not null unique,
                              name text not null, x integer not null, y integer not null,
-                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, show_product_tiers integer not null default 0);
+                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, show_product_tiers integer not null default 0, show_time_estimate integer not null default 0);
 CREATE TABLE character_skill_xp (character_id integer not null references game_character(id),
                                  skill_id integer not null references skill(id), xp integer not null,
                                  primary key (character_id, skill_id));

@@ -31,8 +31,18 @@ the provider's page before you commit to one.
 
 ### What the game exposes today
 
-The game protocol is plain TCP on port 43594, one JSON message per line (`net/NetworkServer.java`,
-`net/SocketConnection.java`). Since 2026-10-19:
+The game protocol is TLS 1.3 over TCP on port 43594, one JSON message per line inside it (`net/NetworkServer.java`,
+`net/SocketConnection.java`, `net/Tls.java`). Since 2026-10-19/20:
+- **Encryption:** everything, passwords included, is encrypted. The host's key is made the first time it hosts
+  (by the JDK's `keytool`) and kept in `~/.capebabe/tls/` (`server.p12` + its password file; keep both, and don't
+  share them). Clients can't check a self-signed key against anyone, so they **trust the server the first time**
+  and remember its fingerprint in `~/.capebabe/known-servers`, like SSH. If it ever changes they refuse to connect
+  ("isn't the one you connected to before"). The host's login screen shows its fingerprint on the bottom line, and so
+  does a friend's (marked "first visit" the first time): compare them once (read it out on a call) and you know nobody's in the
+  middle. If you ever delete `tls/`, friends have to remove your line from their `known-servers`.
+- **Connection limits:** one connection per IP at a time (`--max-per-ip 2` if two friends share a house), 32 in
+  total, 30 seconds to finish logging in, and about 40 messages per second per connection (more are dropped, and
+  a sustained flood is disconnected).
 - **Version check:** the client sends `Intent.PROTOCOL_VERSION` when it logs in. A mismatch gets "update your game"
   (or "the server needs updating"). Clients from before this get the same message.
 - **Account logins:** name + password, stored hashed in `accounts.db`. An account without a password yet (like
@@ -45,10 +55,6 @@ The game protocol is plain TCP on port 43594, one JSON message per line (`net/Ne
 - Only known message types are accepted, and lines are capped at 64KB.
 
 **Still missing:**
-- **Encryption.** Passwords and the world password cross the internet as plain text. Anyone on the network path
-  (a shared Wi-Fi, the ISP) could read them, so tell friends not to reuse a real password.
-- **Connection limits.** There's no cap on connections per IP or messages per second, so someone could flood
-  the server. They wouldn't get in, but they could make it laggy.
 - **Admin allowlist.** With `--admin`, everyone who gets in can run `/1`-`/5`. There's no per-person list yet.
 
 ## Port forwarding with logins (what you're doing first)
@@ -70,7 +76,7 @@ reasonable risk. The checklist:
 5. **Host** with a world password. Leave off `--admin` unless you want friends using `/1`-`/5`:
 
    ```bash
-   java -jar build/libs/capebabe-1.0-SNAPSHOT-all.jar --host --port 43594 --world-password "something long and random"
+   java -jar build/libs/capebabe-0.0.1-all.jar --host --port 43594 --world-password "something long and random"
    ```
 
    Or set the `CAPEBABE_WORLD_PASSWORD` environment variable instead of the flag, so it's not in your shell
@@ -78,11 +84,12 @@ reasonable risk. The checklist:
 6. **Friends** find your public IP (search "what is my ip" on *your* PC) and run:
 
    ```bash
-   java -jar capebabe-1.0-SNAPSHOT-all.jar --connect <your public ip>:43594
+   java -jar capebabe-0.0.1-all.jar --connect <your public ip>:43594
    ```
 
    The login screen asks for their name and password: whatever they pick the first time becomes theirs. Then it
-   asks for the world password. Your public IP can change (most home connections), so check it each session, or
+   asks for the world password. On their first connection the login screen says "first visit" under the title and
+   shows your fingerprint on its bottom line: check it matches the one at the bottom of yours. Your public IP can change (most home connections), so check it each session, or
    use a free dynamic DNS name (e.g. DuckDNS) that follows it.
 7. **When you stop playing:** closing the game stops the server, and nothing listens on the port. Better still,
    disable the forward in the router when you won't play for a while. Keep everyone's jar on the same build: the
@@ -152,14 +159,14 @@ it's plain Java 17.
    ```
 
    ```bash
-   java -jar build/libs/capebabe-1.0-SNAPSHOT-all.jar --host
+   java -jar build/libs/capebabe-0.0.1-all.jar --host
    ```
 
    Drop `--admin` so friends can't run world-building commands. Leave it on if you trust them to.
 6. Friends run it (see "Getting friends a client"):
 
    ```bash
-   java -jar capebabe-1.0-SNAPSHOT-all.jar --connect <your-pc's-100.x.y.z-address> --name theirname
+   java -jar capebabe-0.0.1-all.jar --connect <your-pc's-100.x.y.z-address> --name theirname
    ```
 7. The catch: the world is only up while you're playing. When you quit, everyone is disconnected. Closing the
    window does save and exit cleanly now.
@@ -223,12 +230,8 @@ These are worth doing even for Phase 1-2, and they're small:
 4. **Bind address** (`--bind 100.x.y.z`). Right now `NetworkServer` listens on every interface. Binding to the
    Tailscale address means that even if a firewall rule slips, the game isn't listening anywhere else.
 5. **Admin allowlist** (`--admins phili,friend`), instead of `--admin` for everyone or no one.
-6. **Rate / connection limits**: a cap on connections per IP and on messages per second. Now that you're port
-   forwarding, this is the next one worth doing.
-7. **Encryption (TLS).** Tailscale already encrypts everything, so skip this while you're on an overlay network.
-   With port forwarding, passwords are readable in transit until this exists. Java has TLS built in
-   (`SSLServerSocket`), and a self-signed certificate whose fingerprint is pinned in the client is enough for
-   friends.
+6. ~~Rate / connection limits~~ **done** (`NetworkServer.Limits`, `--max-per-ip`).
+7. ~~Encryption (TLS)~~ **done** (TLS 1.3, a self-signed key per host, clients trust it on first use).
 8. **Configurable font / fallback.** The client hardcodes its font (Consolas now), so friends without it get a
    fallback. Make it a `--font` option or a setting.
 

@@ -36,6 +36,7 @@ public class Player {
     public boolean running;
     public boolean autoInvestigate;
     public boolean showProductTiers;
+    public boolean showTimeEstimate;
 
     /** Where you are and which way you face. */
     record Pose(Position position, Direction facing) {}
@@ -169,6 +170,8 @@ public class Player {
             autoInvestigate = changed.on();
         } else if (event instanceof Event.ShowProductTiersChanged changed) {
             showProductTiers = changed.on();
+        } else if (event instanceof Event.ShowTimeEstimateChanged changed) {
+            showTimeEstimate = changed.on();
         } else if (event instanceof Event.HpChanged changed) {
             hp = changed.hp();
             maxHp = changed.maxHp();
@@ -196,6 +199,7 @@ public class Player {
         running = you.running();
         autoInvestigate = you.autoInvestigate();
         showProductTiers = you.showProductTiers();
+        showTimeEstimate = you.showTimeEstimate();
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
         you.inventory().forEach((productId, count) -> inventory.put(content.product(productId), count));
         you.goals().forEach(def -> goals.add(def.toGoal(content)));
@@ -337,6 +341,11 @@ public class Player {
     public void toggleShowProductTiers() {
         showProductTiers = ! showProductTiers;
         send(new Intent.SetShowProductTiers(showProductTiers));
+    }
+
+    public void toggleShowTimeEstimate() {
+        showTimeEstimate = !showTimeEstimate;
+        send(new Intent.SetShowTimeEstimate(showTimeEstimate));
     }
 
     public int getLevel(Skill skill) {
