@@ -26,13 +26,15 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
  * shows the selected item.
  */
 public class InventoryPanel extends Menu {
-    private static final Pattern SKILL_PRODUCT = Pattern.compile("skill(\\d+)\\{(\\d+)}-(\\d+)");
+    private static final Pattern SKILL_PRODUCT = Pattern.compile("skill(\\d+)\\{(\\d+)}");
     private static final Pattern MONSTER_DROP = Pattern.compile("monster(\\d+)-drop(\\d+)");
 
     /** Where the cells go (always on screen); the tab's own box, for item details, is set by the tab bar. */
     private final Rect grid;
     private int selected = 0;
     private int topRow = 0;
+    /** Enter on an item: picked to be used on a node; the tab bar hands it to the map. */
+    private Product toUse;
 
     public InventoryPanel(Rect grid) {
         super("Inventory");
@@ -50,11 +52,11 @@ public class InventoryPanel extends Menu {
         return slots;
     }
 
-    /** The two lines in an item's cell: skillN{P}-t -> "SN-P" / "  Tt", monsterN-dropK -> "MN-DK". */
+    /** The two lines in an item's cell: skill N's line P, tier t -> "SN-P" / "  Tt"; monsterN-dropK -> "MN-DK". */
     public static String[] label(Product product) {
-        Matcher skill = SKILL_PRODUCT.matcher(product.name);
-        if (skill.matches()) {
-            return new String[]{"S" + skill.group(1) + "-" + skill.group(2), "  T" + skill.group(3)};
+        Matcher skill = SKILL_PRODUCT.matcher(product.lineName());
+        if (product.hasTier() && skill.matches()) {
+            return new String[]{"S" + skill.group(1) + "-" + skill.group(2), "  T" + product.tier};
         }
         Matcher drop = MONSTER_DROP.matcher(product.name);
         if (drop.matches()) {
@@ -63,6 +65,13 @@ public class InventoryPanel extends Menu {
         String name = product.name;
         return new String[]{name.substring(0, Math.min(CELL_WIDTH, name.length())),
                 name.length() > CELL_WIDTH ? name.substring(CELL_WIDTH, Math.min(2 * CELL_WIDTH, name.length())) : ""};
+    }
+
+    /** The item picked with Enter to use on a node (once; null if none). */
+    public Product takeItemToUse() {
+        Product item = toUse;
+        toUse = null;
+        return item;
     }
 
     /** The selected item, or null if you have nothing. */
@@ -93,6 +102,10 @@ public class InventoryPanel extends Menu {
                 selected -= INVENTORY_COLUMNS;
             }
             case ArrowDown -> selected += INVENTORY_COLUMNS;
+            case Enter -> {
+                toUse = selectedItem(player);
+                return toUse == null ? Result.HANDLED : Result.RELEASE;
+            }
             case Escape -> {
                 return Result.RELEASE;
             }
@@ -186,7 +199,7 @@ public class InventoryPanel extends Menu {
         MonsterType monster = player.content.droppedBy(item);
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         if (recipe != null) {
-            g.putString(textX(), y++, fit("made with " + recipe.skill.name + " Lv. " + recipe.levelNeeded, textWidth()));
+            g.putString(textX(), y++, fit("tier " + item.tier + ", made with " + recipe.skill.name + " Lv. " + recipe.levelNeeded, textWidth()));
         } else if (monster != null) {
             String finder = monster.drops.stream().filter(d -> d.product().equals(item)).findFirst()
                     .map(MonsterType.Drop::foundBy).orElse(null);
@@ -198,6 +211,6 @@ public class InventoryPanel extends Menu {
         }
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         g.putString(textX(), hintRow(),
-                isFocused() ? "[arrows] pick  [Esc] back" : "[Down] browse items");
+                isFocused() ? "[arrows] pick  [Enter] use on a node  [Esc] back" : "[Down] browse items");
     }
 }

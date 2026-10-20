@@ -5,6 +5,7 @@ import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
+import net.shchoo.scafe.scafe.model.ProductLine;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.SkillType;
@@ -12,8 +13,10 @@ import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.model.WorldContent;
 
 import org.junit.jupiter.api.Test;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -178,5 +181,51 @@ class WorldGeneratorTest {
         assertEquals(original.maxHp, copy.maxHp);
         assertEquals(original.drops.get(0).product().name, copy.drops.get(0).product().name);
         assertEquals(original.drops.get(0).oneIn(), copy.drops.get(0).oneIn());
+    }
+
+    @Test
+    void craftedRecipesTakeOneToThreeInputsOfTheSameTier() {
+        int multiInput = 0, multiAmount = 0;
+        for (long seed = 1; seed <= 20; seed++) {
+            World world = new World(1, "w", seed);
+            world.content.apply(WorldGenerator.newSkills(world, 10));
+            world.content.apply(WorldGenerator.newProductLines(world, 6));
+            Map<Product, Skill> skillOf = new HashMap<>();
+            world.content.skills.forEach(skill -> skill.productLines.forEach(line -> line.recipes.forEach(recipe -> {
+                assertEquals(line.recipes.indexOf(recipe), recipe.product.tier, "a product's tier is its place in its line");
+                skillOf.put(recipe.product, skill);
+            })));
+            for (Skill skill : world.content.skills) {
+                for (ProductLine line : skill.productLines) {
+                    for (int tier = 0; tier < line.recipes.size(); tier++) {
+                        Recipe recipe = line.recipes.get(tier);
+                        if (skill.type == SkillType.PRIMARY) {
+                            assertTrue(recipe.components.isEmpty());
+                            continue;
+                        }
+                        assertTrue(recipe.components.size() >= 1 && recipe.components.size() <= 3, recipe.describeComponents());
+                        multiInput += tier == 0 && recipe.components.size() > 1 ? 1 : 0;
+                        boolean madeFromSecondary = false;
+                        for (Map.Entry<Product, Integer> c : recipe.components.entrySet()) {
+                            Skill maker = skillOf.get(c.getKey());
+                            assertNotNull(maker, "components are other skills' products");
+                            assertNotSame(skill, maker);
+                            assertEquals(recipe.product.tier, c.getKey().tier, "same tier in as out: " + recipe.product.name + " <- " + c.getKey().name);
+                            assertTrue(c.getValue() >= 1 && c.getValue() <= 3);
+                            multiAmount += tier == 0 && c.getValue() > 1 ? 1 : 0;
+                            if (skill.type == SkillType.SECONDARY) {
+                                assertEquals(SkillType.PRIMARY, maker.type, "secondaries are made from primaries");
+                            }
+                            madeFromSecondary |= maker.type == SkillType.SECONDARY;
+                        }
+                        if (skill.type == SkillType.TERTIARY) {
+                            assertTrue(madeFromSecondary, "tertiaries always use a secondary product");
+                        }
+                    }
+                }
+            }
+        }
+        assertTrue(multiInput > 0, "some lines take more than one input");
+        assertTrue(multiAmount > 0, "some take more than one of something");
     }
 }

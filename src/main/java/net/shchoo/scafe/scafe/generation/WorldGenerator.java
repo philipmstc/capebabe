@@ -38,7 +38,7 @@ public final class WorldGenerator {
             for (int i = 0; i < count; i++) {
                 List<Skill> crafting = content.craftingSkills();
                 Skill target = crafting.get(rng.nextInt(crafting.size()));
-                SkillFactory.addNewProductLineToSkill(target, content);
+                SkillFactory.addNewProductLineToSkill(target, content, rng);
             }
         });
     }

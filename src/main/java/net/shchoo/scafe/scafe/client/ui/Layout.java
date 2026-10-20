@@ -72,7 +72,7 @@ public final class Layout {
 
     /** ...and 1 row tall. */
     public static int tileScreenY(int worldY, int centerY) {
-        return MAP.y() + 1 + (worldY - centerY + VIEW_CENTER_ROW);
+        return MAP.y() + 1 + (worldY - centerY + VIEW_CENTER_ROW) ;
     }
 
     public static Position clampToView(Position p, int centerX, int centerY) {

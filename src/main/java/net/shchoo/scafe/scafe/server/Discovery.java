@@ -5,6 +5,8 @@ import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
+import net.shchoo.scafe.scafe.model.Recipe;
+import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.World;
 
 import java.util.ArrayList;
@@ -67,6 +69,11 @@ public class Discovery {
     private Discovery(Random random, boolean enabled) {
         this.random = random;
         this.enabled = enabled;
+    }
+
+    /** Off = the world only grows when asked to (debug commands), and new skills don't bring a starter node. */
+    public boolean enabled() {
+        return enabled;
     }
 
     public static Discovery off() {
@@ -141,10 +148,32 @@ public class Discovery {
         ContentBatch.SkillDef skill = batch.skills().get(0);
         character.say("You discovered a new skill: " + skill.name() + " (" + skill.type().name().toLowerCase() + ")!");
         server.tellOthers(character, character.name + " discovered a new skill: " + skill.name() + ".");
+        spawnStarterNode(server, character, server.world.content.skill(skill.id()), random);
+    }
+
+    /**
+     * A tier-0 node of a brand new skill's first product line, near whoever found it, so every skill has at
+     * least one node somewhere. Returns null if there was no safe spot nearby.
+     */
+    static Node spawnStarterNode(GameServer server, GameCharacter character, Skill skill, Random random) {
+        if (skill.productLines.isEmpty()) {
+            return null;
+        }
+        Recipe tier0 = skill.productLines.get(0).recipes.get(0);
+        Position at = nodeSpot(server, character.position(), SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE, random);
+        if (at == null) {
+            return null;
+        }
+        ContentBatch batch = WorldGenerator.newNode(server.world, at, 1 + random.nextInt(3), 5 + random.nextInt(16),
+                20 + random.nextInt(41), recipe -> recipe.id == tier0.id ? 1 : 0);
+        server.applyContent(batch, character);
+        Node node = server.world.content.node(batch.nodes().get(0).id());
+        character.say("A " + skill.name + " node (" + node.label() + ") appeared nearby.");
+        return node;
     }
 
     private void discoverNode(GameServer server, GameCharacter character) {
-        Position at = freeSpot(server, character.position(), SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE, random);
+        Position at = nodeSpot(server, character.position(), SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE, random);
         if (at == null) {
             return;
         }
@@ -170,7 +199,19 @@ public class Discovery {
     }
 
     /** A random tile between min and max tiles away (either axis) with no node, monster or player on it, or null. */
+    /** Like {@link #freeSpot}, also making sure a node there doesn't wall anything in ({@link NodePlacement}). */
+    static Position nodeSpot(GameServer server, Position around, int min, int max, Random random) {
+        List<Position> spots = freeSpots(server, around, min, max);
+        spots.removeIf(spot -> !NodePlacement.safe(p -> !server.passable(p), spot));
+        return spots.isEmpty() ? null : spots.get(random.nextInt(spots.size()));
+    }
+
     static Position freeSpot(GameServer server, Position around, int min, int max, Random random) {
+        List<Position> spots = freeSpots(server, around, min, max);
+        return spots.isEmpty() ? null : spots.get(random.nextInt(spots.size()));
+    }
+
+    private static List<Position> freeSpots(GameServer server, Position around, int min, int max) {
         List<Position> spots = new ArrayList<>();
         for (int dx = -max; dx <= max; dx++) {
             for (int dy = -max; dy <= max; dy++) {
@@ -183,6 +224,6 @@ public class Discovery {
                 }
             }
         }
-        return spots.isEmpty() ? null : spots.get(random.nextInt(spots.size()));
+        return spots;
     }
 }

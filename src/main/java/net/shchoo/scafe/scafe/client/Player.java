@@ -31,8 +31,11 @@ public class Player {
     /** Which way you're drawn facing (predicted, like x/y). */
     public Direction facing = Direction.DOWN;
     public int colorIndex;
+
+    // Settings
     public boolean running;
     public boolean autoInvestigate;
+    public boolean showProductTiers;
 
     /** Where you are and which way you face. */
     record Pose(Position position, Direction facing) {}
@@ -164,6 +167,8 @@ public class Player {
             running = changed.running();
         } else if (event instanceof Event.AutoInvestigateChanged changed) {
             autoInvestigate = changed.on();
+        } else if (event instanceof Event.ShowProductTiersChanged changed) {
+            showProductTiers = changed.on();
         } else if (event instanceof Event.HpChanged changed) {
             hp = changed.hp();
             maxHp = changed.maxHp();
@@ -190,6 +195,7 @@ public class Player {
         colorIndex = you.colorIndex();
         running = you.running();
         autoInvestigate = you.autoInvestigate();
+        showProductTiers = you.showProductTiers();
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
         you.inventory().forEach((productId, count) -> inventory.put(content.product(productId), count));
         you.goals().forEach(def -> goals.add(def.toGoal(content)));
@@ -295,6 +301,11 @@ public class Player {
         send(new Intent.SetColor(colorIndex));
     }
 
+    /** Use an inventory item on the node at {@code target} (the server walks you over if needed). */
+    public void useItem(Product item, Position target) {
+        send(new Intent.UseItem(item.id, target));
+    }
+
     /** Step 1 of joining (the server answers LoginAccepted / LoginRefused). */
     public void login(String name, String password) {
         loginAccepted = null;
@@ -321,6 +332,11 @@ public class Player {
     public void toggleAutoInvestigate() {
         autoInvestigate = !autoInvestigate;
         send(new Intent.SetAutoInvestigate(autoInvestigate));
+    }
+
+    public void toggleShowProductTiers() {
+        showProductTiers = ! showProductTiers;
+        send(new Intent.SetShowProductTiers(showProductTiers));
     }
 
     public int getLevel(Skill skill) {

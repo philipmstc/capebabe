@@ -8,7 +8,6 @@ import net.shchoo.scafe.scafe.protocol.Intent;
 
 import java.util.List;
 import java.util.function.BiConsumer;
-import java.util.stream.Collectors;
 
 public enum ConsoleAction {
     RIGHT('d', "Move right", (player, board) -> player.moveBy(1, 0)),
@@ -30,8 +29,7 @@ public enum ConsoleAction {
             GameLog.say("[" + s.type + "] Skill: " + s.name);
             for (ProductLine pl : s.productLines) {
                 for (Recipe r : pl.recipes) {
-                    String components = "[" + r.components.keySet().stream().map(p -> p.name).collect(Collectors.joining(",")) + "]";
-                    GameLog.say("\t" + r.levelNeeded + ":" + r.product.name + components);
+                    GameLog.say("\t" + r.levelNeeded + ":" + r.product.name + " [" + r.describeComponents() + "]");
                 }
             }
         }

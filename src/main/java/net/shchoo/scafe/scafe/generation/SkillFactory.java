@@ -128,23 +128,24 @@ public class SkillFactory {
         Skill skill = new Skill(world.allocateId(), name, type, world.skills.size(),
                 SYMBOLS_BY_TYPE.get(type).get((int) (sameType % 3)));
         do {
-            addNewProductLineToSkill(skill, world);
+            addNewProductLineToSkill(skill, world, rng);
         } while (needsNewProductLine(skill, world.craftingSkills(), rng));
         world.addSkill(skill);
         return skill;
     }
 
-    public static void addNewProductLineToSkill(Skill skill, WorldContent world) {
+    public static void addNewProductLineToSkill(Skill skill, WorldContent world, Random rng) {
         String name = skill.name + "{" + (skill.productLines.size()) + "}";
         List<Skill> allSkills = world.skills;
         switch (skill.type) {
             case PRIMARY -> skill.productLines.add(ProductLineFactory.createPrimaryProductLine(world, skill, name));
             case SECONDARY ->
                     skill.productLines.add(ProductLineFactory.createSecondaryProductLine(world, skill, name, allSkills.stream()
-                            .filter(s -> PRIMARY.equals(s.type)).toList()));
+                            .filter(s -> PRIMARY.equals(s.type)).toList(), rng));
             case TERTIARY ->
                     skill.productLines.add(ProductLineFactory.createTertiaryProductLine(world, skill, name, allSkills.stream()
-                            .filter(s -> SkillType.SECONDARY.equals(s.type)).toList()));
+                            .filter(s -> SkillType.SECONDARY.equals(s.type)).toList(), allSkills.stream()
+                            .filter(s -> PRIMARY.equals(s.type)).toList(), rng));
         }
     }
 

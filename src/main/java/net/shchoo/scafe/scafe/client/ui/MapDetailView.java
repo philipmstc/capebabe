@@ -15,7 +15,6 @@ import com.googlecode.lanterna.screen.Screen;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import static net.shchoo.scafe.scafe.client.ui.Layout.fit;
 
@@ -111,10 +110,9 @@ public class MapDetailView extends Widget {
 
     static List<String> describe(Node node) {
         Recipe recipe = node.recipe;
-        String components = recipe.components.keySet().stream().map(p -> p.name).collect(Collectors.joining(", "));
         return List.of(
                 recipe.skill.name + " [Lv. " + recipe.levelNeeded + "]",
                 "  makes " + recipe.product.name + " (+" + recipe.expGained + "xp)",
-                "  needs " + (components.isEmpty() ? "nothing" : components));
+                "  needs " + recipe.describeComponents());
     }
 }

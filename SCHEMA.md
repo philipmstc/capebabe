@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v2, worlds v7). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v9). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -32,6 +32,9 @@ Only the server side writes these (single player, `--host`, `--server`); `--conn
   `world_meta.content_version` is the latest batch, checked and bumped in the same transaction as each new batch.
   `content_batch` says whose action made each batch (`created_by`, a character name) and when (`created_at`, epoch
   milliseconds); batches saved before v7 have no row.
+  `product.tier` is the product's tier in its product line (0-4), or -1 for products outside any line
+  (one-of-a-kind drops). Rows saved before v8 have null there, and loading reads the tier off the name's "-N"
+  ending instead.
 - **Accounts** (`accounts.db`): `password_hash` is `pbkdf2$<iterations>$<salt>$<hash>` (PBKDF2-HMAC-SHA256),
   never the password. Null for accounts from before logins; their first login sets it.
 - **Characters** (`game_character` + `character_skill_xp`, `inventory`, `goal`, `character_tried_node`): one
@@ -54,7 +57,7 @@ CREATE TABLE world_meta (id integer primary key check (id = 1), name text not nu
 CREATE TABLE skill (id integer primary key, content_version integer not null, ordinal integer not null,
                     name text not null, type text not null, color_index integer not null, symbol text not null);
 CREATE TABLE product (id integer primary key, content_version integer not null, ordinal integer not null,
-                      name text not null);
+                      name text not null, tier integer);
 CREATE TABLE product_line (id integer primary key, content_version integer not null, ordinal integer not null,
                            skill_id integer not null references skill(id));
 CREATE TABLE recipe (id integer primary key, content_version integer not null, ordinal integer not null,
@@ -69,7 +72,7 @@ CREATE TABLE node (id integer primary key, content_version integer not null, ord
                    capacity integer not null, max_charges integer not null, respawn_ticks integer not null);
 CREATE TABLE game_character (id integer primary key autoincrement, account_id integer not null unique,
                              name text not null, x integer not null, y integer not null,
-                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0);
+                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, show_product_tiers integer not null default 0);
 CREATE TABLE character_skill_xp (character_id integer not null references game_character(id),
                                  skill_id integer not null references skill(id), xp integer not null,
                                  primary key (character_id, skill_id));

@@ -65,23 +65,25 @@ class InventoryPanelTest {
 
     @Test
     void cellsAreLabelledShortly() {
-        assertArrayEquals(new String[]{"S3-2", "  T7"}, InventoryPanel.label(new Product(1, "skill3{2}-7")));
+        assertArrayEquals(new String[]{"S3-2", "  T7"}, InventoryPanel.label(new Product(1, "skill3{2}-7", 7)));
+        assertArrayEquals(new String[]{"skill", "3{2}-"}, InventoryPanel.label(new Product(4, "skill3{2}-7")),
+                "the tier comes from the data, not the name");
         assertArrayEquals(new String[]{"M1-D4", ""}, InventoryPanel.label(new Product(2, "monster1-drop4")));
         assertArrayEquals(new String[]{"somet", "hing "}, InventoryPanel.label(new Product(3, "something else")));
     }
 
     @Test
     void oneItemPerSlot() {
-        player.inventory.put(new Product(1, "skill0{0}-0"), 3);
-        player.inventory.put(new Product(2, "skill1{0}-1"), 1);
+        player.inventory.put(new Product(1, "skill0{0}-0", 0), 3);
+        player.inventory.put(new Product(2, "skill1{0}-1", 1), 1);
         assertEquals(4, InventoryPanel.slots(player).size());
     }
 
     @Test
     void iJumpsIntoTheInventoryAndArrowsMoveLikeTheHoverCursor() throws IOException {
         int columns = Layout.INVENTORY_COLUMNS, fits = columns * Layout.INVENTORY_ROWS;
-        player.inventory.put(new Product(1, "skill0{0}-0"), fits);
-        player.inventory.put(new Product(2, "skill1{2}-3"), 1);
+        player.inventory.put(new Product(1, "skill0{0}-0", 0), fits);
+        player.inventory.put(new Product(2, "skill1{2}-3", 3), 1);
         tabs.onKey(new KeyStroke('i', false, false), player, board);
         assertSame(inventory, tabs.selected());
         assertTrue(inventory.isFocused());
@@ -107,7 +109,7 @@ class InventoryPanelTest {
     void theScrollbarShowsHowMuchIsVisibleAndWhere() throws IOException {
         int columns = Layout.INVENTORY_COLUMNS, rows = Layout.INVENTORY_ROWS;
         int track = Layout.INVENTORY.height() - 2;
-        player.inventory.put(new Product(1, "skill0{0}-0"), columns * rows * 2);
+        player.inventory.put(new Product(1, "skill0{0}-0", 0), columns * rows * 2);
         assertEquals(List.of(1, track / 2), thumbRows(), "half the rows visible = half the track, at the top");
 
         tabs.onKey(new KeyStroke('i', false, false), player, board);
@@ -133,7 +135,7 @@ class InventoryPanelTest {
 
     @Test
     void upFromTheTopRowLeavesTheInventory() {
-        player.inventory.put(new Product(1, "skill0{0}-0"), 4);
+        player.inventory.put(new Product(1, "skill0{0}-0", 0), 4);
         tabs.onKey(new KeyStroke('i', false, false), player, board);
         press(KeyType.ArrowDown);
         press(KeyType.ArrowUp);
@@ -144,7 +146,7 @@ class InventoryPanelTest {
 
     @Test
     void anEmptyInventoryCantBeFocused() {
-        player.inventory.put(new Product(1, "skill0{0}-0"), 0);
+        player.inventory.put(new Product(1, "skill0{0}-0", 0), 0);
         tabs.onKey(new KeyStroke('i', false, false), player, board);
         assertFalse(inventory.isFocused(), "an item at x 0 takes no slot");
     }

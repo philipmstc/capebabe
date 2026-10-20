@@ -251,7 +251,7 @@ public class GameServer {
             Intent intent;
             while ((intent = session.intents.poll()) != null) {
                 if (intent instanceof Intent.Perform || intent instanceof Intent.AddGoal || intent instanceof Intent.Admin
-                        || intent instanceof Intent.Attack) {
+                        || intent instanceof Intent.Attack || intent instanceof Intent.UseItem) {
                     afterMovement.add(Map.entry(session, intent));
                 } else {
                     handle(session, intent);
@@ -293,6 +293,11 @@ public class GameServer {
             }
         }
         combat.tick(tick);
+        for (GameCharacter character : online.values()) {
+            if (character.pendingUse != null) {
+                character.arrive(world.content.nodeAt(character.pendingUse), tick);
+            }
+        }
         afterMovement.forEach(entry -> handle(entry.getKey(), entry.getValue()));
         for (int id : nodes.drainStranded()) {
             GameCharacter character = online.get(id);
@@ -390,6 +395,10 @@ public class GameServer {
             character.autoInvestigate = set.on();
             character.saveSoon = true;
             character.emit(new Event.AutoInvestigateChanged(character.autoInvestigate));
+        } else if (intent instanceof Intent.SetShowProductTiers set) {
+            character.showProductTiers = set.on();
+            character.saveSoon = true;
+            character.emit(new Event.ShowProductTiersChanged(character.showProductTiers));
         } else if (intent instanceof Intent.SetColor setColor) {
             if (setColor.colorIndex() >= 0 && setColor.colorIndex() < Intent.PLAYER_COLORS) {
                 character.colorIndex = setColor.colorIndex();
@@ -405,6 +414,11 @@ public class GameServer {
             } else {
                 character.performOrStop(nodeAhead(character), tick);
             }
+        } else if (intent instanceof Intent.UseItem use) {
+            if (character.currentFight != null) {
+                combat.endFight(character, null);
+            }
+            character.useItem(world.content.product(use.productId()), world.content.nodeAt(use.target()), use.target(), tick);
         } else if (intent instanceof Intent.Attack) {
             combat.attack(character, tick);
         } else if (intent instanceof Intent.AddGoal) {
@@ -606,6 +620,11 @@ public class GameServer {
                 default -> throw new IllegalArgumentException("Unknown admin command " + command);
             };
             applyContent(batch, character);
+            for (ContentBatch.SkillDef skill : batch.skills()) {
+                if (discovery.enabled()) {
+                    Discovery.spawnStarterNode(this, character, world.content.skill(skill.id()), random);
+                }
+            }
         } catch (RuntimeException e) {
             character.say("Couldn't run " + command + ": " + e.getMessage());
         }

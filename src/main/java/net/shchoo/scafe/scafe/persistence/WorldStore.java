@@ -19,6 +19,8 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.sql.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.*;
 
 /**
@@ -98,6 +100,14 @@ public class WorldStore extends SqliteStore implements Storage {
             """
             create table content_batch (content_version integer primary key, created_by text not null,
                                         created_at integer not null);
+            """,
+            // v8: product tiers as data (-1 = no tier). Rows from before are null and read their tier off the name.
+            """
+            alter table product add column tier integer;
+            """,
+            // v9: show product tiers player setting
+            """
+            alter table game_character add column show_product_tiers integer not null default 0;
             """
     );
 
@@ -209,9 +219,9 @@ public class WorldStore extends SqliteStore implements Storage {
             }
         }
         try (PreparedStatement ps = connection.prepareStatement(
-                "insert into product (id, content_version, ordinal, name) values (?,?,?,?)")) {
+                "insert into product (id, content_version, ordinal, name, tier) values (?,?,?,?,?)")) {
             for (ContentBatch.ProductDef d : batch.products()) {
-                set(ps, d.id(), v, ordinal++, d.name());
+                set(ps, d.id(), v, ordinal++, d.name(), d.tier());
                 ps.executeUpdate();
             }
         }
@@ -267,6 +277,19 @@ public class WorldStore extends SqliteStore implements Storage {
         }
     }
 
+    /** A product row's tier; rows saved before v8 have none, and get it from the "-N" their name ends with. */
+    private static int tierOf(ResultSet rs) throws SQLException {
+        int tier = rs.getInt("tier");
+        if (!rs.wasNull()) {
+            return tier;
+        }
+        Matcher legacy = LEGACY_TIER.matcher(rs.getString("name"));
+        return legacy.matches() ? Integer.parseInt(legacy.group(1)) : Product.NO_TIER;
+    }
+
+    /** How generated product names ended before tiers were stored: "skill1{0}-3". */
+    private static final Pattern LEGACY_TIER = Pattern.compile(".*\\}-(\\d+)");
+
     private List<ContentBatch> loadBatches() throws SQLException {
         int version;
         try (Statement statement = connection.createStatement();
@@ -286,7 +309,8 @@ public class WorldStore extends SqliteStore implements Storage {
                 skills.get(rs.getInt("content_version") - 1).add(new ContentBatch.SkillDef(rs.getInt("id"), rs.getString("name"),
                         SkillType.valueOf(rs.getString("type")), rs.getInt("color_index"), rs.getString("symbol").charAt(0))));
         all("select * from product order by content_version, ordinal", rs ->
-                products.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductDef(rs.getInt("id"), rs.getString("name"))));
+                products.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductDef(rs.getInt("id"), rs.getString("name"),
+                        tierOf(rs))));
         all("select * from product_line order by content_version, ordinal", rs ->
                 productLines.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductLineDef(rs.getInt("id"), rs.getInt("skill_id"))));
         Map<Integer, Map<Integer, Integer>> components = new HashMap<>();
@@ -354,6 +378,7 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.colorIndex = rs.getInt("color_index");
                 character.running = rs.getInt("running") != 0;
                 character.autoInvestigate = rs.getInt("auto_investigate") != 0;
+                character.showProductTiers = rs.getInt("show_product_tiers") != 0;
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
                     character.lastActionAt = new Position(lastX, rs.getInt("last_action_y"));
@@ -390,11 +415,11 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
-                        character.autoInvestigate ? 1 : 0, character.id);
+                        character.autoInvestigate ? 1 : 0, character.showProductTiers ? 1 : 0, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node")) {

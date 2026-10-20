@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.client.ui;
 
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
+import net.shchoo.scafe.scafe.model.Product;
 
 import com.googlecode.lanterna.SGR;
 import com.googlecode.lanterna.TextColor;
@@ -96,6 +97,14 @@ public class TabBar extends Widget {
             Menu.Result result = menu.handleKey(key, player, board);
             if (result == Menu.Result.RELEASE) {
                 menu.unfocus();
+            }
+            Product item = menu == inventory ? inventory.takeItemToUse() : null;
+            if (item != null) {
+                // picked an item to use: over to the map to aim it at a node
+                tabs.stream().filter(MapMenu.class::isInstance).map(MapMenu.class::cast).findFirst().ifPresent(map -> {
+                    selection = tabs.indexOf(map);
+                    map.startUsing(item, player, board);
+                });
             }
             if (result != Menu.Result.IGNORED) {
                 return true;

@@ -215,8 +215,8 @@ public class SkillsMenu extends Menu {
             }
 
             textGraphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            String source = base.components.keySet().stream()
-                    .map(SkillsMenu::productLineName)
+            String source = base.components.entrySet().stream()
+                    .map(c -> (c.getValue() > 1 ? c.getValue() + "x " : "") + productLineName(c.getKey()))
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("raw");
             textGraphics.putString(detailX() + 2, y + 2, fit("from " + source, detailWidth() - 2));
@@ -238,7 +238,6 @@ public class SkillsMenu extends Menu {
     }
 
     private static String productLineName(Product product) {
-        int dash = product.name.lastIndexOf('-');
-        return dash < 0 ? product.name : product.name.substring(0, dash);
+        return product.lineName();
     }
 }

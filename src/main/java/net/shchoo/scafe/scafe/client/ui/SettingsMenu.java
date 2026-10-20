@@ -20,7 +20,8 @@ public class SettingsMenu extends Menu {
     private static final int COLOR_ROW = 0;
     private static final int RUN_ROW = 1;
     private static final int INVESTIGATE_ROW = 2;
-    private static final int ROWS = 3;
+    private static final int SHOW_PRODUCT_TIER_ROW = 3;
+    private static final int ROWS = 4;
     private static final int VALUE_X = 19;
 
     private static final List<String[]> CONTROLS = List.of(
@@ -30,7 +31,7 @@ public class SettingsMenu extends Menu {
             new String[]{"g", "locked node ahead -> goal"},
             new String[]{"f", "fight the monster next to you"},
             new String[]{"Left/Right", "switch tabs; Down/Enter uses one"},
-            new String[]{"i", "jump into the inventory"},
+            new String[]{"i", "inventory (Enter: use on a node)"},
             new String[]{"Map: Down", "hover; Enter walks there"},
             new String[]{"/", "command (/1-/5 debug, k lists)"},
             new String[]{"k", "list every command in the log"},
@@ -63,7 +64,8 @@ public class SettingsMenu extends Menu {
                 switch (row) {
                     case COLOR_ROW -> player.setColor(player.colorIndex + delta);
                     case RUN_ROW -> player.toggleRunning();
-                    default -> player.toggleAutoInvestigate();
+                    case INVESTIGATE_ROW -> player.toggleAutoInvestigate();
+                    case SHOW_PRODUCT_TIER_ROW -> player.toggleShowProductTiers();
                 }
             }
             case Escape -> {
@@ -87,6 +89,7 @@ public class SettingsMenu extends Menu {
         g.setCharacter(textX() + VALUE_X + 15, y - 1, player.facing.arrow);
         settingRow(g, y++, isFocused() && row == RUN_ROW, "Running", player.running ? "on" : "off");
         settingRow(g, y++, isFocused() && row == INVESTIGATE_ROW, "Auto-investigate", player.autoInvestigate ? "on" : "off");
+        settingRow(g, y++, isFocused() && row == SHOW_PRODUCT_TIER_ROW, "Contrast tiers", player.showProductTiers ? "on" : "off");
 
         y++;
         g.setForegroundColor(TextColor.ANSI.DEFAULT);

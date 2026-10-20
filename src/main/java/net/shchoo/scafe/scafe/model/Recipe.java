@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.model;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,16 @@ public class Recipe {
         Map<Product, Integer> comps = new LinkedHashMap<>();
         components.forEach(co -> comps.put(co, 1));
         return comps;
+    }
+
+    /** "2x ore-1, coal-1", or "nothing". */
+    public String describeComponents() {
+        if (components.isEmpty()) {
+            return "nothing";
+        }
+        List<String> parts = new ArrayList<>();
+        components.forEach((product, count) -> parts.add((count > 1 ? count + "x " : "") + product.name));
+        return String.join(", ", parts);
     }
 
     public boolean levelMet(int level) {

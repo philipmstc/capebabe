@@ -50,8 +50,8 @@ class WorldStoreTest {
     @Test
     void eachWorldIsItsOwnFileAndRemembersItsSeed() throws Exception {
         try (WorldStore one = open(1); WorldStore two = open(2)) {
-            assertEquals(7, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
-                    + "v6 auto-investigate, v7 content origins");
+            assertEquals(9, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
+                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers");
             assertEquals(777, one.loadOrCreateWorld(1, "w1", 777).seed);
             assertEquals(888, two.loadOrCreateWorld(2, "w2", 888).seed);
         }
@@ -182,6 +182,7 @@ class WorldStoreTest {
             alice.send(new Intent.SetColor(4));
             alice.send(new Intent.SetRunning(true));
             alice.send(new Intent.SetAutoInvestigate(true));
+            alice.send(new Intent.SetShowProductTiers(true));
             server.tick();
             server.tick();
             alice.receive();
@@ -204,6 +205,7 @@ class WorldStoreTest {
             assertEquals(4, alice.colorIndex);
             assertTrue(alice.running);
             assertTrue(alice.autoInvestigate);
+            assertTrue(alice.showProductTiers, "Contrast tiers is remembered");
             ContentBatch.Origin origin = alice.content.origin(alice.content.skills.get(0).id);
             assertEquals("alice", origin.by(), "whose action made the skill is saved with it");
             assertTrue(origin.at() > 0);
@@ -257,7 +259,7 @@ class WorldStoreTest {
             statement.execute("insert into world_meta (id, name, seed) values (1, 'old', 55)");
         }
         try (WorldStore store = open(7)) {
-            assertEquals(7, store.schemaVersion());
+            assertEquals(9, store.schemaVersion());
             World world = store.loadOrCreateWorld(7, "ignored", 0);
             assertEquals("old", world.name);
             save(store, world, WorldGenerator.newSkills(world, 1));
@@ -338,5 +340,38 @@ class WorldStoreTest {
             assertTrue(logIn(server, "oldtimer", "claimed").inWorld(), "kept across restarts");
             server.stop();
         }
+    }
+
+    @Test
+    void productTiersAreSavedAndOldSavesGetThemFromTheNames() throws Exception {
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 6);
+            save(store, world, WorldGenerator.newSkills(world, 3));
+            save(store, world, WorldGenerator.newMonsterType(world));
+            save(store, world, WorldGenerator.newDrop(world, world.content.monsters.get(0).id));
+        }
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 0);
+            assertTiersMatchTheirPlaceInTheirLine(world);
+        }
+        try (Connection raw = DriverManager.getConnection("jdbc:sqlite:" + WorldStore.fileFor(dir, 1).toAbsolutePath());
+             Statement statement = raw.createStatement()) {
+            statement.execute("update product set tier = null");
+        }
+        try (WorldStore store = open(1)) {
+            assertTiersMatchTheirPlaceInTheirLine(store.loadOrCreateWorld(1, "w", 0));
+        }
+    }
+
+    private static void assertTiersMatchTheirPlaceInTheirLine(World world) {
+        for (Skill skill : world.content.skills) {
+            for (ProductLine line : skill.productLines) {
+                for (int tier = 0; tier < line.recipes.size(); tier++) {
+                    assertEquals(tier, line.recipes.get(tier).product.tier, line.recipes.get(tier).product.name);
+                }
+            }
+        }
+        Product drop = world.content.monsters.get(0).drops.get(0).product();
+        assertEquals(Product.NO_TIER, drop.tier, "one-of-a-kinds have no tier");
     }
 }

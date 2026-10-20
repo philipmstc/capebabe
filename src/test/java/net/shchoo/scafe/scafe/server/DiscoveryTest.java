@@ -87,10 +87,11 @@ class DiscoveryTest {
         assertTrue(log.stream().anyMatch(m -> m.startsWith("You discovered a new skill: skill0")));
         assertNotNull(alice.content.combatSkill(), "with every roll lucky, a monster kind (and combat) shows up too");
         assertTrue(alice.others.values().stream().anyMatch(Event.EntityInfo::isMonster));
-        assertEquals(1, alice.content.nodes().size());
-        Node node = alice.content.nodes().iterator().next();
-        int distance = Math.max(Math.abs(node.position.x() - alice.x), Math.abs(node.position.y() - alice.y));
-        assertTrue(distance >= Discovery.SPAWN_MIN_DISTANCE && distance <= Discovery.SPAWN_MAX_DISTANCE, "distance " + distance);
+        assertEquals(2, alice.content.nodes().size(), "the new skill's own tier-0 node, and a random node from the lucky roll");
+        for (Node node : alice.content.nodes()) {
+            int distance = Math.max(Math.abs(node.position.x() - alice.x), Math.abs(node.position.y() - alice.y));
+            assertTrue(distance >= Discovery.SPAWN_MIN_DISTANCE && distance <= Discovery.SPAWN_MAX_DISTANCE, "distance " + distance);
+        }
         assertTrue(log.stream().anyMatch(m -> m.contains("node") && m.endsWith("appeared nearby.")));
     }
 

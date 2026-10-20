@@ -27,8 +27,11 @@ public class GameCharacter implements Walker.Mobile {
     public boolean running;
     /** While moving, head for nodes that appear nearby. */
     public boolean autoInvestigate;
+    public boolean showProductTiers;
     /** The last tick this character took a step (or turned), for "is moving right now". */
     long lastSteppedTick = -1;
+    /** Walking over to use an item on the node here; its action starts on arrival. */
+    Position pendingUse;
     public final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     public final List<Goal> goals = new ArrayList<>();
@@ -125,9 +128,67 @@ public class GameCharacter implements Walker.Mobile {
 
     /** Start using the node, or stop if busy. */
     void performOrStop(Node node, long tick) {
+        pendingUse = null;
         if (currentAction != null) {
             stopAction("Stopped.");
+        } else {
+            startAction(node, tick);
+        }
+    }
+
+    /**
+     * Use {@code item} on the node at {@code target}: it has to be one of that node's components. Facing it, the
+     * node's action starts (instead of whatever you were doing); otherwise you walk over and it starts on arrival.
+     */
+    void useItem(Product item, Node node, Position target, long tick) {
+        pendingUse = null;
+        if (item == null || inventory.getOrDefault(item, 0) <= 0) {
+            say("You don't have that.");
         } else if (node == null) {
+            say("There's nothing there to use it on.");
+        } else if (!node.recipe.components.containsKey(item)) {
+            say("Nothing interesting happens.");
+        } else if (ahead().equals(target)) {
+            if (currentAction != null && currentAction.node.equals(node)) {
+                say("You're already on it.");
+                return;
+            }
+            if (currentAction != null) {
+                stopAction(null);
+            }
+            startAction(node, tick);
+        } else {
+            Position at = position();
+            if (Math.abs(target.x() - at.x()) + Math.abs(target.y() - at.y()) == 1) {
+                queueStep(Direction.of(target.x() - at.x(), target.y() - at.y()));
+            } else {
+                walkTo(target);
+            }
+            if (walker.isWalking()) {
+                pendingUse = target;
+            }
+        }
+    }
+
+    /** After walking: start the use that was waiting for us to arrive, if we got there. */
+    void arrive(Node node, long tick) {
+        if (pendingUse == null || walker.isWalking()) {
+            return;
+        }
+        Position target = pendingUse;
+        pendingUse = null;
+        if (!ahead().equals(target) || node == null) {
+            say("Couldn't get to it.");
+            return;
+        }
+        if (currentAction != null) {
+            stopAction(null);
+        }
+        startAction(node, tick);
+    }
+
+    private void startAction(Node node, long tick) {
+        if (node == null) {
             say("Nothing to do here...");
         } else if (!canPerform(node)) {
             perform(node);
@@ -145,12 +206,14 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     void queueStep(Direction direction) {
+        pendingUse = null;
         if (!walker.queueStep(direction)) {
             emit(new Event.StepsCleared(position(), facing));
         }
     }
 
     void walkTo(Position target) {
+        pendingUse = null;
         if (walker.walkTo(target)) {
             emit(new Event.StepsCleared(position(), facing));
         }
@@ -268,7 +331,7 @@ public class GameCharacter implements Walker.Mobile {
         inventory.forEach((product, count) -> inventoryById.put(product.id, count));
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
-                facing, colorIndex, running, autoInvestigate);
+                facing, colorIndex, running, autoInvestigate, showProductTiers);
     }
 
     Event.EntityInfo info() {

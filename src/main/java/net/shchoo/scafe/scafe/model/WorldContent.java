@@ -46,7 +46,7 @@ public class WorldContent {
             seen(def.id());
         }
         for (ContentBatch.ProductDef def : batch.products()) {
-            productsById.put(def.id(), new Product(def.id(), def.name()));
+            productsById.put(def.id(), new Product(def.id(), def.name(), def.tier()));
             seen(def.id());
         }
         for (ContentBatch.ProductLineDef def : batch.productLines()) {
@@ -187,7 +187,7 @@ public class WorldContent {
 
     private static void addIfNew(WorldContent original, Product product, Map<Integer, ContentBatch.ProductDef> into) {
         if (!original.productsById.containsKey(product.id)) {
-            into.putIfAbsent(product.id, new ContentBatch.ProductDef(product.id, product.name));
+            into.putIfAbsent(product.id, new ContentBatch.ProductDef(product.id, product.name, product.tier));
         }
     }
 

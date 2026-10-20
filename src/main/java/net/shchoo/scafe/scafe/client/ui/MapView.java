@@ -214,6 +214,20 @@ public class MapView extends Widget {
             screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter(' ', fg, bg)[0]);
             screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter(' ', fg, bg)[0]);
         }
+        if (hasAction && player.showProductTiers) {
+            if (node.recipe.product.tier > 0) {
+                screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter('.', fg, bg)[0]);
+            }
+            if (node.recipe.product.tier > 1) {
+                screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter('.', fg, bg)[0]);
+            }
+            if (node.recipe.product.tier > 2) {
+                screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter(':', fg, bg)[0]);
+            }
+            if (node.recipe.product.tier > 3) {
+                screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter(':', fg, bg)[0]);
+            }
+        }
         screen.setCharacter(screenX, screenY, TextCharacter.fromCharacter(result, fg, bg)[0]);
     }
 
