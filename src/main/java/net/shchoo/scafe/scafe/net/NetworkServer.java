@@ -30,7 +30,7 @@ public class NetworkServer implements AutoCloseable {
      */
     public record Limits(int perAddress, int total, long loginMillis, double messagesPerSecond, int burst, int floodLimit) {
         public static Limits defaults() {
-            return new Limits(1, 32, 30_000, 40, 80, 400);
+            return new Limits(1, 32, 5 * 60_000, 40, 80, 400);
         }
 
         public Limits withPerAddress(int perAddress) {

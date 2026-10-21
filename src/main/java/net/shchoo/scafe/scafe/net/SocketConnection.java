@@ -20,6 +20,7 @@ public class SocketConnection implements GameConnection {
     private final SSLSocket socket;
     private final Writer out;
     private final Queue<Event> received = new ConcurrentLinkedQueue<>();
+    private volatile boolean open = true;
 
     /** Connects and finishes the TLS handshake (so an untrusted server fails here, with the reason). */
     public SocketConnection(String host, int port, Tls.Client tls) throws IOException {
@@ -47,6 +48,8 @@ public class SocketConnection implements GameConnection {
                 received.add(new Event.Message("Disconnected from server."));
             } catch (IOException | RuntimeException e) {
                 received.add(new Event.Message("Disconnected from server: " + e.getMessage()));
+            } finally {
+                open = false;
             }
         }, "net-in");
         reader.setDaemon(true);
@@ -82,6 +85,11 @@ public class SocketConnection implements GameConnection {
         } catch (IOException e) {
             received.add(new Event.Message("Couldn't reach the server: " + e.getMessage()));
         }
+    }
+
+    @Override
+    public boolean isOpen() {
+        return open;
     }
 
     @Override

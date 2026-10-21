@@ -10,4 +10,9 @@ public interface GameConnection {
     List<Event> poll();
 
     void close();
+
+    /** False once the other end has gone (refused us, timed us out, shut down). */
+    default boolean isOpen() {
+        return true;
+    }
 }

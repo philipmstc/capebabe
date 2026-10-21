@@ -1,6 +1,7 @@
 package net.shchoo.scafe.scafe;
 
 import net.shchoo.scafe.scafe.client.Board;
+import net.shchoo.scafe.scafe.client.ClientPrefs;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.ui.*;
@@ -20,18 +21,12 @@ import com.googlecode.lanterna.*;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
-import com.googlecode.lanterna.screen.TerminalScreen;
 import com.googlecode.lanterna.terminal.DefaultTerminalFactory;
-import com.googlecode.lanterna.terminal.Terminal;
-import com.googlecode.lanterna.terminal.ansi.ANSITerminal;
-import com.googlecode.lanterna.terminal.ansi.CygwinTerminal;
-import com.googlecode.lanterna.terminal.ansi.UnixTerminal;
 import com.googlecode.lanterna.terminal.swing.AWTTerminalFontConfiguration;
 import com.googlecode.lanterna.terminal.swing.SwingTerminalFontConfiguration;
 import java.awt.*;
 import javax.swing.JOptionPane;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.util.*;
 import java.util.List;
 import java.nio.file.Path;
@@ -44,9 +39,16 @@ public class Main {
             run(Options.parse(args));
         } catch (WorldInUseException e) {
             fail(e.getMessage());
-        } catch (CouldNotConnect e) {
-            fail(e.getMessage());
         }
+    }
+
+    /** Fonts to draw with, best first: the grid needs a monospaced one, and not every computer has Consolas. */
+    private static final List<String> FONTS = List.of("Consolas", "Menlo", "Monaco", "Cascadia Mono", "DejaVu Sans Mono",
+            "Liberation Mono", "Ubuntu Mono", "Courier New");
+
+    private static String monospacedFont() {
+        Set<String> installed = Set.of(GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames());
+        return FONTS.stream().filter(installed::contains).findFirst().orElse(Font.MONOSPACED);
     }
 
     /** Says why (in a popup too: a double-clicked jar has no console) and quits. */
@@ -58,11 +60,7 @@ public class Main {
         System.exit(1);
     }
 
-    private static class CouldNotConnect extends Exception {
-        CouldNotConnect(String message) {
-            super(message);
-        }
-    }
+
 
     private static void run(Options options) throws Exception {
         if ((options.server() || options.host()) && options.worldPassword() == null && !options.noWorldPassword()) {
@@ -81,33 +79,59 @@ public class Main {
             network.acceptForever();
             return;
         }
-        GameConnection connection;
-        String where;
-        String footer = "";
-        if (options.connect() != null) {
-            String server = SocketConnection.normalize(options.connect());
-            Tls.Client tls = Tls.client(options.data().resolve("known-servers"), server);
-            try {
-                connection = SocketConnection.connect(server, tls);
-            } catch (IOException e) {
-                throw new CouldNotConnect("Couldn't connect to " + server + ": " + e.getMessage());
-            }
-            where = "server " + server + (tls.trust().firstVisit() ? " (first visit: check the fingerprint below matches the host's)" : "");
-            footer = "server fingerprint " + tls.trust().fingerprint();
-        } else {
+        ClientPrefs prefs = ClientPrefs.load(options.data());
+        String name = options.name() != null ? options.name() : prefs.name() != null ? prefs.name() : Options.defaultName();
+        Screen screen = openWindow();
+        LoginScreen login;
+        if (options.host()) {
             GameServer server = startServer(options);
-            where = "your own world";
-            if (options.host()) {
-                Tls.Server tls = Tls.server(options.data());
-                NetworkServer network = new NetworkServer(server, options.port(), options.admin(), tls, limits);
-                network.startInBackground();
-                where = "your world (hosting on port " + options.port() + ")";
-                footer = "your fingerprint " + tls.fingerprint();
-                System.out.println("Fingerprint (friends see this when they first connect): " + tls.fingerprint());
-            }
-            connection = new LocalConnection(server.connect());
+            Tls.Server tls = Tls.server(options.data());
+            NetworkServer network = new NetworkServer(server, options.port(), options.admin(), tls, limits);
+            network.startInBackground();
+            System.out.println("Fingerprint (friends see this when they first connect): " + tls.fingerprint());
+            GameConnection local = new LocalConnection(server.connect());
+            login = new LoginScreen(new LoginScreen.Connection(local, new Player(local),
+                    "your world (hosting on port " + options.port() + ")", "your fingerprint " + tls.fingerprint()), name);
+        } else {
+            String server = options.connect() != null ? options.connect() : prefs.server() != null ? prefs.server() : "";
+            login = new LoginScreen(target -> target.isEmpty() ? ownWorld(options) : connect(options, target), server, name);
         }
-        runClient(options, connection, where, footer);
+        if (login.run(screen) == LoginScreen.Outcome.EXIT) {
+            if (login.connection() != null) {
+                login.connection().connection().close();
+            }
+            System.exit(0);
+        }
+        if (!options.host()) {
+            prefs.save(options.data(), login.server(), login.connection().player().name);
+        }
+        play(screen, login);
+    }
+
+    /** Your own world on this computer (started the first time it's picked). */
+    private static LoginScreen.Connection ownWorld(Options options) throws Exception {
+        if (ownWorld == null) {
+            ownWorld = startServer(options);
+        }
+        GameConnection local = new LocalConnection(ownWorld.connect());
+        return new LoginScreen.Connection(local, new Player(local), "your own world", "");
+    }
+
+    private static GameServer ownWorld;
+
+    private static LoginScreen.Connection connect(Options options, String target) throws Exception {
+        String server = SocketConnection.normalize(target);
+        Tls.Client tls = Tls.client(options.data().resolve("known-servers"), server);
+        GameConnection connection;
+        try {
+            connection = SocketConnection.connect(server, tls);
+        } catch (IOException e) {
+            throw new IOException("Couldn't connect to " + server + ": " + e.getMessage(), e);
+        }
+        String where = "server " + server
+                + (tls.trust().firstVisit() ? " (first visit: check the fingerprint below matches the host's)" : "");
+        return new LoginScreen.Connection(connection, new Player(connection), where,
+                "server fingerprint " + tls.trust().fingerprint());
     }
 
     /** Opens the account and world databases, loads (or creates) the world and starts ticking. Saves on exit. */
@@ -134,32 +158,30 @@ public class Main {
         return server;
     }
 
-    private static void runClient(Options options, GameConnection connection, String where, String footer) throws Exception {
-        Player player = new Player(connection);
-        Board board = new Board(player.content);
-        GameLog.subscribe(board.log::add);
+    private static Screen openWindow() throws IOException {
         SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
                 true, AWTTerminalFontConfiguration.BoldMode.EVERYTHING_BUT_SYMBOLS,
-                new Font("Consolas", Font.PLAIN, 14));
+                new Font(monospacedFont(), Font.PLAIN, 14));
 
         DefaultTerminalFactory factory = new DefaultTerminalFactory();
-
         factory.setTerminalEmulatorFontConfiguration(fontConfig);
         factory.setInitialTerminalSize(Layout.TERMINAL_SIZE);
-
-//                factory.setForceTextTerminal(true);
-
-
-//        Terminal terminal = new CygwinTerminal(System.in, System.out, Charset.defaultCharset());
+        // always our own window: left to itself, lanterna takes over whatever terminal started it (Git Bash: flicker
+        // and broken keys) or refuses (Windows Terminal: "use javaw"), depending on how it was launched
+        factory.setPreferTerminalEmulator(true);
 
         Screen screen = factory.createScreen();
         screen.startScreen();
         screen.setCursorPosition(null);
+        return screen;
+    }
 
-        if (new LoginScreen(player, where, footer, options.name()).run(screen) == LoginScreen.Outcome.EXIT) {
-            connection.close();
-            System.exit(0);
-        }
+    private static void play(Screen screen, LoginScreen login) throws Exception {
+        GameConnection connection = login.connection().connection();
+        Player player = login.connection().player();
+        Board board = new Board(player.content);
+        login.heard().forEach(board.log::add);
+        GameLog.subscribe(board.log::add);
 
         MapMenu map = new MapMenu();
         CommandLine commandLine = new CommandLine();
@@ -207,18 +229,18 @@ public class Main {
     }
 
     /**
-     * Command line, all optional:
-     * {@code [--name n] [--world id-or-name] [--data dir]} plays locally (saves in {@code dir}, default ~/.capebabe);
-     * add {@code --host [--port p] [--admin] --world-password s} to let others join your game;
-     * {@code --server [--port p] [--admin] --world-password s} runs a world with no window;
-     * {@code --connect host[:port] [--name n]} joins someone else's. {@code --name} only fills in the login screen.
+     * Command line, all optional. With nothing, the login screen asks for a server (blank = your own world here,
+     * {@code [--world id-or-name] [--data dir]}, saved in {@code dir}, default ~/.capebabe) and remembers the last
+     * one; {@code --connect host[:port]} and {@code --name n} just fill it in.
+     * {@code --host [--port p] [--admin] --world-password s} plays your world and lets others join it;
+     * {@code --server [--port p] [--admin] --world-password s} runs a world with no window.
      * Hosting needs {@code --world-password} (or {@code --no-world-password} to go without, on a trusted network);
      * {@code --max-per-ip n} lets n connections in from one address (default 1, e.g. 2 for two friends in one house).
      */
     record Options(String name, String world, Path data, boolean server, boolean host, int port, boolean admin, String connect,
                    String worldPassword, boolean noWorldPassword, int maxPerIp) {
         static Options parse(String[] args) {
-            String name = defaultName();
+            String name = null;
             String world = "1";
             Path data = Path.of(System.getProperty("user.home"), ".capebabe");
             boolean server = false, host = false, admin = false;
@@ -250,7 +272,8 @@ public class Main {
                     worldPassword == null || worldPassword.isEmpty() ? null : worldPassword, noWorldPassword, maxPerIp);
         }
 
-        private static String defaultName() {
+        /** The OS user name, cleaned up to a valid game name: the login screen's name when nothing else is known. */
+        static String defaultName() {
             String name = System.getProperty("user.name", "player").replaceAll("[^A-Za-z0-9_-]", "_");
             name = name.length() > 20 ? name.substring(0, 20) : name;
             return name.isEmpty() ? "player" : name;

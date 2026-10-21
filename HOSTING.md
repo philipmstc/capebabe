@@ -73,6 +73,9 @@ reasonable risk. The checklist:
    ```powershell
    New-NetFirewallRule -DisplayName "capebabe" -Direction Inbound -Protocol TCP -LocalPort 43594 -Action Allow -Profile Any -Program "C:\path\to\java.exe"
    ```
+
+   The rule is for one program. If you host from the packaged app instead of `java -jar`, the game runs inside
+   `capebabe\capebabe.exe`, so make a rule with `-Program` pointing at that file (in the folder you unzipped).
 5. **Host** with a world password. Leave off `--admin` unless you want friends using `/1`-`/5`:
 
    ```bash
@@ -81,14 +84,10 @@ reasonable risk. The checklist:
 
    Or set the `CAPEBABE_WORLD_PASSWORD` environment variable instead of the flag, so it's not in your shell
    history. Send the world password to friends privately (DM, not a group chat with others in it).
-6. **Friends** find your public IP (search "what is my ip" on *your* PC) and run:
-
-   ```bash
-   java -jar capebabe-0.0.1-all.jar --connect <your public ip>:43594
-   ```
-
-   The login screen asks for their name and password: whatever they pick the first time becomes theirs. Then it
-   asks for the world password. On their first connection the login screen says "first visit" under the title and
+6. **Friends** download the game (see the README), start it, and type your **public** IP (search "what is my ip"
+   on *your* PC) as the Host on the login's second page ("Join a world"), with the world password. Your home
+   address (192.168.x.x) only works for people on your Wi-Fi. Whatever password they pick the first time becomes
+   theirs. On their first connection the login screen says "first visit" under the title and
    shows your fingerprint on its bottom line: check it matches the one at the bottom of yours. Your public IP can change (most home connections), so check it each session, or
    use a free dynamic DNS name (e.g. DuckDNS) that follows it.
 7. **When you stop playing:** closing the game stops the server, and nothing listens on the port. Better still,
@@ -237,18 +236,14 @@ These are worth doing even for Phase 1-2, and they're small:
 
 ## Getting friends a client
 
-- **Now (they're technical):** `git clone https://github.com/philipmstc/capebabe`, then `./gradlew shadowJar`,
-  then run the `--connect` command above. They need JDK 17+ (e.g. Eclipse Temurin). Pin everyone to the same
-  commit or tag until the version check exists.
-- **Better: a GitHub Actions release.** On every tag `v*`, build the shadow jar and attach it to a GitHub Release.
-  Friends download one jar and run it with Java 17. Tagging is also how you keep everyone on the same version.
-  This takes about 20 lines of workflow YAML (`actions/setup-java` + `./gradlew shadowJar` +
-  `softprops/action-gh-release`).
-- **Nicest: native installers via `jpackage`.** It bundles a Java runtime, so friends don't need Java installed.
-  You get an `.msi`/`.exe` on Windows and a `.dmg` on Mac, but have to build on each OS (a GitHub Actions matrix
-  does that). Unsigned builds trigger "unknown publisher" warnings.
-- **Convenience:** a `--connect` default from a small config file, or a launcher script per friend
-  (`play.bat` / `play.sh` containing their name and the server address), so they don't type it every time.
+- ~~Releases~~ **done** (2026-10-21): pushing a `v*` tag runs `.github/workflows/release.yml`, which builds a Windows
+  zip, macOS dmgs (Apple Silicon + Intel) and a Linux tarball with Java bundled (`./gradlew packageApp`, jpackage),
+  plus the plain jar, and attaches them to a GitHub Release. Friends download one file and double-click; the login
+  page asks for the server, so no command line. Unsigned: Windows SmartScreen ("More info > Run anyway") and macOS
+  Gatekeeper ("Open Anyway" in Privacy & Security) warn the first time. Signing would need a code-signing
+  certificate (Windows) / a paid Apple developer account + notarization (macOS).
+- **Still possible:** `git clone` + `./gradlew shadowJar` for anyone who'd rather build it (not the GitHub zip
+  download: it loses `gradlew`'s execute permission).
 - **Repo visibility:** if the repo is private, add friends as collaborators or publish releases somewhere they can
   see. If it's public, the server address and any password should never be committed.
 
