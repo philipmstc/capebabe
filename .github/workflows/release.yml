@@ -1,7 +1,8 @@
-# Builds the game for Windows, macOS (Apple Silicon + Intel) and Linux, with Java bundled in, and attaches them
-# and the plain jar to a GitHub Release. Runs when you push a version tag:
-#   git tag v0.0.2 && git push origin v0.0.2
+# Builds the game for Windows and macOS (Apple Silicon), with Java bundled in, and attaches them and the plain jar
+# to a GitHub Release. Runs when you push a version tag (keep it matching `version` in build.gradle.kts):
+#   git tag capebabe-v0.0.2 && git push origin capebabe-v0.0.2
 # or by hand from the Actions tab (then the files are only kept as workflow artifacts, no release).
+# Intel Macs (a runner like macos-15-intel) and Linux (ubuntu-latest) can be added to the matrix later.
 name: release
 
 on:
@@ -31,7 +32,7 @@ jobs:
           chmod +x gradlew
           ./gradlew test packageApp
       - name: Plain jar (once)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'windows-latest'
         shell: bash
         run: cp build/libs/*-all.jar build/dist/
       - uses: actions/upload-artifact@v4
@@ -41,7 +42,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/capebabe-v')
     needs: package
     runs-on: ubuntu-latest
     steps:

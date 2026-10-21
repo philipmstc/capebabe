@@ -18,11 +18,10 @@ checks when you log in and tells you to update if not.
 
 - **Windows:** `capebabe-<version>-windows-x64.zip`. Unzip it anywhere and double-click `capebabe\capebabe.exe`.
   Windows may say it "protected your PC" (the app isn't signed): **More info** > **Run anyway**.
-- **macOS:** `...-macos-arm64.dmg` (Apple Silicon: M1 and later) or `...-macos-x64.dmg` (Intel). Open it and drag
+- **macOS (Apple Silicon: M1 and later):** `...-macos-arm64.dmg`. Open it and drag
   capebabe into Applications. The app isn't signed, so the first time macOS refuses to open it: go to **System
   Settings > Privacy & Security** and click **Open Anyway** (on older macOS, right-click the app > **Open**).
-- **Linux:** `...-linux-x64.tar.gz`. Unpack it and run `capebabe/bin/capebabe`.
-- **Anything else:** `capebabe-<version>-all.jar` with Java 17+: `java -jar capebabe-<version>-all.jar`.
+- **Anything else** (Intel Macs, Linux): `capebabe-<version>-all.jar` with Java 17+: `java -jar capebabe-<version>-all.jar`.
 
 ## Logging in
 
@@ -70,10 +69,15 @@ Use `git clone` (a GitHub zip download loses `gradlew`'s permission to run on ma
 ```
 
 On Windows without a bash shell, use `gradlew.bat`. To publish a release for every OS, bump `version` in
-`build.gradle.kts`, then push a matching tag (`git tag v0.0.2 && git push origin v0.0.2`): GitHub Actions
-(`.github/workflows/release.yml`) builds Windows, macOS and Linux and attaches them to a release.
+`build.gradle.kts`, then push a matching tag (`git tag capebabe-v0.0.2 && git push origin capebabe-v0.0.2`): GitHub Actions
+(`.github/workflows/release.yml`) builds Windows and macOS (Apple Silicon) and attaches them, with the jar, to a release.
 
 # Change log
+
+## 0.0.2 - Oct 21 2026
+
+- added github actions for stable releases, several multiplayer cleanups.
+
 
 ## 0.0.1 - Oct 19 2026
 
