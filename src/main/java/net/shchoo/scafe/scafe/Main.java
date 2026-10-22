@@ -213,6 +213,7 @@ public class Main {
                 new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut[0] = true),
                 new MapView(Layout.MAP),
                 new ProgressBarView(Layout.PROGRESS),
+                new EquipmentView(Layout.EQUIPMENT),
                 tabs,
                 new MapDetailView(Layout.DETAIL, map::hovered),
                 new XpTrackerView(Layout.XP),

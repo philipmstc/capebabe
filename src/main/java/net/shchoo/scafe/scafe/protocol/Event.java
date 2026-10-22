@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.protocol;
 
+import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
@@ -16,7 +17,7 @@ public sealed interface Event {
                              Map<Integer, Integer> inventory, List<GoalDef> goals, Set<Integer> triedNodes,
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
                              boolean running, boolean autoInvestigate, boolean showProductTiers, boolean showTimeEstimate,
-                             boolean compactChat, Map<String, Long> stats) {}
+                             boolean compactChat, Map<String, Long> stats, int weaponId, int armorId) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -89,6 +90,9 @@ public sealed interface Event {
     record GoalAdded(GoalDef goal) implements Event {}
 
     record GoalChanged(int index, GoalDef goal) implements Event {}
+
+    /** {@code productId} -1 = nothing (fists / no armour). */
+    record EquipmentChanged(EquipSlot slot, int productId) implements Event {}
     record NodeTried(int nodeId) implements Event {}
     record HomeChanged(Position lastActionAt) implements Event {}
     record NodeChanged(NodeStatus status) implements Event {}

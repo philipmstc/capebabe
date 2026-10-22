@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.persistence;
 
+import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.*;
@@ -50,8 +51,8 @@ class WorldStoreTest {
     @Test
     void eachWorldIsItsOwnFileAndRemembersItsSeed() throws Exception {
         try (WorldStore one = open(1); WorldStore two = open(2)) {
-            assertEquals(11, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
-                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats");
+            assertEquals(13, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
+                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats, v12 equipped stack, v13 weapon + armor");
             assertEquals(777, one.loadOrCreateWorld(1, "w1", 777).seed);
             assertEquals(888, two.loadOrCreateWorld(2, "w2", 888).seed);
         }
@@ -184,6 +185,8 @@ class WorldStoreTest {
             alice.send(new Intent.SetAutoInvestigate(true));
             alice.send(new Intent.SetShowProductTiers(true));
             alice.send(new Intent.SetCompactChat(true));
+            int made = alice.inventory.entrySet().stream().filter(e -> e.getValue() > 0).findFirst().orElseThrow().getKey().id;
+            alice.send(new Intent.Equip(EquipSlot.ARMOR, made));
             server.tick();
             server.tick();
             alice.receive();
@@ -208,6 +211,8 @@ class WorldStoreTest {
             assertTrue(alice.autoInvestigate);
             assertTrue(alice.showProductTiers, "Contrast tiers is remembered");
             assertTrue(alice.compactChat, "Compact chat too");
+            assertNotNull(alice.armor, "what you wear");
+            assertNull(alice.weapon);
             assertEquals(1L, alice.stats.get(Stat.STEPS), "both steps were in one tick");
             assertTrue(alice.stats.get(Stat.ITEMS_CRAFTED) > 0, "and the items made");
             ContentBatch.Origin origin = alice.content.origin(alice.content.skills.get(0).id);
@@ -263,7 +268,7 @@ class WorldStoreTest {
             statement.execute("insert into world_meta (id, name, seed) values (1, 'old', 55)");
         }
         try (WorldStore store = open(7)) {
-            assertEquals(11, store.schemaVersion());
+            assertEquals(13, store.schemaVersion());
             World world = store.loadOrCreateWorld(7, "ignored", 0);
             assertEquals("old", world.name);
             save(store, world, WorldGenerator.newSkills(world, 1));

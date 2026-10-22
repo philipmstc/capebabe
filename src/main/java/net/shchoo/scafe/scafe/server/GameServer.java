@@ -1,6 +1,7 @@
 package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
+import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
@@ -453,6 +454,14 @@ public class GameServer {
             combat.attack(character, tick);
         } else if (intent instanceof Intent.AddGoal) {
             character.addGoal(nodeAhead(character));
+        } else if (intent instanceof Intent.Equip equip) {
+            if (equip.slot() != null) {
+                character.equip(equip.slot(), world.content.product(equip.productId()));
+            }
+        } else if (intent instanceof Intent.Unequip unequip) {
+            if (unequip.slot() != null) {
+                character.unequip(unequip.slot());
+            }
         } else if (intent instanceof Intent.SetGoalLevel set) {
             character.setGoalLevel(set.index(), set.level());
         } else if (intent instanceof Intent.Admin admin) {

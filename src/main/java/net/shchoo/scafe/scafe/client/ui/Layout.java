@@ -12,7 +12,7 @@ import com.googlecode.lanterna.TerminalSize;
  * +-INVENTORY-+ +-MAP---------------------------------+  +-- TABS -------------+
  * |  item     | |                                     |  | the selected tab /  |
  * |  cells    | |                                     |  | settings            |
- * +-PROGRESS--+ |                                     |  |                     |
+ * +-EQUIPMENT-+ |       [ PROGRESS, when busy ]       |  |                     |
  * +-------------+-------------------------------------+  +---------------------+
  * +-LOG ----------------------------------------------+  +-- DETAIL -----------+
  * | log / /command                                    |  | tile ahead / hover  |
@@ -33,8 +33,12 @@ public final class Layout {
     private static final int LEFT_WIDTH = 23;
 
     public static final Rect MAP = new Rect(LEFT_WIDTH + 1, HEADER_ROW + 1, 2 * BOARD_WIDTH + 1, BOARD_HEIGHT + 2);
-    public static final Rect INVENTORY = new Rect(0, MAP.y(), LEFT_WIDTH, MAP.height() - 3);
-    public static final Rect PROGRESS = new Rect(0, INVENTORY.bottom() + 1, LEFT_WIDTH, 3);
+    public static final Rect INVENTORY = new Rect(0, MAP.y(), LEFT_WIDTH, MAP.height() - 4);
+    /** Weapon + armour, two lines under the inventory. */
+    public static final Rect EQUIPMENT = new Rect(0, INVENTORY.bottom() + 1, LEFT_WIDTH, 4);
+    private static final int PROGRESS_WIDTH = 31;
+    /** One unframed line over the map's last row of tiles. */
+    public static final Rect PROGRESS = new Rect(MAP.x() + (MAP.width() - PROGRESS_WIDTH) / 2, MAP.bottom() - 1, PROGRESS_WIDTH, 1);
 
     private static final int RIGHT_X = MAP.right() + 2;
     private static final int RIGHT_WIDTH = TERMINAL_SIZE.getColumns() - RIGHT_X;
@@ -51,7 +55,7 @@ public final class Layout {
     // inventory cells: 3 across, 5 rows visible, each 5 wide and 2 tall
     public static final int INVENTORY_COLUMNS = 3;
     public static final int INVENTORY_ROWS = 5;
-    public static final int CELL_WIDTH = 5;
+    public static final int CELL_WIDTH = 6;
     public static final int CELL_STEP_X = 7;
     public static final int CELL_STEP_Y = 4;
 

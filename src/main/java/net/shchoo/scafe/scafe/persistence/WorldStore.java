@@ -13,6 +13,7 @@ import net.shchoo.scafe.scafe.model.WorldContent;
 import net.shchoo.scafe.scafe.server.GameCharacter;
 import net.shchoo.scafe.scafe.server.Storage;
 
+import java.sql.ResultSet;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -120,6 +121,17 @@ public class WorldStore extends SqliteStore implements Storage {
             create table character_stat (character_id integer not null references game_character(id),
                                          stat text not null, value integer not null,
                                          primary key (character_id, stat));
+            """,
+            // v12: the equipped stack (one item type, how many left)
+            """
+            alter table game_character add column equipped_product_id integer references product(id);
+            alter table game_character add column equipped_count integer not null default 0;
+            """,
+            // v13: two slots, weapon + armour, each used up from the inventory (no separate count)
+            """
+            alter table game_character rename column equipped_product_id to weapon_product_id;
+            alter table game_character drop column equipped_count;
+            alter table game_character add column armor_product_id integer references product(id);
             """
     );
 
@@ -386,6 +398,12 @@ public class WorldStore extends SqliteStore implements Storage {
         return character != null ? character : createCharacter(accountId, accountName);
     }
 
+    /** A nullable product id column, or null if it's empty or names nothing in this world. */
+    private Product product(ResultSet rs, String column) throws SQLException {
+        int id = rs.getInt(column);
+        return rs.wasNull() ? null : world.content.product(id);
+    }
+
     /** The account's character in this world, or null if it doesn't have one yet. */
     public GameCharacter loadCharacter(int accountId) throws SQLException {
         GameCharacter character;
@@ -405,6 +423,8 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.showProductTiers = rs.getInt("show_product_tiers") != 0;
                 character.showTimeEstimate = rs.getInt("show_time_estimate") != 0;
                 character.compactChat = rs.getInt("compact_chat") != 0;
+                character.weapon = product(rs, "weapon_product_id");
+                character.armor = product(rs, "armor_product_id");
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
                     character.lastActionAt = new Position(lastX, rs.getInt("last_action_y"));
@@ -448,12 +468,14 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ?, compact_chat = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ?, compact_chat = ?, weapon_product_id = ?, armor_product_id = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
                         character.autoInvestigate ? 1 : 0, character.showProductTiers ? 1 : 0,
-                        character.showTimeEstimate ? 1 : 0, character.compactChat ? 1 : 0, character.id);
+                        character.showTimeEstimate ? 1 : 0, character.compactChat ? 1 : 0,
+                        character.weapon == null ? null : character.weapon.id,
+                        character.armor == null ? null : character.armor.id, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node", "character_stat")) {

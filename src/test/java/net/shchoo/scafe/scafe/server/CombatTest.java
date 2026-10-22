@@ -1,5 +1,8 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.client.ui.InventoryPanel;
+import net.shchoo.scafe.scafe.model.EquipSlot;
+import net.shchoo.scafe.scafe.model.DamageColor;
 import net.shchoo.scafe.scafe.model.Stat;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
@@ -373,5 +376,104 @@ class CombatTest {
         assertEquals(alice.getExperience(combat).longValue(), alice.totalExperience());
         assertEquals(alice.getLevel(combat), alice.highestLevel());
         assertEquals(alice.content.skills.size() - 1 + alice.getLevel(combat), alice.totalLevel());
+    }
+
+    /** A tier-2 item of a fresh crafting skill, {@code count} of them in alice's inventory, the skill at {@code level}. */
+    private Product giveItems(int level, int count) {
+        alice.send(new Intent.Admin("1", List.of("1")));
+        tick();
+        Skill skill = alice.content.craftingSkills().get(0);
+        if (level > 1) {
+            alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[level - 1]))));
+        }
+        Product item = skill.productLines.get(0).recipes.get(2).product;
+        server.online(alice.id).changeInventory(server.world.content.product(item.id), count);
+        tick();
+        return item;
+    }
+
+    @Test
+    void anEquippedItemIsUsedUpFromEveryStackThenYoureOnFists() {
+        Product item = giveItems(2, 5);
+        assertEquals(3, InventoryPanel.slots(alice).size(), "stacks of 2: 2 + 2 + 1");
+        alice.equip(EquipSlot.WEAPON, item);
+        tick();
+        assertEquals(item, alice.weapon);
+        assertEquals(5, alice.inventory.get(item), "equipping takes nothing out of the inventory");
+        for (int i = 0; i < 400 && alice.weapon != null; i++) {
+            if (alice.fightingId == null) {
+                spawnNextToAlice();
+                alice.send(new Intent.Attack());
+            }
+            tick();
+        }
+        assertNull(alice.weapon, "all 5, across the stacks");
+        assertEquals(0, alice.inventory.get(item));
+        assertTrue(log.contains("You've used up your " + item.name + " (weapon)."));
+    }
+
+    @Test
+    void eachSwingUsesOneUpAndHitsForTheTierTimesTheColour() {
+        Product item = giveItems(1, 3);
+        alice.equip(EquipSlot.WEAPON, item);
+        tick();
+        Event.EntityInfo monster = spawnNextToAlice();
+        MonsterType type = alice.content.monster(monster.monsterTypeId());
+        alice.send(new Intent.Attack());
+        for (int i = 0; i < 20 && alice.inventory.get(item) == 3; i++) {
+            tick();
+        }
+        assertEquals(2, alice.inventory.get(item), "one swing, one used");
+        assertEquals(item, alice.weapon, "still equipped: there are more");
+
+        double strength = 3 * DamageColor.multiplier(DamageColor.of(alice.content, item), type.colorIndex);
+        int hit = Math.min(monster.hp(), (int) Math.ceil(strength - 1e-9));
+        assertEquals(monster.hp() - hit, alice.others.get(monster.id()).hp(), "tier 2 = 3 base, rounded up by the rigged dice");
+    }
+
+    @Test
+    void armourTakesTheMonstersHitsInItsColourAndWearsOut() {
+        random.roll = 0.5;
+        Product item = giveItems(1, 4);
+        alice.equip(EquipSlot.ARMOR, item);
+        tick();
+        Event.EntityInfo monster = spawnNextToAlice();
+        MonsterType type = alice.content.monster(monster.monsterTypeId());
+        int hp = alice.hp;
+        alice.send(new Intent.Attack());
+        for (int i = 0; i < 20 && alice.inventory.get(item) == 4; i++) {
+            tick();
+        }
+        assertEquals(3, alice.inventory.get(item), "one monster swing at you, one used");
+        double taken = DamageColor.multiplier(type.colorIndex, DamageColor.of(alice.content, item));
+        assertEquals(hp - (int) Math.ceil(taken - 1e-9), alice.hp, "its 1 damage times its colour against the armour's");
+    }
+
+    @Test
+    void unequipPutsItAwayAndLeavesTheInventoryAlone() {
+        Product item = giveItems(1, 2);
+        alice.equip(EquipSlot.WEAPON, item);
+        alice.equip(EquipSlot.ARMOR, item);
+        tick();
+        assertEquals(item, alice.weapon);
+        assertEquals(item, alice.armor, "the same item can be both");
+        alice.unequip(EquipSlot.WEAPON);
+        tick();
+        assertNull(alice.weapon);
+        assertEquals(item, alice.armor);
+        assertEquals(2, alice.inventory.get(item));
+    }
+
+    @Test
+    void fistsAreBlack() {
+        Event.EntityInfo monster = spawnNextToAlice();
+        MonsterType type = alice.content.monster(monster.monsterTypeId());
+        alice.send(new Intent.Attack());
+        for (int i = 0; i < 20 && alice.others.get(monster.id()).hp() == monster.hp(); i++) {
+            tick();
+        }
+        double strength = DamageColor.multiplier(DamageColor.BLACK, type.colorIndex);
+        assertEquals(monster.hp() - (int) Math.ceil(strength - 1e-9), alice.others.get(monster.id()).hp(),
+                "x1/2 against colour rounds up to 1 here; x2 against the colourless");
     }
 }

@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.client.ui;
 
+import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.model.MonsterType;
@@ -31,9 +32,11 @@ class InventoryPanelTest {
     private final InventoryPanel inventory = new InventoryPanel(Layout.INVENTORY);
     private TabBar tabs;
 
+    private GameServer server;
+
     @BeforeEach
     void setUp() {
-        GameServer server = new GameServer(new World(1, "w", 1));
+        server = new GameServer(new World(1, "w", 1));
         server.setDiscovery(Discovery.off());
         player = new Player(new LocalConnection(server.connect()));
         board = new Board(player.content);
@@ -66,15 +69,17 @@ class InventoryPanelTest {
 
     @Test
     void cellsAreLabelledShortly() {
-        assertArrayEquals(new String[]{"S3-2", "  T7"}, InventoryPanel.label(new Product(1, "skill3{2}-7", 7)));
-        assertArrayEquals(new String[]{"skill", "3{2}-"}, InventoryPanel.label(new Product(4, "skill3{2}-7")),
+        assertArrayEquals(new String[]{"S3-2", "T7"}, InventoryPanel.label(new Product(1, "skill3{2}-7", 7)));
+        assertArrayEquals(new String[]{"skill3", "{2}-7"}, InventoryPanel.label(new Product(4, "skill3{2}-7")),
                 "the tier comes from the data, not the name");
         assertArrayEquals(new String[]{"M1-D4", ""}, InventoryPanel.label(new Product(2, "monster1-drop4")));
-        assertArrayEquals(new String[]{"somet", "hing "}, InventoryPanel.label(new Product(3, "something else")));
+        assertArrayEquals(new String[]{"someth", "ing el"}, InventoryPanel.label(new Product(3, "something else")));
+        assertEquals("T2   7", InventoryPanel.countLine("T2", 7), "the stack's count on the right");
+        assertEquals("T2 100", InventoryPanel.countLine("T2", 100));
     }
 
     @Test
-    void oneItemPerSlot() {
+    void anItemNoSkillMakesIsOnePerSlotWithoutAFightingLevel() {
         player.inventory.put(new Product(1, "skill0{0}-0", 0), 3);
         player.inventory.put(new Product(2, "skill1{0}-1", 1), 1);
         assertEquals(4, InventoryPanel.slots(player).size());
@@ -111,13 +116,14 @@ class InventoryPanelTest {
         int columns = Layout.INVENTORY_COLUMNS, rows = Layout.INVENTORY_ROWS;
         int track = Layout.INVENTORY.height() - 2;
         player.inventory.put(new Product(1, "skill0{0}-0", 0), columns * rows * 2);
-        assertEquals(List.of(1, track / 2), thumbRows(), "half the rows visible = half the track, at the top");
+        int thumb = (int) Math.round(track / 2.0);
+        assertEquals(List.of(1, thumb), thumbRows(), "half the rows visible = half the track, at the top");
 
         tabs.onKey(new KeyStroke('i', false, false), player, board);
         for (int i = 0; i < rows * 2; i++) {
             press(KeyType.ArrowDown);
         }
-        assertEquals(List.of(track / 2 + 1, track), thumbRows(), "scrolled to the bottom");
+        assertEquals(List.of(track - thumb + 1, track), thumbRows(), "scrolled to the bottom");
     }
 
     /** First and last row (counted inside the frame) of the scrollbar thumb on the inventory's right border. */
@@ -161,5 +167,88 @@ class InventoryPanelTest {
         player.inventory.put(drop, 1);
         tabs.onKey(new KeyStroke('i', false, false), player, board);
         assertTrue(gridText().contains("M0-D0"));
+    }
+
+    private String screenText() throws IOException {
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        tabs.draw(screen, player, board);
+        tabs.drawOnTop(screen, player, board);
+        StringBuilder text = new StringBuilder();
+        for (int y = 0; y < Layout.TERMINAL_SIZE.getRows(); y++) {
+            for (int x = 0; x < Layout.TERMINAL_SIZE.getColumns(); x++) {
+                text.append(screen.getBackCharacter(x, y).getCharacterString());
+            }
+            text.append('\n');
+        }
+        return text.toString();
+    }
+
+    /** A crafting skill at {@code level}, and {@code count} of its first line's tier-1 item (client side only). */
+    private Product stackOf(int level, int count) {
+        player.send(new Intent.Admin("1", List.of("1")));
+        server.tick();
+        player.receive();
+        Skill skill = player.content.craftingSkills().get(0);
+        player.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[level - 1]))));
+        server.tick();
+        player.receive();
+        Product item = skill.productLines.get(0).recipes.get(1).product;
+        player.inventory.put(item, count);
+        return item;
+    }
+
+    @Test
+    void itemsStackUpToYourLevelInTheSkillMakingThem() throws IOException {
+        Product item = stackOf(4, 10);
+        assertEquals(List.of(new InventoryPanel.Slot(item, 4), new InventoryPanel.Slot(item, 4), new InventoryPanel.Slot(item, 2)),
+                InventoryPanel.slots(player));
+        String grid = gridText();
+        assertTrue(grid.contains("T1    4") || grid.contains("T1   4"), "counts on the cells:\n" + grid);
+        assertTrue(grid.contains("3"), "3 slots on the border");
+    }
+
+    @Test
+    void enterOpensTheEquipUseCancelPopupNextToTheItem() throws IOException {
+        stackOf(1, 2);
+        tabs.onKey(new KeyStroke('i', false, false), player, board);
+        press(KeyType.Enter);
+        assertTrue(inventory.popupOpen());
+        String[] lines = screenText().split("\n");
+        int row = Layout.INVENTORY.y() + 2;
+        assertTrue(lines[row].contains("> Equip weapon"), lines[row]);
+        assertTrue(lines[row + 1].contains("Equip armor"));
+        assertTrue(lines[row + 2].contains("Use"));
+        assertTrue(lines[row + 3].contains("Cancel"));
+        assertFalse(screenText().contains("Unequip"), "it isn't equipped");
+        int at = lines[row].indexOf("> Equip");
+        assertTrue(at > Layout.INVENTORY.x() + 2 + Layout.CELL_WIDTH && at < Layout.INVENTORY.x() + 2 + 2 * Layout.CELL_WIDTH,
+                "just right of the first cell");
+
+        type('w');
+        assertTrue(inventory.popupOpen(), "keys stay in the popup");
+        for (int i = 0; i < 3; i++) {
+            press(KeyType.ArrowDown);
+        }
+        press(KeyType.Enter);
+        assertFalse(inventory.popupOpen(), "Cancel");
+        assertTrue(inventory.isFocused(), "still in the inventory");
+        press(KeyType.Enter);
+        press(KeyType.Escape);
+        assertFalse(inventory.popupOpen());
+        assertTrue(inventory.isFocused(), "Esc only closes the popup");
+    }
+
+    @Test
+    void anEquippedItemOffersUnequip() throws IOException {
+        Product item = stackOf(3, 5);
+        player.armor = item;
+        tabs.onKey(new KeyStroke('i', false, false), player, board);
+        press(KeyType.Enter);
+        assertTrue(screenText().contains("Unequip"));
+    }
+
+    private void type(char c) {
+        tabs.onKey(new KeyStroke(c, false, false), player, board);
     }
 }

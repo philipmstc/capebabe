@@ -85,6 +85,9 @@ class UseItemTest {
                 List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
         tabs.onKey(new KeyStroke('i', false, false), player, board);
         tabs.onKey(new KeyStroke(KeyType.Enter), player, board);
+        tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
+        tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
+        tabs.onKey(new KeyStroke(KeyType.Enter), player, board);
 
         MapMenu map = tabs.map();
         assertTrue(map.isFocused(), "over to the map");

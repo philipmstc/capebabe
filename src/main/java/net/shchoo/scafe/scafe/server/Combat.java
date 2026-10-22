@@ -1,6 +1,8 @@
 package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
+import net.shchoo.scafe.scafe.model.EquipSlot;
+import net.shchoo.scafe.scafe.model.DamageColor;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
@@ -29,10 +31,6 @@ class Combat {
 
     static int maxHp(int combatLevel) {
         return 9 + combatLevel;
-    }
-
-    static int maxHit(int combatLevel) {
-        return 1 + combatLevel / 4;
     }
 
     /** A character's fight with one monster. */
@@ -118,7 +116,9 @@ class Combat {
     }
 
     private void swing(GameCharacter character, Monster monster) {
-        int damage = Math.min(monster.hp, roll(PLAYER_ACCURACY, maxHit(character.combatLevel())));
+        int damage = server.random().nextDouble() < PLAYER_ACCURACY
+                ? Math.min(monster.hp, round(hitStrength(character, monster.type))) : 0;
+        character.useUp(EquipSlot.WEAPON);
         monster.hp -= damage;
         server.toObservers(monster.id, new Event.Hit(monster.id, damage, monster.position()));
         server.toObservers(monster.id, new Event.EntityUpdated(monster.info()));
@@ -131,7 +131,9 @@ class Combat {
             return;
         }
         if (Objects.equals(monster.target(), character.id)) {
-            int hit = Math.min(character.hp, roll(MONSTER_ACCURACY, monster.type.maxHit));
+            int hit = server.random().nextDouble() < MONSTER_ACCURACY
+                    ? Math.min(character.hp, round(hitTaken(character, monster.type))) : 0;
+            character.useUp(EquipSlot.ARMOR);
             character.hp -= hit;
             character.infoChanged = true;
             Event event = new Event.Hit(character.id, hit, character.position());
@@ -144,9 +146,32 @@ class Combat {
         }
     }
 
-    /** 0 for a miss, else 1..maxHit. */
-    private int roll(double accuracy, int maxHit) {
-        return server.random().nextDouble() < accuracy ? 1 + server.random().nextInt(Math.max(1, maxHit)) : 0;
+    /**
+     * A landed hit: (the weapon's tier + 1, or 1 for fists, plus combat level / 4) times the colour multiplier of
+     * the weapon (fists are black) against the monster ({@link DamageColor}).
+     */
+    double hitStrength(GameCharacter character, MonsterType type) {
+        Product weapon = character.weapon;
+        int base = weapon == null ? 1 : Math.max(0, weapon.tier) + 1;
+        int color = weapon == null ? DamageColor.FISTS : DamageColor.of(server.world.content, weapon);
+        return (base + character.combatLevel() / 4) * DamageColor.multiplier(color, type.colorIndex);
+    }
+
+    /**
+     * A monster's landed hit (1..its max hit) times its colour against your armour's; no armour = no colour (x1).
+     */
+    double hitTaken(GameCharacter character, MonsterType type) {
+        int raw = 1 + server.random().nextInt(Math.max(1, type.maxHit));
+        Product armor = character.armor;
+        return armor == null ? raw
+                : raw * DamageColor.multiplier(type.colorIndex, DamageColor.of(server.world.content, armor));
+    }
+
+    /** Down or up at random, by the fraction (2.5 = 3 half the time), so weak hits still add up. */
+    private int round(double strength) {
+        int whole = (int) Math.floor(strength);
+        double fraction = strength - whole;
+        return whole + (server.random().nextInt(1_000_000) < fraction * 1_000_000 ? 1 : 0);
     }
 
     private void kill(GameCharacter killer, Monster monster) {

@@ -2,6 +2,9 @@ package net.shchoo.scafe.scafe.client;
 
 import com.googlecode.lanterna.Symbols;
 import com.googlecode.lanterna.TextColor;
+import net.shchoo.scafe.scafe.model.EquipSlot;
+import net.shchoo.scafe.scafe.model.Stacks;
+import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.*;
 import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.protocol.GameClock;
@@ -51,6 +54,9 @@ public class Player {
     private final Deque<Pose> predicted = new ArrayDeque<>();
     private final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
+    /** What you fight with (null = fists) and wear (null = none), mirrored from the server. */
+    public Product weapon;
+    public Product armor;
     public final List<Goal> goals = new ArrayList<>();
     private final Set<Integer> triedNodes = new HashSet<>();
     public Position lastActionAt;
@@ -179,6 +185,13 @@ public class Player {
             inventory.put(content.product(changed.productId()), changed.count());
         } else if (event instanceof Event.GoalAdded added) {
             goals.add(added.goal().toGoal(content));
+        } else if (event instanceof Event.EquipmentChanged changed) {
+            Product item = changed.productId() < 0 ? null : content.product(changed.productId());
+            if (changed.slot() == EquipSlot.WEAPON) {
+                weapon = item;
+            } else {
+                armor = item;
+            }
         } else if (event instanceof Event.GoalChanged changed) {
             if (changed.index() < goals.size()) {
                 goals.set(changed.index(), changed.goal().toGoal(content));
@@ -236,6 +249,8 @@ public class Player {
         showProductTiers = you.showProductTiers();
         showTimeEstimate = you.showTimeEstimate();
         compactChat = you.compactChat();
+        weapon = you.weaponId() < 0 ? null : content.product(you.weaponId());
+        armor = you.armorId() < 0 ? null : content.product(you.armorId());
         setStats(you.stats());
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
         you.inventory().forEach((productId, count) -> inventory.put(content.product(productId), count));
@@ -402,6 +417,24 @@ public class Player {
         if (level != goal.level() && level > getLevel(goal.skill())) {
             send(new Intent.SetGoalLevel(index, level));
         }
+    }
+
+    /** Fight with / wear {@code item} until every one of them is used up. */
+    public void equip(EquipSlot slot, Product item) {
+        send(new Intent.Equip(slot, item.id));
+    }
+
+    public void unequip(EquipSlot slot) {
+        send(new Intent.Unequip(slot));
+    }
+
+    public Product equipped(EquipSlot slot) {
+        return slot == EquipSlot.WEAPON ? weapon : armor;
+    }
+
+    /** How many of {@code item} make a stack for you ({@link Stacks}). */
+    public int stackSize(Product item) {
+        return Stacks.size(content, item, this::getLevel);
     }
 
     public void toggleCompactChat() {

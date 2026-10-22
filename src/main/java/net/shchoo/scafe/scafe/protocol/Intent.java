@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.protocol;
 
+import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.Position;
 
 import java.util.List;
@@ -17,7 +18,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 8;
+    int PROTOCOL_VERSION = 10;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -36,6 +37,11 @@ public sealed interface Intent {
     /** Use an inventory item on the node at {@code target}: walk over if needed, then start that node's action. */
     record UseItem(int productId, Position target) implements Intent {}
     record AddGoal() implements Intent {}
+
+    /** Point a slot at an item: it's used up from the inventory (every stack) until there's none left. */
+    record Equip(EquipSlot slot, int productId) implements Intent {}
+
+    record Unequip(EquipSlot slot) implements Intent {}
 
     /** {@code index} into your goals; {@code level} one of {@code Goal.LEVELS}. */
     record SetGoalLevel(int index, int level) implements Intent {}

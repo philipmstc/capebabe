@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
 import net.shchoo.scafe.scafe.model.Levels;
@@ -40,6 +41,9 @@ public class GameCharacter implements Walker.Mobile {
     Position pendingUse;
     public final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
+    /** What you fight with (null = fists) and wear (null = none); used up from the inventory, one at a time. */
+    public Product weapon;
+    public Product armor;
     public final List<Goal> goals = new ArrayList<>();
     /** Nodes this character has tried while too low level for them. */
     public final Set<Integer> triedNodes = new HashSet<>();
@@ -359,9 +363,58 @@ public class GameCharacter implements Walker.Mobile {
         return true;
     }
 
+    public Product equipped(EquipSlot slot) {
+        return slot == EquipSlot.WEAPON ? weapon : armor;
+    }
+
+    void equip(EquipSlot slot, Product item) {
+        if (item == null || inventory.getOrDefault(item, 0) <= 0) {
+            say("You don't have that.");
+            return;
+        }
+        setEquipped(slot, item);
+        say("You equip " + item.name + " as your " + slot.label + ".");
+    }
+
+    void unequip(EquipSlot slot) {
+        Product item = equipped(slot);
+        if (item == null) {
+            say("You've no " + slot.label + " equipped.");
+            return;
+        }
+        setEquipped(slot, null);
+        say("You put away the " + item.name + ".");
+    }
+
+    /** One swing (weapon) or one hit taken (armour): one fewer in the inventory. */
+    void useUp(EquipSlot slot) {
+        Product item = equipped(slot);
+        if (item != null) {
+            changeInventory(item, -1);
+        }
+    }
+
+    private void setEquipped(EquipSlot slot, Product item) {
+        if (slot == EquipSlot.WEAPON) {
+            weapon = item;
+        } else {
+            armor = item;
+        }
+        saveSoon = true;
+        emit(new Event.EquipmentChanged(slot, item == null ? -1 : item.id));
+    }
+
     void changeInventory(Product product, int delta) {
         int count = inventory.merge(product, delta, Integer::sum);
         emit(new Event.InventoryChanged(product.id, count));
+        if (count <= 0) {
+            for (EquipSlot slot : EquipSlot.values()) {
+                if (product.equals(equipped(slot))) {
+                    setEquipped(slot, null);
+                    say(Event.MessageKind.NOTICE, "You've used up your " + product.name + " (" + slot.label + ").");
+                }
+            }
+        }
     }
 
     Event.CharacterSnapshot snapshot() {
@@ -371,7 +424,8 @@ public class GameCharacter implements Walker.Mobile {
         inventory.forEach((product, count) -> inventoryById.put(product.id, count));
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
-                facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate, compactChat, statsByName());
+                facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate, compactChat, statsByName(),
+                weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id);
     }
 
     Event.EntityInfo info() {

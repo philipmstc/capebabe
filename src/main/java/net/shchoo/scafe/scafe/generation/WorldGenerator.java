@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.generation;
 
+import net.shchoo.scafe.scafe.model.DamageColor;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
@@ -86,7 +87,10 @@ public final class WorldGenerator {
             int maxHit = 1 + level / 3;
             int roamRadius = 2 + rng.nextInt(4);
             int moveTicks = 2 + rng.nextInt(3);
-            content.addMonster(new MonsterType(content.allocateId(), "monster" + n, level, maxHp, maxHit, n,
+            // any hue, now and then colourless (DamageColor)
+            int roll = rng.nextInt(10);
+            int color = roll == 0 ? DamageColor.WHITE : roll == 1 ? DamageColor.BLACK : rng.nextInt(DamageColor.HUES);
+            content.addMonster(new MonsterType(content.allocateId(), "monster" + n, level, maxHp, maxHit, color,
                     MONSTER_SYMBOLS.charAt(n % MONSTER_SYMBOLS.length()), roamRadius, moveTicks));
         });
     }

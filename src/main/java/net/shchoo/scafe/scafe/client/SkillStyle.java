@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.client;
 
+import net.shchoo.scafe.scafe.model.DamageColor;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Skill;
 
@@ -16,14 +17,6 @@ public class SkillStyle {
             TextColor.ANSI.CYAN_BRIGHT,
             TextColor.ANSI.BLUE_BRIGHT,
             TextColor.ANSI.MAGENTA_BRIGHT);
-
-    private static final List<TextColor.ANSI> monsterColors = List.of(
-            TextColor.ANSI.RED_BRIGHT,
-            TextColor.ANSI.MAGENTA,
-            TextColor.ANSI.YELLOW,
-            TextColor.ANSI.RED,
-            CYAN,
-            GREEN);
 
     /** Players pick one of these in settings (index = {@code colorIndex}, {@code Intent.PLAYER_COLORS} of them). */
     public static final List<TextColor.ANSI> PLAYER_COLORS = List.of(
@@ -46,8 +39,20 @@ public class SkillStyle {
         return PLAYER_COLORS.get(Math.floorMod(index, PLAYER_COLORS.size()));
     }
 
+    /** A {@link DamageColor}: hues bright or dark (by kind, so both show up), white, black as dark grey. */
+    public static TextColor.ANSI damageColor(int color, boolean dark) {
+        if (color == DamageColor.WHITE) {
+            return WHITE;
+        }
+        if (color == DamageColor.BLACK) {
+            return BLACK_BRIGHT;
+        }
+        TextColor.ANSI bright = colorOrder.get(Math.floorMod(color, DamageColor.HUES));
+        return dark ? dim(bright) : bright;
+    }
+
     public static TextColor.ANSI getColorForMonster(MonsterType type) {
-        return monsterColors.get(type.colorIndex % monsterColors.size());
+        return damageColor(type.colorIndex, type.id % 2 == 1);
     }
 
     public static char getSymbolForSkill(Skill skill) {

@@ -90,6 +90,11 @@ public class TabBar extends Widget {
         shown.draw(screen, player, board);
     }
 
+    @Override
+    public void drawOnTop(Screen screen, Player player, Board board) {
+        inventory.drawOnTop(screen, player, board);
+    }
+
     private static void header(Screen screen, int x, String key, String title, boolean selected) {
         TextGraphics g = screen.newTextGraphics();
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);

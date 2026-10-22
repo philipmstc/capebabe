@@ -32,7 +32,7 @@ public class SettingsMenu extends Menu {
             new String[]{"q", "use the node ahead (again: stop)"},
             new String[]{"g", "locked node ahead -> goal"},
             new String[]{"f", "fight the monster next to you"},
-            new String[]{"i", "inventory (Enter: use on a node)"},
+            new String[]{"i", "inventory (Enter: equip / use)"},
             new String[]{"1 2 3 4", "Skills, Goals, Stats, Settings"},
             new String[]{"  in Goals", "Left/Right moves a goal's level"},
             new String[]{"v", "hover the map; Enter walks there"},
