@@ -3,6 +3,7 @@ package net.shchoo.scafe.scafe.server;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
+import net.shchoo.scafe.scafe.protocol.Event;
 
 /** A character's action in progress: performs every {@link Node#durationTicks()} ticks while it still can. */
 public class ActionProgress {
@@ -25,7 +26,7 @@ public class ActionProgress {
             return true;
         }
         if (!character.position().equals(startedAt) || character.facing != startedFacing) {
-            character.say("Interrupted.");
+            character.say(Event.MessageKind.ROUTINE, "Interrupted.");
             return false;
         }
         ticksDone++;

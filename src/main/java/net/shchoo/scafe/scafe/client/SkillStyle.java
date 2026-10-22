@@ -6,6 +6,8 @@ import net.shchoo.scafe.scafe.model.Skill;
 import com.googlecode.lanterna.TextColor;
 import java.util.List;
 
+import static com.googlecode.lanterna.TextColor.ANSI.*;
+
 public class SkillStyle {
     private static final List<TextColor.ANSI> colorOrder = List.of(
             TextColor.ANSI.RED_BRIGHT,
@@ -20,8 +22,8 @@ public class SkillStyle {
             TextColor.ANSI.MAGENTA,
             TextColor.ANSI.YELLOW,
             TextColor.ANSI.RED,
-            TextColor.ANSI.CYAN,
-            TextColor.ANSI.GREEN);
+            CYAN,
+            GREEN);
 
     /** Players pick one of these in settings (index = {@code colorIndex}, {@code Intent.PLAYER_COLORS} of them). */
     public static final List<TextColor.ANSI> PLAYER_COLORS = List.of(
@@ -32,9 +34,13 @@ public class SkillStyle {
             TextColor.ANSI.RED_BRIGHT,
             TextColor.ANSI.BLUE_BRIGHT,
             TextColor.ANSI.WHITE_BRIGHT,
-            TextColor.ANSI.CYAN);
+            CYAN,
+            GREEN,
+            TextColor.ANSI.YELLOW,
+            TextColor.ANSI.MAGENTA,
+            TextColor.ANSI.RED);
     public static final List<String> PLAYER_COLOR_NAMES = List.of(
-            "cyan", "green", "yellow", "magenta", "red", "blue", "white", "teal");
+            "cyan", "lime", "yellow", "magenta", "red", "blue", "white", "teal", "green", "brown", "purple", "maroon");
 
     public static TextColor.ANSI playerColor(int index) {
         return PLAYER_COLORS.get(Math.floorMod(index, PLAYER_COLORS.size()));
@@ -50,6 +56,18 @@ public class SkillStyle {
 
     public static TextColor.ANSI getColorForSkill(Skill skill) {
         return colorOrder.get(skill.colorIndex % colorOrder.size());
+    }
+
+    public static TextColor.ANSI darkOf(Skill skill) {
+        return switch (colorOrder.get(skill.colorIndex % colorOrder.size())) {
+            case CYAN_BRIGHT -> CYAN;
+            case GREEN_BRIGHT -> GREEN;
+            case YELLOW_BRIGHT -> YELLOW;
+            case MAGENTA_BRIGHT -> MAGENTA;
+            case RED_BRIGHT -> RED;
+            case BLUE_BRIGHT -> BLUE;
+            default -> BLACK_BRIGHT;
+        };
     }
 
     /** The non-_BRIGHT version of a color. */

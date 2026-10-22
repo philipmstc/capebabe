@@ -40,7 +40,8 @@ class InventoryPanelTest {
         player.send(new Intent.Join("alice"));
         server.tick();
         player.receive();
-        tabs = new TabBar(Layout.TABS, inventory, List.of(new MapMenu(), new SkillsMenu(), new GoalsMenu()), new SettingsMenu());
+        tabs = new TabBar(Layout.TABS, inventory, new MapMenu(), List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()),
+                new SettingsMenu());
     }
 
     private void press(KeyType type) {

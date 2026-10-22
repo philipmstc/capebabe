@@ -8,6 +8,7 @@ import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.protocol.Event;
+import net.shchoo.scafe.scafe.model.Stat;
 
 import java.util.List;
 import java.util.Objects;
@@ -77,7 +78,7 @@ class Combat {
         monster.fighters.add(character.id);
         character.currentFight = new Fight(monster, tick + 1);
         character.emit(new Event.FightStarted(monster.id));
-        character.say("You attack " + monster.type.name + " (Lv. " + monster.type.level + ").");
+        character.say(Event.MessageKind.ROUTINE, "You attack " + monster.type.name + " (Lv. " + monster.type.level + ").");
     }
 
     void endFight(GameCharacter character, String reason) {
@@ -157,7 +158,8 @@ class Combat {
             }
         }
         server.removeMonster(monster);
-        killer.say("You defeated " + type.name + "!");
+        killer.say(Event.MessageKind.NOTICE, "You defeated " + type.name + "!");
+        killer.count(Stat.MONSTERS_KILLED);
         if (server.random().nextInt(type.nextDropOneIn()) == 0) {
             dropOneOfAKind(killer, type);
         }
@@ -181,7 +183,7 @@ class Combat {
         Product product = server.world.content.product(productId);
         finder.changeInventory(product, 1);
         finder.saveSoon = true;
-        finder.say("You found " + product.name + " -- the only one there will ever be!");
+        finder.say(Event.MessageKind.NOTICE, "You found " + product.name + " -- the only one there will ever be!");
         server.tellOthers(finder, finder.name + " found " + product.name + ". There won't be another.");
     }
 
@@ -194,7 +196,7 @@ class Combat {
         character.emit(new Event.StepsCleared(RESPAWN, character.facing));
         server.toObservers(character.id, new Event.EntityMoved(character.id, RESPAWN, character.facing));
         character.emit(new Event.HpChanged(character.hp, character.maxHp()));
-        character.say(monster.type.name + " knocked you out. You wake up at the origin.");
+        character.say(Event.MessageKind.NOTICE, monster.type.name + " knocked you out. You wake up at the origin.");
     }
 
     /** Out of a fight, hp slowly comes back (for monsters too). */

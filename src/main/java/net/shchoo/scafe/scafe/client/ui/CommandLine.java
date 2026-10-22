@@ -9,15 +9,16 @@ import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
 
-
 /**
- * "/" starts typing a command (e.g. "/1 5"); while typing, it takes every key. It's first in line for keys, so
- * it can't draw on top of anything -- {@link MessageLogView} shows what's being typed.
+ * "/" starts typing in the chat (the bottom row of the log box); Enter says it to everyone in the world. A line
+ * starting with "/" is a command instead ("/1 3": the old console). While typing, it takes every key. It's first in
+ * line for keys, so it can't draw on top of anything -- {@link MessageLogView} shows what's being typed.
  */
 public class CommandLine extends Widget {
+    private static final int MAX_TYPED = 200;
     private String typed = null;
 
-    /** What's typed so far (without the "/"), or null when not typing a command. */
+    /** What's typed so far, or null when not typing. */
     public String typed() {
         return typed;
     }
@@ -35,13 +36,21 @@ public class CommandLine extends Widget {
             return false;
         }
         switch (key.getKeyType()) {
-            case Character -> typed = typed + key.getCharacter();
+            case Character -> {
+                if (typed.length() < MAX_TYPED) {
+                    typed = typed + key.getCharacter();
+                }
+            }
             case Backspace -> typed = typed.isEmpty() ? typed : typed.substring(0, typed.length() - 1);
             case Enter -> {
-                GameLog.say("/" + typed);
-                ConsoleAction.submit(typed, player, board);
-                System.out.println(typed);
+                String line = typed.strip();
                 typed = null;
+                if (line.startsWith("/")) {
+                    GameLog.say(line);
+                    ConsoleAction.submit(line.substring(1), player, board);
+                } else if (!line.isEmpty()) {
+                    player.say(line);
+                }
             }
             case Escape -> typed = null;
             default -> {}

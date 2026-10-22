@@ -100,8 +100,17 @@ class LoginScreenTest {
         press(KeyType.Enter);
     }
 
-    /** Page two: host, world password, Continue. */
-    private void world(String host, String worldPassword) {
+    /** "Join a world": Play locally / Connect to server / Switch User, from the first button. */
+    private LoginScreen.Outcome choose(int buttonsRight) {
+        for (int i = 0; i < buttonsRight; i++) {
+            press(KeyType.ArrowRight);
+        }
+        return press(KeyType.Enter);
+    }
+
+    /** "Connect to a server": host, world password, Continue. */
+    private void server(String host, String worldPassword) {
+        choose(1);
         type(host);
         press(KeyType.Enter);
         type(worldPassword);
@@ -113,26 +122,38 @@ class LoginScreenTest {
         String shown = screenText();
         assertTrue(shown.contains("capebabe"));
         assertTrue(shown.contains("Name") && shown.contains("Password"));
-        assertFalse(shown.contains("Host"), "the host is the second page's");
+        assertFalse(shown.contains("Host"), "the host is the server page's");
         assertTrue(onOneLine("Login", "Exit"));
     }
 
     @Test
-    void pageTwoIsHostAndWorldPassword() throws IOException {
+    void pageTwoChoosesLocalOrAServer() throws IOException {
         account("alice", "hunter22");
-        assertTrue(connects.isEmpty(), "nothing's connected until a host is picked");
+        assertTrue(connects.isEmpty(), "nothing's connected until a world is picked");
         String shown = screenText();
         assertTrue(shown.contains("Join a world"));
-        assertTrue(shown.contains("Host") && shown.contains("World Password"));
         assertTrue(shown.contains("as alice"));
-        assertTrue(onOneLine("Continue", "Switch User"));
+        assertFalse(shown.contains("Host") || shown.contains("World Password"), "nothing to type for your own world");
+        assertTrue(onOneLine("> Play locally", "Connect to server") && onOneLine("Connect to server", "Switch User"));
     }
 
     @Test
-    void aBlankHostIsYourOwnWorld() throws IOException {
+    void connectToServerAsksForTheHostAndWorldPassword() throws IOException {
+        account("alice", "hunter22");
+        choose(1);
+        String shown = screenText();
+        assertTrue(shown.contains("Connect to a server"));
+        assertTrue(shown.contains("Host") && shown.contains("World Password"));
+        assertTrue(onOneLine("Continue", "Back"));
+        assertFalse(shown.contains("Switch User"));
+        assertTrue(connects.isEmpty());
+    }
+
+    @Test
+    void playLocallyGoesStraightIn() throws IOException {
         account("alice", "hunter22");
         assertFalse(screenText().contains("hunter22"), "passwords are hidden");
-        world("", "");
+        choose(0);
         assertEquals(LoginScreen.Outcome.IN_WORLD, settle(), "no world password asked of your own world");
         assertEquals(List.of(""), connects);
         assertEquals("alice", login.connection().player().name);
@@ -141,19 +162,27 @@ class LoginScreenTest {
     @Test
     void aFriendsWorldWithItsWorldPassword() throws IOException {
         account("alice", "hunter22");
-        world("friend", "open sesame");
+        server("friend", "open sesame");
         assertEquals(LoginScreen.Outcome.IN_WORLD, settle());
         assertEquals("friend", login.server());
         assertTrue(screenText().contains("server fingerprint AB:CD:EF"), "the fingerprint shows once connected");
     }
 
     @Test
-    void aWrongWorldPasswordStaysOnPageTwoAndReusesTheConnection() throws IOException {
+    void theServerPageNeedsAHost() throws IOException {
         account("alice", "hunter22");
-        world("friend", "open says me");
+        server("", "");
+        assertTrue(screenText().contains("Type a host first."));
+        assertTrue(connects.isEmpty(), "a blank host isn't your own world any more: that's Play locally");
+    }
+
+    @Test
+    void aWrongWorldPasswordStaysOnTheServerPageAndReusesTheConnection() throws IOException {
+        account("alice", "hunter22");
+        server("friend", "open says me");
         assertNull(settle());
         String shown = screenText();
-        assertTrue(shown.contains("Join a world"));
+        assertTrue(shown.contains("Connect to a server"));
         assertTrue(shown.contains("Wrong world password."));
 
         type("open sesame");
@@ -175,7 +204,7 @@ class LoginScreenTest {
         server.tick();
 
         account("alice", "wrong-one");
-        world("", "");
+        choose(0);
         assertNull(settle());
         String shown = screenText();
         assertTrue(shown.contains("capebabe") && !shown.contains("Join a world"), "back on page one");
@@ -183,33 +212,53 @@ class LoginScreenTest {
 
         type("hunter22");
         press(KeyType.Enter);
-        world("", "");
+        choose(0);
         assertEquals(LoginScreen.Outcome.IN_WORLD, settle());
     }
 
     @Test
-    void aHostThatCantBeReachedSaysSoOnPageTwo() throws IOException {
+    void aHostThatCantBeReachedSaysSoOnTheServerPage() throws IOException {
         account("alice", "hunter22");
-        world("nowhere", "");
+        server("nowhere", "");
         String shown = screenText();
-        assertTrue(shown.contains("Join a world"));
+        assertTrue(shown.contains("Connect to a server"));
         assertTrue(shown.contains("Couldn't connect to nowhere:43594: Connection refused"));
         assertNull(login.connection());
+        assertEquals("nowhere", login.server(), "kept for next time");
     }
 
     @Test
-    void switchUserGoesBackToPageOne() throws IOException {
+    void backGoesToTheChoiceAndSwitchUserToPageOne() throws IOException {
         account("alice", "hunter22");
+        choose(1);
         press(KeyType.ArrowDown);
         press(KeyType.ArrowDown);
         press(KeyType.ArrowRight);
         press(KeyType.Enter);
+        assertTrue(screenText().contains("Join a world"), "Back: local or server again");
+        choose(1);
+        press(KeyType.Escape);
+        assertTrue(screenText().contains("Join a world"), "Esc is Back too");
+
+        choose(2);
         assertTrue(screenText().contains("capebabe"));
         assertFalse(screenText().contains("Join a world"));
 
         account("bob", "pw1234");
         press(KeyType.Escape);
-        assertFalse(screenText().contains("Join a world"), "Esc on page two is Switch User too");
+        assertFalse(screenText().contains("Join a world"), "Esc on the choice is Switch User");
+    }
+
+    @Test
+    void aRememberedHostPicksConnectToServer() throws IOException {
+        login = new LoginScreen(this::connect, "friend", "alice");
+        type("hunter22");
+        press(KeyType.Enter);
+        assertTrue(onOneLine("> Connect to server", "Switch User"));
+        press(KeyType.Enter);
+        type("open sesame");
+        press(KeyType.Enter);
+        assertEquals(LoginScreen.Outcome.IN_WORLD, settle(), "the host was filled in already");
     }
 
     @Test

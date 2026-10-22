@@ -190,6 +190,7 @@ public class MapView extends Widget {
                 ? SkillStyle.playerColor(player.colorIndex)
                 : hasAction
                 ? nodeColor(node, player)
+                : new Position(worldX, worldY).equals(player.walkTarget) ? TextColor.ANSI.RED_BRIGHT
                 : worldX % 10 == 0 && worldY % 10 == 0 ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.BLACK_BRIGHT;
         if (!isPlayerPosition) {
             List<Event.EntityInfo> here = player.othersAt(new Position(worldX, worldY));
@@ -207,26 +208,44 @@ public class MapView extends Widget {
         int screenX = tileScreenX(worldX, player.x);
         int screenY = tileScreenY(worldY, player.y);
         TextColor bg = highlighted ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT;
-        if (highlighted) {
-            if (fg == TextColor.ANSI.BLACK_BRIGHT) {
-                fg = TextColor.ANSI.WHITE;
-            }
-            screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter(' ', fg, bg)[0]);
-            screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter(' ', fg, bg)[0]);
+        if (highlighted && fg == TextColor.ANSI.BLACK_BRIGHT) {
+            fg = TextColor.ANSI.WHITE;
         }
-        if (hasAction && player.showProductTiers) {
-            if (node.recipe.product.tier > 0) {
-                screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter('.', fg, bg)[0]);
+
+        char leftOfNode = ' ';
+        char rightOfNode = ' ';
+        boolean marked = false;
+        if (hasAction) {
+            if (player.highlightedRecipes.contains(node.recipe)) {
+                bg = SkillStyle.darkOf(node.skill());
+                fg = TextColor.ANSI.BLACK;
+                marked = true;
             }
-            if (node.recipe.product.tier > 1) {
-                screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter('.', fg, bg)[0]);
+            if (player.showProductTiers) {
+                if (node.recipe.product.tier > 0) {
+                    leftOfNode = '.';
+                }
+                if (node.recipe.product.tier > 1) {
+                    rightOfNode = '.';
+                }
+                if (node.recipe.product.tier > 2) {
+                    leftOfNode = ':';
+                }
+                if (node.recipe.product.tier > 3) {
+                    rightOfNode = ':';
+                }
             }
-            if (node.recipe.product.tier > 2) {
-                screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter(':', fg, bg)[0]);
-            }
-            if (node.recipe.product.tier > 3) {
-                screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter(':', fg, bg)[0]);
-            }
+        }
+        // The cells either side of a tile are shared with its neighbours (tiles are 2 columns apart), and tiles are
+        // drawn left to right: write them only when there's something to show there, or the next tile along would
+        // be wiping out this one's right-hand cell (and this one its left neighbour's) with a plain blank.
+        // ...and never onto the map's frame: the outermost columns' side cells are the border itself
+        boolean wholeCell = marked || highlighted;
+        if ((wholeCell || leftOfNode != ' ') && screenX - 1 > Layout.MAP.x()) {
+            screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter(leftOfNode, fg, bg)[0]);
+        }
+        if ((wholeCell || rightOfNode != ' ') && screenX + 1 < Layout.MAP.right()) {
+            screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter(rightOfNode, fg, bg)[0]);
         }
         screen.setCharacter(screenX, screenY, TextCharacter.fromCharacter(result, fg, bg)[0]);
     }

@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v2, worlds v10). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v11). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -38,7 +38,7 @@ Only the server side writes these (single player, `--host`, `--server`); `--conn
   ending instead.
 - **Accounts** (`accounts.db`): `password_hash` is `pbkdf2$<iterations>$<salt>$<hash>` (PBKDF2-HMAC-SHA256),
   never the password. Null for accounts from before logins; their first login sets it.
-- **Characters** (`game_character` + `character_skill_xp`, `inventory`, `goal`, `character_tried_node`): one
+- **Characters** (`game_character` + `character_skill_xp`, `inventory`, `goal`, `character_tried_node`, `character_stat`): one
   character per account per world (`account_id` points into `accounts.db`; no foreign key across files). Levels
   aren't stored, only xp. Saved whole (delete + reinsert the child rows) in one transaction.
 - **One-of-a-kind drops**: a `monster_drop` row means that drop has dropped, for `found_by`. It's written in the
@@ -73,7 +73,7 @@ CREATE TABLE node (id integer primary key, content_version integer not null, ord
                    capacity integer not null, max_charges integer not null, respawn_ticks integer not null);
 CREATE TABLE game_character (id integer primary key autoincrement, account_id integer not null unique,
                              name text not null, x integer not null, y integer not null,
-                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, show_product_tiers integer not null default 0, show_time_estimate integer not null default 0);
+                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, show_product_tiers integer not null default 0, show_time_estimate integer not null default 0, compact_chat integer not null default 0);
 CREATE TABLE character_skill_xp (character_id integer not null references game_character(id),
                                  skill_id integer not null references skill(id), xp integer not null,
                                  primary key (character_id, skill_id));
@@ -95,6 +95,8 @@ CREATE TABLE monster_drop (monster_id integer not null references monster_type(i
                            primary key (monster_id, product_id));
 CREATE TABLE content_batch (content_version integer primary key, created_by text not null,
                             created_at integer not null);
+CREATE TABLE character_stat (character_id integer not null references game_character(id), stat text not null,
+                             value integer not null, primary key (character_id, stat));
 ```
 
 When the schema changes, regenerate the Tables section from a fresh data folder (run the game once with

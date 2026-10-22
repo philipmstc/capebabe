@@ -10,6 +10,7 @@ import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.SkillType;
 import net.shchoo.scafe.scafe.protocol.Event;
+import net.shchoo.scafe.scafe.model.Stat;
 
 import java.util.*;
 import java.util.function.Consumer;
@@ -29,6 +30,10 @@ public class GameCharacter implements Walker.Mobile {
     public boolean autoInvestigate;
     public boolean showProductTiers;
     public boolean showTimeEstimate;
+    public boolean compactChat;
+    /** Lifetime counts (see {@link Stat}); sent to the client at the end of a tick in which they changed. */
+    public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
+    boolean statsChanged;
     /** The last tick this character took a step (or turned), for "is moving right now". */
     long lastSteppedTick = -1;
     /** Walking over to use an item on the node here; its action starts on arrival. */
@@ -74,7 +79,22 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     void say(String text) {
-        emit(new Event.Message(text));
+        say(Event.MessageKind.INFO, text);
+    }
+
+    void say(Event.MessageKind kind, String text) {
+        emit(new Event.Message(text, kind));
+    }
+
+    void count(Stat stat) {
+        stats.merge(stat, 1L, Long::sum);
+        statsChanged = true;
+    }
+
+    Map<String, Long> statsByName() {
+        Map<String, Long> named = new LinkedHashMap<>();
+        stats.forEach((stat, value) -> named.put(stat.name(), value));
+        return named;
     }
 
     @Override
@@ -236,7 +256,7 @@ public class GameCharacter implements Walker.Mobile {
         nodes.leave(currentAction.node, id);
         currentAction = null;
         if (reason != null) {
-            say(reason);
+            say(Event.MessageKind.ROUTINE, reason);
         }
         emit(new Event.ActionStopped());
     }
@@ -258,8 +278,9 @@ public class GameCharacter implements Walker.Mobile {
         changeInventory(recipe.product, 1);
         lastActionAt = position();
         emit(new Event.HomeChanged(lastActionAt));
-        say("Made " + recipe.product.name);
+        say(Event.MessageKind.ROUTINE, "Made " + recipe.product.name);
         triggers.add(Discovery.Trigger.MADE);
+        count(Stat.ITEMS_CRAFTED);
         gainExperience(recipe.skill, recipe.expGained);
         return true;
     }
@@ -300,9 +321,27 @@ public class GameCharacter implements Walker.Mobile {
             } else {
                 goals.add(goal);
                 emit(new Event.GoalAdded(Event.GoalDef.of(goal)));
-                say("New goal: " + goal.describe());
+                say(Event.MessageKind.NOTICE, "New goal: " + goal.describe());
             }
         }
+    }
+
+    void setGoalLevel(int index, int level) {
+        if (index < 0 || index >= goals.size() || !Goal.allowed(level)) {
+            return;
+        }
+        Goal goal = goals.get(index).withLevel(level);
+        if (level <= getLevel(goal.skill())) {
+            say("You're already past Lv. " + level + ".");
+            return;
+        }
+        if (goals.contains(goal)) {
+            say("Already a goal.");
+            return;
+        }
+        goals.set(index, goal);
+        saveSoon = true;
+        emit(new Event.GoalChanged(index, Event.GoalDef.of(goal)));
     }
 
     public boolean has(Map<Product, Integer> components) {
@@ -332,7 +371,7 @@ public class GameCharacter implements Walker.Mobile {
         inventory.forEach((product, count) -> inventoryById.put(product.id, count));
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
-                facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate);
+                facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate, compactChat, statsByName());
     }
 
     Event.EntityInfo info() {

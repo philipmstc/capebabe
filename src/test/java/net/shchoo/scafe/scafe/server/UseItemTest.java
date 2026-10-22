@@ -9,6 +9,7 @@ import net.shchoo.scafe.scafe.client.ui.Layout;
 import net.shchoo.scafe.scafe.client.ui.MapMenu;
 import net.shchoo.scafe.scafe.client.ui.SettingsMenu;
 import net.shchoo.scafe.scafe.client.ui.SkillsMenu;
+import net.shchoo.scafe.scafe.client.ui.StatsMenu;
 import net.shchoo.scafe.scafe.client.ui.TabBar;
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.Node;
@@ -80,13 +81,13 @@ class UseItemTest {
 
     @Test
     void pickAnItemAimAtANodeAndItGetsUsed() {
-        TabBar tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY),
-                List.of(new MapMenu(), new SkillsMenu(), new GoalsMenu()), new SettingsMenu());
+        TabBar tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), new MapMenu(),
+                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
         tabs.onKey(new KeyStroke('i', false, false), player, board);
         tabs.onKey(new KeyStroke(KeyType.Enter), player, board);
 
-        assertInstanceOf(MapMenu.class, tabs.selected(), "over to the map");
-        MapMenu map = (MapMenu) tabs.selected();
+        MapMenu map = tabs.map();
+        assertTrue(map.isFocused(), "over to the map");
         Product first = player.inventory.keySet().iterator().next();
         assertEquals(first, map.using());
         assertEquals(new Position(3, 0), map.cursor(player), "aimed at the nearest node that takes it");

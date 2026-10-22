@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.model.Stat;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.model.*;
@@ -156,6 +157,8 @@ class CombatTest {
         assertEquals("bob", type.drops.get(1).foundBy());
         int drop0sInTheWorld = alice.inventory.getOrDefault(drop0, 0) + bob.inventory.getOrDefault(bob.content.product(drop0.id), 0);
         assertEquals(1, drop0sInTheWorld);
+        assertEquals(1, alice.trophies(), "a trophy each");
+        assertEquals(1, bob.trophies());
     }
 
     @Test
@@ -348,5 +351,27 @@ class CombatTest {
         assertTrue(monsters.spawn(type, new Position(0, 0)).id < 0);
         assertTrue(monsters.spawn(type, new Position(0, 0)).id < 0);
         assertTrue(alice.id > 0);
+    }
+
+    @Test
+    void killsAreCounted() {
+        spawnNextToAlice();
+        fightUntilOver();
+        tick();
+        assertEquals(1L, alice.stats.get(Stat.MONSTERS_KILLED));
+    }
+
+    @Test
+    void levelStatsComeFromYourXp() {
+        alice.send(new Intent.Admin("1", List.of("2")));
+        tick();
+        assertEquals(0, alice.totalExperience());
+        assertEquals(1, alice.highestLevel());
+        spawnNextToAlice();
+        fightUntilOver();
+        Skill combat = alice.content.combatSkill();
+        assertEquals(alice.getExperience(combat).longValue(), alice.totalExperience());
+        assertEquals(alice.getLevel(combat), alice.highestLevel());
+        assertEquals(alice.content.skills.size() - 1 + alice.getLevel(combat), alice.totalLevel());
     }
 }

@@ -15,11 +15,11 @@ import java.util.Locale;
 import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 
 /**
- * One line in the header row, over the map, for the tracked skill: "# skill0 Lv. 5 [ 203/1.2k ] 600k/h ~42m" heading
- * for the next level, or "# skill0 Lv. 54\u219270 [ 150k/737k ] 600k/h ~3h 05m" for your nearest goal in it ({@link XpTarget}).
+ * One line on the top row, over the map, for the tracked skill: "# skill0 Lv. 5 [  203/1154  ] 600k/h ~42m" heading
+ * for the next level, or "# skill0 Lv. 54\u219270 [ 150210/737627 ] 600k/h ~3h 05m" for your nearest goal in it ({@link XpTarget}).
  */
 public class XpTrackerView extends Widget {
-    private static final int BAR_WIDTH = 16;
+    private static final int BAR_WIDTH = 21;
     private static final int MIN_NAME = 8;
 
     public XpTrackerView(Rect bounds) {
@@ -42,7 +42,7 @@ public class XpTrackerView extends Widget {
                 ? "Lv. " + target.level() + "\u2192" + target.targetLevel() + " "
                 : "Lv. " + target.level() + " ";
         String barText = target.maxed() ? "MAX"
-                : compact(target.xp() - target.fromXp()) + "/" + compact(target.toXp() - target.fromXp());
+                : (target.xp() - target.fromXp()) + "/" + (target.toXp() - target.fromXp());
         String rateText = " " + (rate == null ? "--" : compact(rate)) + "/h";
         String etaText = rate == null || rate == 0 || target.maxed() ? ""
                 : " ~" + duration(target.remaining() * MILLIS_PER_HOUR / rate);

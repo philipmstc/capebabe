@@ -20,19 +20,19 @@ import java.util.function.Consumer;
 /**
  * The first screens, so the game can be started with a double click:
  * <pre>
- *        capebabe                         Join a world
+ *        capebabe                         Join a world                              Connect to a server
  *
- *            Name ____                            Host ____
- *        Password ____                  World Password ____
+ *            Name                                                                          Host
+ *        Password                                                                World Password
  *
- *      > Login   Exit                 > Continue   Switch User
+ *      > Login   Exit         > Play locally   Connect to server   Switch User      > Continue   Back
  * </pre>
- * Accounts live on the server, so the name and password are only checked once a host is picked: Continue connects
- * (through {@link Connector}; a blank host = your own world here), logs in and enters the world. A wrong account
- * password sends you back to the first page; a wrong world password, or a host that can't be reached, keeps you
- * on the second. When hosting there's no second page: Login goes straight into your own world.
- * Up/Down move between rows, Left/Right between buttons, Tab through everything, Enter moves on or presses,
- * Esc quits (on the second page: back to the first).
+ * Accounts live on the server, so the name and password are only checked once a world is picked: Play locally
+ * (your own world here) or Continue connects (through {@link Connector}; "" = your own world), logs in and enters
+ * the world. A wrong account password sends you back to the first page; a wrong world password, or a host that
+ * can't be reached, keeps you on the server page. When hosting there's only the first page: Login goes straight
+ * into your own world. Up/Down move between rows, Left/Right between buttons, Tab through everything, Enter moves
+ * on or presses, Esc goes back a page (quits from the first).
  */
 public class LoginScreen {
     public enum Outcome { IN_WORLD, EXIT }
@@ -50,16 +50,18 @@ public class LoginScreen {
 
     static final String TITLE = "capebabe";
     static final String WORLD_TITLE = "Join a world";
+    static final String SERVER_TITLE = "Connect to a server";
     private static final int FIELD_WIDTH = 20;
     private static final int HOST_WIDTH = 30;
     private static final int MAX_PASSWORD = 64;
     private static final int MAX_HOST = 100;
 
-    private enum Page { ACCOUNT, WORLD }
+    private enum Page { ACCOUNT, CHOOSE, SERVER }
 
     private enum Item {
         NAME("Name"), PASSWORD("Password"), LOGIN("Login"), EXIT("Exit"),
-        HOST("Host"), WORLD_PASSWORD("World Password"), CONTINUE("Continue"), SWITCH_USER("Switch User");
+        LOCAL("Play locally"), SERVER("Connect to server"), SWITCH_USER("Switch User"),
+        HOST("Host"), WORLD_PASSWORD("World Password"), CONTINUE("Continue"), BACK("Back");
 
         final String label;
 
@@ -68,7 +70,7 @@ public class LoginScreen {
         }
 
         boolean button() {
-            return this == LOGIN || this == EXIT || this == CONTINUE || this == SWITCH_USER;
+            return this != NAME && this != PASSWORD && this != HOST && this != WORLD_PASSWORD;
         }
     }
 
@@ -92,7 +94,7 @@ public class LoginScreen {
     private String status = "";
     private boolean statusIsError;
 
-    /** Pick a host on the second page (prefilled with {@code host}, "" = your own world). */
+    /** Pick your own world or a host (prefilled with {@code host}) on the next pages. */
     public LoginScreen(Connector connector, String host, String defaultName) {
         this(connector, true, host, defaultName);
     }
@@ -123,9 +125,9 @@ public class LoginScreen {
         return connection;
     }
 
-    /** The host you got in on, as typed ("" = your own world). */
+    /** The host to offer next time: the last one typed, even if you then played locally. */
     public String server() {
-        return connectedTo == null ? host : connectedTo;
+        return host.trim();
     }
 
     /** What the log said on the way in (the welcome, who's here), to start the game's log with. */
@@ -175,8 +177,11 @@ public class LoginScreen {
 
     /** Whether Enter on the selected item connects (so the screen should say so first). */
     private boolean submits() {
-        return page == Page.WORLD ? selected == Item.CONTINUE || selected == Item.WORLD_PASSWORD
-                : !pickHost && (selected == Item.LOGIN || selected == Item.PASSWORD);
+        return switch (page) {
+            case ACCOUNT -> !pickHost && (selected == Item.LOGIN || selected == Item.PASSWORD);
+            case CHOOSE -> selected == Item.LOCAL;
+            case SERVER -> (selected == Item.CONTINUE || selected == Item.WORLD_PASSWORD) && !host.isBlank();
+        };
     }
 
     /** Reacts to what the server said. */
@@ -193,7 +198,7 @@ public class LoginScreen {
             status = player.loginRefused;
             statusIsError = true;
             player.loginRefused = null;
-            if (waiting == Waiting.ENTER) {
+            if (waiting == Waiting.ENTER && page == Page.SERVER) {
                 worldPassword = "";
                 selected = Item.WORLD_PASSWORD;
             } else if (waiting == Waiting.LOGIN) {
@@ -237,10 +242,13 @@ public class LoginScreen {
                 }
             }
             case Escape -> {
-                if (page == Page.ACCOUNT) {
-                    return Outcome.EXIT;
+                switch (page) {
+                    case ACCOUNT -> {
+                        return Outcome.EXIT;
+                    }
+                    case CHOOSE -> switchUser();
+                    case SERVER -> toChoosePage();
                 }
-                switchUser();
             }
             case Enter -> {
                 return press(items, at);
@@ -258,8 +266,11 @@ public class LoginScreen {
     }
 
     private List<Item> items() {
-        return page == Page.ACCOUNT ? List.of(Item.NAME, Item.PASSWORD, Item.LOGIN, Item.EXIT)
-                : List.of(Item.HOST, Item.WORLD_PASSWORD, Item.CONTINUE, Item.SWITCH_USER);
+        return switch (page) {
+            case ACCOUNT -> List.of(Item.NAME, Item.PASSWORD, Item.LOGIN, Item.EXIT);
+            case CHOOSE -> List.of(Item.LOCAL, Item.SERVER, Item.SWITCH_USER);
+            case SERVER -> List.of(Item.HOST, Item.WORLD_PASSWORD, Item.CONTINUE, Item.BACK);
+        };
     }
 
     /** Up/Down: each field is a row, the buttons share one (arriving on it picks its first button). */
@@ -276,8 +287,23 @@ public class LoginScreen {
     private Outcome press(List<Item> items, int at) {
         switch (selected) {
             case NAME, HOST -> selected = items.get(at + 1);
-            case PASSWORD, LOGIN -> toWorldPage();
-            case WORLD_PASSWORD, CONTINUE -> logIn();
+            case PASSWORD, LOGIN -> toChoosePage();
+            case LOCAL -> logIn("");
+            case SERVER -> {
+                page = Page.SERVER;
+                selected = host.isBlank() ? Item.HOST : Item.WORLD_PASSWORD;
+                status = "";
+            }
+            case WORLD_PASSWORD, CONTINUE -> {
+                if (host.isBlank()) {
+                    status = "Type a host first.";
+                    statusIsError = true;
+                    selected = Item.HOST;
+                } else {
+                    logIn(host.trim());
+                }
+            }
+            case BACK -> toChoosePage();
             case SWITCH_USER -> switchUser();
             case EXIT -> {
                 return Outcome.EXIT;
@@ -287,7 +313,7 @@ public class LoginScreen {
     }
 
     /** First page done: on to picking a world (hosting: straight in). */
-    private void toWorldPage() {
+    private void toChoosePage() {
         if (name.isBlank()) {
             status = "Type a name first.";
             statusIsError = true;
@@ -295,11 +321,11 @@ public class LoginScreen {
             return;
         }
         if (!pickHost) {
-            logIn();
+            logIn("");
             return;
         }
-        page = Page.WORLD;
-        selected = host.isBlank() ? Item.HOST : Item.WORLD_PASSWORD;
+        page = Page.CHOOSE;
+        selected = host.isBlank() ? Item.LOCAL : Item.SERVER;
         status = "";
     }
 
@@ -310,8 +336,7 @@ public class LoginScreen {
         status = "";
     }
 
-    private void logIn() {
-        String target = host.trim();
+    private void logIn(String target) {
         if (connection == null || !target.equals(connectedTo) || !connection.connection().isOpen()) {
             if (connection != null && pickHost) {
                 connection.connection().close();
@@ -322,7 +347,9 @@ public class LoginScreen {
                 connection = null;
                 status = e.getMessage() == null ? e.toString() : e.getMessage();
                 statusIsError = true;
-                selected = Item.HOST;
+                if (page == Page.SERVER) {
+                    selected = Item.HOST;
+                }
                 return;
             }
             connectedTo = target;
@@ -363,7 +390,11 @@ public class LoginScreen {
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
 
-        String title = page == Page.ACCOUNT ? TITLE : WORLD_TITLE;
+        String title = switch (page) {
+            case ACCOUNT -> TITLE;
+            case CHOOSE -> WORLD_TITLE;
+            case SERVER -> SERVER_TITLE;
+        };
         g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
         g.enableModifiers(SGR.BOLD);
         g.putString((columns - title.length()) / 2, top, title);
@@ -371,10 +402,10 @@ public class LoginScreen {
         String under;
         if (page == Page.ACCOUNT) {
             under = pickHost || connection == null ? "" : connection.where();
-        } else if (connection != null && host.trim().equals(connectedTo)) {
+        } else if (page == Page.SERVER && connection != null && !connectedTo.isEmpty() && host.trim().equals(connectedTo)) {
             under = connection.where();
         } else {
-            under = host.isBlank() ? "as " + name + " -- leave Host blank to play your own world" : "as " + name;
+            under = "as " + name;
         }
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         g.putString((columns - under.length()) / 2, top + 1, under);
@@ -422,10 +453,14 @@ public class LoginScreen {
             g.putString((columns - line.length()) / 2, y + 3, line);
         }
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        String back = page == Page.ACCOUNT ? "quit" : "switch user";
+        String back = switch (page) {
+            case ACCOUNT -> "quit";
+            case CHOOSE -> "switch user";
+            case SERVER -> "back";
+        };
         String hint = busy ? "[Esc] quit" : "[Up/Down/Left/Right/Tab] move  [Enter] next / press  [Esc] " + back;
         g.putString((columns - hint.length()) / 2, rows - 2, hint);
-        String footer = connection == null ? "" : connection.footer();
+        String footer = connection == null || page == Page.CHOOSE ? "" : connection.footer();
         if (!footer.isEmpty()) {
             String line = Layout.fit(footer, columns - 2);
             g.putString((columns - line.length()) / 2, rows - 1, line);
@@ -440,8 +475,8 @@ public class LoginScreen {
         String shown = secret ? "*".repeat(value.length()) : value;
         String visible = shown.length() > width ? shown.substring(shown.length() - width) : shown;
         g.setBackgroundColor(isSelected ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT);
-        String cell = visible + (isSelected ? "_" : "");
-        g.putString(fieldX, y, cell + (isSelected ? " " : "_").repeat(Math.max(0, width - cell.length())));
+        String cell = visible + (isSelected ? " " : "");
+        g.putString(fieldX, y, cell + (" ").repeat(Math.max(0, width - cell.length())));
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
     }
 }

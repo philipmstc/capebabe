@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.client;
 
+import com.googlecode.lanterna.Symbols;
 import com.googlecode.lanterna.TextColor;
 import net.shchoo.scafe.scafe.model.*;
 import net.shchoo.scafe.scafe.protocol.Event;
@@ -37,6 +38,10 @@ public class Player {
     public boolean autoInvestigate;
     public boolean showProductTiers;
     public boolean showTimeEstimate;
+    /** Hide routine messages ("Made x") in the chat. */
+    public boolean compactChat;
+    /** Your lifetime counts in this world. */
+    public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
 
     /** Where you are and which way you face. */
     record Pose(Position position, Direction facing) {}
@@ -50,6 +55,10 @@ public class Player {
     private final Set<Integer> triedNodes = new HashSet<>();
     public Position lastActionAt;
     public final Waypoints waypoints = new Waypoints();
+
+    // client side only.
+    public Set<Recipe> highlightedRecipes = new HashSet<>();
+
     /** Login progress, for the login screen: the server's latest answer (cleared once read). */
     public Event.LoginAccepted loginAccepted;
     public String loginRefused;
@@ -65,6 +74,12 @@ public class Player {
     public final List<Popup> popups = new ArrayList<>();
     public final XpTracker xpTracker = new XpTracker();
     private long serverTick;
+    /** Where a hover + Enter walk is headed (drawn red on the map), or null. Client-only. */
+    public Position walkTarget;
+    /** The server tick of the last step we took (or of setting the walk target): a walk that stalls gets forgotten. */
+    private long lastWalkProgress;
+    /** Ticks without a step before a walk target is dropped (no path, something in the way). */
+    private static final int WALK_STALL_TICKS = 3;
     private long lastTickAt = System.currentTimeMillis();
 
     public Player(GameConnection connection) {
@@ -78,6 +93,15 @@ public class Player {
     /** Applies everything the server sent since last frame. */
     public void receive() {
         connection.poll().forEach(this::apply);
+    }
+
+    public void toggleHighlighting(Recipe recipe) {
+        if (highlightedRecipes.contains(recipe)) {
+            highlightedRecipes.remove(recipe);
+        }
+        else {
+            highlightedRecipes.add(recipe);
+        }
     }
 
     /** The closest node (in steps, diagonals counting one) that makes {@code recipe}, or null if none is known. */
@@ -126,6 +150,7 @@ public class Player {
             others.remove(left.id());
         } else if (event instanceof Event.EntityMoved moved) {
             if (moved.id() == id) {
+                lastWalkProgress = serverTick;
                 server = new Pose(moved.position(), moved.facing());
                 if (!predicted.isEmpty() && predicted.peekFirst().equals(server)) {
                     predicted.pollFirst();
@@ -154,6 +179,10 @@ public class Player {
             inventory.put(content.product(changed.productId()), changed.count());
         } else if (event instanceof Event.GoalAdded added) {
             goals.add(added.goal().toGoal(content));
+        } else if (event instanceof Event.GoalChanged changed) {
+            if (changed.index() < goals.size()) {
+                goals.set(changed.index(), changed.goal().toGoal(content));
+            }
         } else if (event instanceof Event.NodeTried tried) {
             triedNodes.add(tried.nodeId());
         } else if (event instanceof Event.NodeChanged changed) {
@@ -182,7 +211,13 @@ public class Player {
         } else if (event instanceof Event.HomeChanged home) {
             lastActionAt = home.lastActionAt();
         } else if (event instanceof Event.Message message) {
-            GameLog.say(message.text());
+            GameLog.say(message.kind() == null ? Event.MessageKind.INFO : message.kind(), message.text());
+        } else if (event instanceof Event.Chat chat) {
+            GameLog.chat(chat.from(), chat.colorIndex(), chat.text());
+        } else if (event instanceof Event.StatsChanged changed) {
+            setStats(changed.stats());
+        } else if (event instanceof Event.CompactChatChanged changed) {
+            compactChat = changed.on();
         }
     }
 
@@ -200,6 +235,8 @@ public class Player {
         autoInvestigate = you.autoInvestigate();
         showProductTiers = you.showProductTiers();
         showTimeEstimate = you.showTimeEstimate();
+        compactChat = you.compactChat();
+        setStats(you.stats());
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
         you.inventory().forEach((productId, count) -> inventory.put(content.product(productId), count));
         you.goals().forEach(def -> goals.add(def.toGoal(content)));
@@ -212,11 +249,11 @@ public class Player {
         serverTick = welcome.tick();
         lastTickAt = System.currentTimeMillis();
         joined = true;
-        GameLog.say("Welcome to " + worldName + ", " + name + "!");
+        GameLog.say(Event.MessageKind.NOTICE, "Welcome to " + worldName + ", " + name + "!");
     }
 
     private void onLevelUp(Skill skill, int from, int to) {
-        GameLog.say(skill.name + " is now Lv. " + to + "!");
+        GameLog.say(Event.MessageKind.NOTICE, skill.name + " is now Lv. " + to + "!");
         popups.add(Popup.following(this::position, " " + skill.name + " Lv. " + to + "! ",
                 TextColor.ANSI.BLACK, SkillStyle.getColorForSkill(skill), LEVEL_UP_POPUP_FRAMES));
         List<String> unlocked = skill.productLines.stream()
@@ -225,11 +262,11 @@ public class Player {
                 .map(r -> r.product.name)
                 .toList();
         if (!unlocked.isEmpty()) {
-            GameLog.say("Unlocked: " + String.join(", ", unlocked));
+            GameLog.say(Event.MessageKind.NOTICE, "Unlocked: " + String.join(", ", unlocked));
         }
         for (Goal goal : goals) {
             if (goal.skill().equals(skill) && goal.level() > from && goal.level() <= to) {
-                GameLog.say("Goal complete: " + goal.describe());
+                GameLog.say(Event.MessageKind.NOTICE, "Goal complete: " + goal.describe());
             }
         }
     }
@@ -238,6 +275,17 @@ public class Player {
     public void frame() {
         popups.removeIf(Popup::advanceFrame);
         waypoints.update(ahead());
+        if (walkTarget != null && (walkTarget.equals(new Position(x, y)) || walkTarget.equals(ahead())
+                || serverTick - lastWalkProgress > WALK_STALL_TICKS)) {
+            walkTarget = null;
+        }
+    }
+
+    /** Walk (or run) to {@code target}, around nodes; it's shown on the map until you get there. */
+    public void walkTo(Position target) {
+        walkTarget = target;
+        lastWalkProgress = serverTick;
+        send(new Intent.WalkTo(target));
     }
 
     /** 0.0 right after a server tick, approaching 1.0 just before the next one. */
@@ -272,6 +320,7 @@ public class Player {
      * same rule the server does), and asks the server to do the same.
      */
     public void moveBy(int dx, int dy) {
+        walkTarget = null;
         Direction direction = Direction.of(dx, dy);
         if (direction == null || predicted.size() >= Intent.MAX_QUEUED_STEPS) {
             return;
@@ -328,6 +377,38 @@ public class Player {
         return inWorld;
     }
 
+    private void setStats(Map<String, Long> byName) {
+        stats.clear();
+        if (byName != null) {
+            byName.forEach((name, value) -> {
+                try {
+                    stats.put(Stat.valueOf(name), value);
+                } catch (IllegalArgumentException newer) {
+                    // a stat from a newer server: nothing here shows it
+                }
+            });
+        }
+    }
+
+    /** Say something to everyone in the world. */
+    public void say(String text) {
+        send(new Intent.Chat(text));
+    }
+
+    /** {@code step} 1 = up to the next of {@code Goal.LEVELS}, -1 = down, never to your level or below; the server confirms. */
+    public void stepGoalLevel(int index, int step) {
+        Goal goal = goals.get(index);
+        int level = goal.stepped(step);
+        if (level != goal.level() && level > getLevel(goal.skill())) {
+            send(new Intent.SetGoalLevel(index, level));
+        }
+    }
+
+    public void toggleCompactChat() {
+        compactChat = !compactChat;
+        send(new Intent.SetCompactChat(compactChat));
+    }
+
     public void toggleRunning() {
         running = !running;
         send(new Intent.SetRunning(running));
@@ -371,5 +452,27 @@ public class Player {
 
     public boolean hasTried(Node node) {
         return triedNodes.contains(node.id);
+    }
+
+    /**
+     * Every skill's level added up, skills you haven't trained counting as 1 -- the same number others see for you
+     * on hover (skills in the world + levels gained).
+     */
+    public int totalLevel() {
+        return content.skills.stream().mapToInt(this::getLevel).sum();
+    }
+
+    public long totalExperience() {
+        return content.skills.stream().mapToLong(this::getExperience).sum();
+    }
+
+    public int highestLevel() {
+        return content.skills.stream().mapToInt(this::getLevel).max().orElse(1);
+    }
+
+    /** One-of-a-kind monster drops you found (each drops once per world, so every one is a different item). */
+    public long trophies() {
+        return content.monsters.stream().flatMap(monster -> monster.drops.stream())
+                .filter(drop -> name != null && name.equals(drop.foundBy())).count();
     }
 }

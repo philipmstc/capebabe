@@ -3,6 +3,7 @@ package net.shchoo.scafe.scafe;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.ClientPrefs;
 import net.shchoo.scafe.scafe.client.GameLog;
+import net.shchoo.scafe.scafe.client.LogEntry;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.ui.*;
 import net.shchoo.scafe.scafe.model.World;
@@ -29,7 +30,10 @@ import javax.swing.JOptionPane;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
+import java.util.function.Consumer;
 import java.nio.file.Path;
+
+import static java.awt.Font.PLAIN;
 
 
 public class Main {
@@ -43,7 +47,7 @@ public class Main {
     }
 
     /** Fonts to draw with, best first: the grid needs a monospaced one, and not every computer has Consolas. */
-    private static final List<String> FONTS = List.of("Consolas", "Menlo", "Monaco", "Cascadia Mono", "DejaVu Sans Mono",
+    private static final List<String> FONTS = List.of("Comic Mono NerdFont", "Consolas", "Menlo", "Monaco", "Cascadia Mono", "DejaVu Sans Mono",
             "Liberation Mono", "Ubuntu Mono", "Courier New");
 
     private static String monospacedFont() {
@@ -82,30 +86,39 @@ public class Main {
         ClientPrefs prefs = ClientPrefs.load(options.data());
         String name = options.name() != null ? options.name() : prefs.name() != null ? prefs.name() : Options.defaultName();
         Screen screen = openWindow();
-        LoginScreen login;
+        GameServer hosted = null;
+        Tls.Server hostTls = null;
         if (options.host()) {
-            GameServer server = startServer(options);
-            Tls.Server tls = Tls.server(options.data());
-            NetworkServer network = new NetworkServer(server, options.port(), options.admin(), tls, limits);
+            hosted = startServer(options);
+            hostTls = Tls.server(options.data());
+            NetworkServer network = new NetworkServer(hosted, options.port(), options.admin(), hostTls, limits);
             network.startInBackground();
-            System.out.println("Fingerprint (friends see this when they first connect): " + tls.fingerprint());
-            GameConnection local = new LocalConnection(server.connect());
-            login = new LoginScreen(new LoginScreen.Connection(local, new Player(local),
-                    "your world (hosting on port " + options.port() + ")", "your fingerprint " + tls.fingerprint()), name);
-        } else {
-            String server = options.connect() != null ? options.connect() : prefs.server() != null ? prefs.server() : "";
-            login = new LoginScreen(target -> target.isEmpty() ? ownWorld(options) : connect(options, target), server, name);
+            System.out.println("Fingerprint (friends see this when they first connect): " + hostTls.fingerprint());
         }
-        if (login.run(screen) == LoginScreen.Outcome.EXIT) {
-            if (login.connection() != null) {
-                login.connection().connection().close();
+        String server = options.connect() != null ? options.connect() : prefs.server() != null ? prefs.server() : "";
+        // log in, play, and after a log out, back to the login (hosting: the world and its guests carry on meanwhile)
+        while (true) {
+            LoginScreen login;
+            if (hosted != null) {
+                GameConnection local = new LocalConnection(hosted.connect());
+                login = new LoginScreen(new LoginScreen.Connection(local, new Player(local),
+                        "your world (hosting on port " + options.port() + ")", "your fingerprint " + hostTls.fingerprint()), name);
+            } else {
+                login = new LoginScreen(target -> target.isEmpty() ? ownWorld(options) : connect(options, target), server, name);
             }
-            System.exit(0);
+            if (login.run(screen) == LoginScreen.Outcome.EXIT) {
+                if (login.connection() != null) {
+                    login.connection().connection().close();
+                }
+                System.exit(0);
+            }
+            name = login.connection().player().name;
+            if (hosted == null) {
+                server = login.server();
+                prefs.save(options.data(), server, name);
+            }
+            play(screen, login);
         }
-        if (!options.host()) {
-            prefs.save(options.data(), login.server(), login.connection().player().name);
-        }
-        play(screen, login);
     }
 
     /** Your own world on this computer (started the first time it's picked). */
@@ -161,7 +174,7 @@ public class Main {
     private static Screen openWindow() throws IOException {
         SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
                 true, AWTTerminalFontConfiguration.BoldMode.EVERYTHING_BUT_SYMBOLS,
-                new Font(monospacedFont(), Font.PLAIN, 14));
+        new Font(monospacedFont(), Font.PLAIN, 20));
 
         DefaultTerminalFactory factory = new DefaultTerminalFactory();
         factory.setTerminalEmulatorFontConfiguration(fontConfig);
@@ -176,24 +189,28 @@ public class Main {
         return screen;
     }
 
+    /** Plays until you log out (closing the window quits the whole game). */
     private static void play(Screen screen, LoginScreen login) throws Exception {
         GameConnection connection = login.connection().connection();
         Player player = login.connection().player();
         Board board = new Board(player.content);
-        login.heard().forEach(board.log::add);
-        GameLog.subscribe(board.log::add);
+        login.heard().forEach(line -> board.log.add(line));
+        Consumer<LogEntry> toLog = entry -> board.log.add(entry);
+        GameLog.subscribeEntries(toLog);
+        boolean[] loggedOut = {false};
 
         MapMenu map = new MapMenu();
         CommandLine commandLine = new CommandLine();
-        TabBar tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY),
-                List.of(map, new SkillsMenu(), new GoalsMenu()), new SettingsMenu());
+        TabBar tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), map,
+                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
         Runnable quit = () -> {
             connection.close();
             System.exit(0);
         };
-        // Order matters: earlier widgets get each key first, later ones draw on top.
+        // Order matters: earlier widgets get each key first, later ones draw on top (popups: drawOnTop).
         List<Widget> widgets = List.of(
                 commandLine,
+                new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut[0] = true),
                 new MapView(Layout.MAP),
                 new ProgressBarView(Layout.PROGRESS),
                 tabs,
@@ -203,13 +220,16 @@ public class Main {
                 new KeyCommands(quit),
                 new FrameRateAnimation());
 
-        while (true) {
+        while (!loggedOut[0]) {
             long frameStart = System.currentTimeMillis();
             player.receive();
             player.frame();
             screen.clear();
             for (Widget widget : widgets) {
                 widget.draw(screen, player, board);
+            }
+            for (Widget widget : widgets) {
+                widget.drawOnTop(screen, player, board);
             }
             screen.refresh();
             KeyStroke key;
@@ -226,6 +246,9 @@ public class Main {
             }
             Thread.sleep(Math.max(0, GameClock.FRAME_MILLIS - (System.currentTimeMillis() - frameStart)));
         }
+        // the server saves your character when the connection closes
+        GameLog.unsubscribeEntries(toLog);
+        connection.close();
     }
 
     /**

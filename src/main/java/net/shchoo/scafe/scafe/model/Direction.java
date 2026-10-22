@@ -1,11 +1,13 @@
 package net.shchoo.scafe.scafe.model;
 
+import com.googlecode.lanterna.Symbols;
+
 /** Which way someone is facing (or stepping). Players are drawn as the arrow. */
 public enum Direction {
-    UP(0, -1, '^'),
-    DOWN(0, 1, 'v'),
-    LEFT(-1, 0, '<'),
-    RIGHT(1, 0, '>');
+    UP(0, -1, Symbols.TRIANGLE_UP_POINTING_BLACK),
+    DOWN(0, 1, Symbols.TRIANGLE_DOWN_POINTING_BLACK),
+    LEFT(-1, 0, Symbols.TRIANGLE_LEFT_POINTING_BLACK),
+    RIGHT(1, 0, Symbols.TRIANGLE_RIGHT_POINTING_BLACK);
 
     public final int dx;
     public final int dy;

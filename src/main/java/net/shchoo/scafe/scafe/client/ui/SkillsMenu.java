@@ -8,6 +8,7 @@ import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.ProductLine;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
+import net.shchoo.scafe.scafe.model.SkillType;
 
 import com.googlecode.lanterna.SGR;
 import com.googlecode.lanterna.Symbols;
@@ -25,7 +26,7 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 
 public class SkillsMenu extends Menu {
     /** The skill list's width while the product lines show beside it. */
-    private static final int NARROW_LIST_WIDTH = 24;
+    private static final int NARROW_LIST_WIDTH = 28;
     private static final int PRODUCT_LINE_HEIGHT = 3;
 
     private int index = 0;
@@ -66,6 +67,14 @@ public class SkillsMenu extends Menu {
                 case ArrowRight -> tierIndex++;
                 case Enter -> player.waypoints.toggle(selectedRecipe(skill), player);
                 case Escape -> detailFocused = false;
+                case Character -> {
+                    if (key.getCharacter().equals('m')) {
+                        player.toggleHighlighting(selectedRecipe(skill));
+                    }
+                    else { return Result.IGNORED; }
+                }
+
+
                 default -> {
                     return Result.IGNORED;
                 }
@@ -140,23 +149,29 @@ public class SkillsMenu extends Menu {
             textGraphics.setForegroundColor(SkillStyle.getColorForSkill(skill));
             textGraphics.setCharacter(textX(), y, SkillStyle.getSymbolForSkill(skill));
 
-            switch (skill.type) {
-                case PRIMARY -> textGraphics.setBackgroundColor(TextColor.ANSI.GREEN);
-                case SECONDARY -> textGraphics.setBackgroundColor(TextColor.ANSI.BLUE);
-                case TERTIARY -> textGraphics.setBackgroundColor(TextColor.ANSI.RED);
-            }
             textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
-            textGraphics.putString(textX() + 2, y, "[Lv. " + player.getLevel(skill) + "]");
-            textGraphics.setBackgroundColor(TextColor.ANSI.DEFAULT);
-            // todo format level string for multi-digit numbers etc
+            textGraphics.putString(textX() + 2, y, String.format("[Lv. %3d]", player.getLevel(skill)));
+            textGraphics.setForegroundColor(typeColor(skill.type));
+            textGraphics.setCharacter(textX() + 12, y, '\u2022');
+            textGraphics.setForegroundColor(TextColor.ANSI.DEFAULT);
             if (selected) {
                 textGraphics.enableModifiers(SGR.BOLD);
             }
             String text = skill.name + " " + XpTrackerView.compact(player.getExperience(skill))
                     + "/" + XpTrackerView.compact(player.getExperienceToNextLevel(skill));
-            textGraphics.putString(textX() + 10, y, fit(text, (isFocused() ? NARROW_LIST_WIDTH : textWidth()) - 10));
+            textGraphics.putString(textX() + 14, y, fit(text, (isFocused() ? NARROW_LIST_WIDTH : textWidth()) - 14));
             textGraphics.disableModifiers(SGR.BOLD);
         }
+    }
+
+    /** The bullet after the level: green primary, blue secondary, red tertiary, white combat. */
+    static TextColor typeColor(SkillType type) {
+        return switch (type) {
+            case PRIMARY -> TextColor.ANSI.GREEN_BRIGHT;
+            case SECONDARY -> TextColor.ANSI.BLUE_BRIGHT;
+            case TERTIARY -> TextColor.ANSI.RED_BRIGHT;
+            case COMBAT -> TextColor.ANSI.WHITE_BRIGHT;
+        };
     }
 
     private void drawProductLines(Screen screen, Player player, Skill skill) {
@@ -225,8 +240,9 @@ public class SkillsMenu extends Menu {
         if (detailFocused) {
             Recipe recipe = selectedRecipe(skill);
             textGraphics.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            textGraphics.putString(detailX(), hintRow() - 1, fit(recipe.product.name, detailWidth()));
-            textGraphics.putString(detailX(), hintRow(), "[Enter] waypoint");
+            textGraphics.putString(detailX(), hintRow() - 2, fit(recipe.product.name, detailWidth()));
+            textGraphics.putString(detailX(), hintRow()-1, "[Enter] waypoint");
+            textGraphics.putString(detailX(), hintRow(), "[m] Mark all nodes");
         }
     }
 

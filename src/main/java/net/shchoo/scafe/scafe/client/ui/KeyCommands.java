@@ -25,7 +25,8 @@ public class KeyCommands extends Widget {
             quit.run();
             return true;
         }
-        if (key.getKeyType() == KeyType.Character) {
+        if (key.getKeyType() == KeyType.Character && !Character.isDigit(key.getCharacter())) {
+            // digits are tab hotkeys now; the debug commands (/1, /2...) are typed in the chat
             ConsoleAction.submit(key.getCharacter().toString(), player, board);
             return true;
         }

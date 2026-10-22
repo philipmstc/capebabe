@@ -11,6 +11,7 @@ import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.protocol.GameClock;
 import net.shchoo.scafe.scafe.protocol.Intent;
+import net.shchoo.scafe.scafe.model.Stat;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -76,6 +77,8 @@ public class GameServer {
     public static final int AUTOSAVE_TICKS = 50;
     /** You hear about characters and monsters within this many tiles (either axis). The map shows 5 x 3 each way. */
     public static final int VIEW_RANGE = 16;
+    /** Longest chat line (characters); longer ones are cut. */
+    public static final int MAX_CHAT = 200;
     /** How close (in steps) a new node has to appear for auto-investigate to go and look. */
     public static final int AUTO_INVESTIGATE_RANGE = 10;
     /** Failed logins (wrong password / world password) one address gets within the window before it's locked out. */
@@ -266,11 +269,11 @@ public class GameServer {
         sessions.removeIf(session -> session.closed);
         List<Map.Entry<GameCharacter, Event>> steps = new ArrayList<>();
         for (GameCharacter character : online.values()) {
+            Position startOfTick = character.position();
             for (int step = 0; step < (character.running ? 2 : 1); step++) {
-                Position before = character.position();
                 Walker.Result result = character.walker.tick();
                 if (result == Walker.Result.BLOCKED) {
-                    character.say("Something's in the way.");
+                    character.say(Event.MessageKind.ROUTINE, "Something's in the way.");
                 }
                 if (result != Walker.Result.STEPPED) {
                     break;
@@ -278,9 +281,11 @@ public class GameServer {
                 character.lastSteppedTick = tick;
                 // one event per step, even a turn or a bump, so the client can match its predictions one by one
                 steps.add(Map.entry(character, new Event.EntityMoved(character.id, character.position(), character.facing)));
-                if (!character.position().equals(before)) {
-                    character.triggers.add(Discovery.Trigger.MOVED);
-                }
+            }
+            // one discovery roll per tick spent moving, walking or running (running isn't a faster way to discover)
+            if (!character.position().equals(startOfTick)) {
+                character.triggers.add(Discovery.Trigger.MOVED);
+                character.count(Stat.STEPS);
             }
         }
         List<Monster> movedMonsters = monsters.tick(random, online.values());
@@ -329,6 +334,12 @@ public class GameServer {
             if (changed.infoChanged) {
                 changed.infoChanged = false;
                 toObservers(changed.id, new Event.EntityUpdated(changed.info()));
+            }
+        }
+        for (GameCharacter character : online.values()) {
+            if (character.statsChanged) {
+                character.statsChanged = false;
+                character.emit(new Event.StatsChanged(character.statsByName()));
             }
         }
         boolean autosave = tick % AUTOSAVE_TICKS == 0;
@@ -404,6 +415,16 @@ public class GameServer {
             character.showProductTiers = set.on();
             character.saveSoon = true;
             character.emit(new Event.ShowProductTiersChanged(character.showProductTiers));
+        } else if (intent instanceof Intent.SetCompactChat set) {
+            character.compactChat = set.on();
+            character.saveSoon = true;
+            character.emit(new Event.CompactChatChanged(character.compactChat));
+        } else if (intent instanceof Intent.Chat chat) {
+            String text = chat.text() == null ? "" : chat.text().replaceAll("\\p{Cntrl}", "").strip();
+            if (!text.isEmpty()) {
+                broadcast(new Event.Chat(character.name, character.colorIndex,
+                        text.length() > MAX_CHAT ? text.substring(0, MAX_CHAT) : text));
+            }
         } else if (intent instanceof Intent.SetShowTimeEstimate set) {
             character.showTimeEstimate = set.on();
             character.saveSoon = true;
@@ -432,6 +453,8 @@ public class GameServer {
             combat.attack(character, tick);
         } else if (intent instanceof Intent.AddGoal) {
             character.addGoal(nodeAhead(character));
+        } else if (intent instanceof Intent.SetGoalLevel set) {
+            character.setGoalLevel(set.index(), set.level());
         } else if (intent instanceof Intent.Admin admin) {
             if (session.admin) {
                 admin(character, admin.command(), admin.args());
@@ -585,9 +608,9 @@ public class GameServer {
                 others, nodes.snapshot()));
         List<String> alsoHere = online.values().stream().filter(c -> c != character).map(c -> c.name).toList();
         if (!alsoHere.isEmpty()) {
-            character.say("Also here: " + String.join(", ", alsoHere) + ".");
+            character.say(Event.MessageKind.NOTICE, "Also here: " + String.join(", ", alsoHere) + ".");
         }
-        tellOthers(character, name + " logged in.");
+        tellOthers(character, Event.MessageKind.NOTICE, name + " logged in.");
         for (GameCharacter other : nearby) {
             other.seen.add(character.id);
             other.emit(new Event.EntityEntered(character.info()));
@@ -609,7 +632,7 @@ public class GameServer {
         online.remove(character.id);
         character.disconnect();
         save(character);
-        tellOthers(character, character.name + " logged out.");
+        tellOthers(character, Event.MessageKind.NOTICE, character.name + " logged out.");
         for (GameCharacter other : online.values()) {
             if (other.seen.remove(character.id)) {
                 other.emit(new Event.EntityLeft(character.id));
@@ -736,7 +759,11 @@ public class GameServer {
     }
 
     void tellOthers(GameCharacter except, String text) {
-        online.values().stream().filter(c -> c != except).forEach(c -> c.say(text));
+        tellOthers(except, Event.MessageKind.INFO, text);
+    }
+
+    void tellOthers(GameCharacter except, Event.MessageKind kind, String text) {
+        online.values().stream().filter(c -> c != except).forEach(c -> c.say(kind, text));
     }
 
     private void broadcast(Event event) {

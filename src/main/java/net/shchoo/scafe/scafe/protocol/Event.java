@@ -15,7 +15,8 @@ public sealed interface Event {
     record CharacterSnapshot(int id, String name, Position position, Map<Integer, Long> xp,
                              Map<Integer, Integer> inventory, List<GoalDef> goals, Set<Integer> triedNodes,
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
-                             boolean running, boolean autoInvestigate, boolean showProductTiers, boolean showTimeEstimate) {}
+                             boolean running, boolean autoInvestigate, boolean showProductTiers, boolean showTimeEstimate,
+                             boolean compactChat, Map<String, Long> stats) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -86,6 +87,8 @@ public sealed interface Event {
     record LevelUp(int skillId, int from, int to) implements Event {}
     record InventoryChanged(int productId, int count) implements Event {}
     record GoalAdded(GoalDef goal) implements Event {}
+
+    record GoalChanged(int index, GoalDef goal) implements Event {}
     record NodeTried(int nodeId) implements Event {}
     record HomeChanged(Position lastActionAt) implements Event {}
     record NodeChanged(NodeStatus status) implements Event {}
@@ -104,5 +107,24 @@ public sealed interface Event {
     record LoginAccepted(boolean worldPasswordNeeded, boolean newAccount) implements Event {}
     record LoginRefused(String reason) implements Event {}
 
-    record Message(String text) implements Event {}
+    /**
+     * How much a message matters, so the chat can be filtered: ROUTINE is the stream of "Made x" / "Interrupted."
+     * (hidden by Compact chat), INFO is everything else by default, NOTICE is level ups, discoveries, kills, finds,
+     * people coming and going. CHAT is what players say ({@link Chat}).
+     */
+    enum MessageKind { ROUTINE, INFO, NOTICE, CHAT }
+
+    record Message(String text, MessageKind kind) implements Event {
+        public Message(String text) {
+            this(text, MessageKind.INFO);
+        }
+    }
+
+    /** Someone said something (everyone in the world hears it). */
+    record Chat(String from, int colorIndex, String text) implements Event {}
+
+    /** Your lifetime counts ({@link net.shchoo.scafe.scafe.model.Stat} names), sent when they change. */
+    record StatsChanged(Map<String, Long> stats) implements Event {}
+
+    record CompactChatChanged(boolean on) implements Event {}
 }

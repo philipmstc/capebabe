@@ -38,8 +38,8 @@ class SettingsMenuTest {
         board = new Board(player.content);
         player.send(new Intent.Join("alice"));
         tick();
-        tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), List.of(new MapMenu(), new SkillsMenu(), new GoalsMenu()),
-                new SettingsMenu());
+        tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), new MapMenu(),
+                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
         CommandLine commandLine = new CommandLine();
         widgets = List.of(commandLine, new MapView(Layout.MAP), tabs, new MessageLogView(Layout.LOG, commandLine),
                 new KeyCommands(() -> quit = true));
@@ -100,10 +100,10 @@ class SettingsMenuTest {
 
     @Test
     void settingsIsTheLastTabAndCommaAgainGoesBack() {
-        Menu map = tabs.selected();
+        Menu before = tabs.selected();
         type(',');
         type(',');
-        assertSame(map, tabs.selected(), "back where you were");
+        assertSame(before, tabs.selected(), "back where you were");
         assertFalse(tabs.settingsOpen());
 
         for (int i = 0; i < 10; i++) {
@@ -124,7 +124,8 @@ class SettingsMenuTest {
         String shown = screenText();
         assertTrue(shown.contains("Color"));
         assertFalse(shown.contains("> Color"), "selected but not focused: nothing highlighted");
-        assertEquals(1, shown.split("Settings", -1).length - 2, "the box title says Settings once, besides the tab header");
+        String firstRowInTheBox = shown.split("\n")[Layout.TABS.y() + 1];
+        assertFalse(firstRowInTheBox.contains("Settings"), "the box's title says Settings; no second heading under it");
 
         press(KeyType.Enter);
         assertTrue(screenText().contains("> Color"));
@@ -142,7 +143,7 @@ class SettingsMenuTest {
         press(KeyType.ArrowRight);
         tick();
         assertEquals(1, player.colorIndex);
-        assertTrue(screenText().contains("< green >"));
+        assertTrue(screenText().contains("< lime >"));
         press(KeyType.ArrowLeft);
         press(KeyType.ArrowLeft);
         tick();

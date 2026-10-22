@@ -1,9 +1,11 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.model.Stat;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
+import net.shchoo.scafe.scafe.model.Levels;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Recipe;
@@ -312,6 +314,34 @@ class GameServerTest {
         assertEquals(1, alice.goals.size());
         assertEquals(locked.levelNeeded, alice.goals.get(0).level());
         assertTrue(log.contains("Already a goal."));
+
+        alice.stepGoalLevel(0, 1);
+        tick(alice);
+        assertEquals(Levels.MAX_LEVEL, alice.goals.get(0).level(), "70 -> the max");
+        alice.stepGoalLevel(0, 1);
+        tick(alice);
+        assertEquals(Levels.MAX_LEVEL, alice.goals.get(0).level(), "nowhere past it");
+        alice.stepGoalLevel(0, -1);
+        alice.stepGoalLevel(0, -1);
+        tick(alice);
+        assertEquals(70, alice.goals.get(0).level(), "both steps were worked out from 100 before the server answered");
+
+        alice.send(new Intent.SetGoalLevel(0, 42));
+        alice.send(new Intent.SetGoalLevel(3, 20));
+        tick(alice);
+        assertEquals(70, alice.goals.get(0).level(), "only the goal levels, only your goals");
+
+        Skill skill = alice.goals.get(0).skill();
+        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[49]))));
+        tick(alice);
+        assertEquals(50, alice.getLevel(skill));
+        alice.stepGoalLevel(0, -1);
+        tick(alice);
+        assertEquals(70, alice.goals.get(0).level(), "50 is your level already: Left does nothing");
+        alice.send(new Intent.SetGoalLevel(0, 35));
+        tick(alice);
+        assertEquals(70, alice.goals.get(0).level(), "and the server won't take it either");
+        assertTrue(log.contains("You're already past Lv. 35."));
     }
 
     @Test
@@ -353,5 +383,51 @@ class GameServerTest {
         log.clear();
         alice.receive();
         assertTrue(log.contains("bob logged out."));
+    }
+
+    @Test
+    void yourTotalLevelIsWhatOthersSee() {
+        Player alice = join("alice");
+        alice.send(new Intent.Admin("1", List.of("3")));
+        tick(alice);
+        assertEquals(3, alice.totalLevel(), "three skills, all level 1");
+        Skill skill = alice.content.skills.get(0);
+        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[4]))));
+        tick(alice);
+        assertEquals(7, alice.totalLevel(), "one of them up to 5");
+
+        Player bob = join("bob");
+        tick(alice, bob);
+        assertEquals(alice.totalLevel(), bob.others.get(alice.id).totalLevel(bob.content));
+    }
+
+    @Test
+    void chatGoesToEveryoneWithWhoSaidIt() {
+        Player alice = join("alice");
+        Player bob = join("bob");
+        log.clear();
+        alice.say("  hello\u0007 there  ");
+        tick(alice, bob);
+        assertEquals(2, log.stream().filter(line -> line.equals("alice: hello there")).count(),
+                "both hear it (one line each), control characters and spaces trimmed");
+
+        log.clear();
+        alice.say("x".repeat(500));
+        alice.say("   ");
+        tick(alice, bob);
+        assertEquals(2, log.size(), "a blank line says nothing");
+        assertEquals("alice: " + "x".repeat(GameServer.MAX_CHAT), log.get(0), "long lines are cut");
+    }
+
+    @Test
+    void stepsCountOncePerTickEvenRunning() {
+        Player alice = join("alice");
+        alice.toggleRunning();
+        alice.send(new Intent.WalkTo(new Position(10, 0)));
+        for (int i = 0; i < 8; i++) {
+            tick(alice);
+        }
+        assertEquals(10, alice.x);
+        assertEquals(5L, alice.stats.get(Stat.STEPS), "10 tiles running = 5 ticks of moving");
     }
 }

@@ -29,7 +29,7 @@ public final class Layout {
     public static final int BOARD_HEIGHT = 23;
 
     public static final int HEADER_ROW = 1;
-    public static final int HEADER_GAP = 5;
+    public static final int HEADER_GAP = 4;
     private static final int LEFT_WIDTH = 23;
 
     public static final Rect MAP = new Rect(LEFT_WIDTH + 1, HEADER_ROW + 1, 2 * BOARD_WIDTH + 1, BOARD_HEIGHT + 2);
@@ -38,9 +38,10 @@ public final class Layout {
 
     private static final int RIGHT_X = MAP.right() + 2;
     private static final int RIGHT_WIDTH = TERMINAL_SIZE.getColumns() - RIGHT_X;
-    /** One unframed line in the header row, over the map (its last column is left for the frame-rate spinner). */
-    public static final Rect XP = new Rect(MAP.x(), HEADER_ROW, MAP.width() - 1, 1);
+    /** One unframed line on the very top row, over the map; the tab headers are on the row below. */
+    public static final Rect XP = new Rect(MAP.x(), 0, MAP.width() - 1, 1);
     public static final Rect TABS = new Rect(RIGHT_X, MAP.y(), RIGHT_WIDTH, MAP.height());
+    public static final Rect PLAYER_DETAILS = new Rect(RIGHT_X + RIGHT_WIDTH + 1, MAP.y(), 6, 1);
 
     private static final int BOTTOM_Y = MAP.bottom() + 1;
     private static final int BOTTOM_HEIGHT = TERMINAL_SIZE.getRows() - BOTTOM_Y;

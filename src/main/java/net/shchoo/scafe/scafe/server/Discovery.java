@@ -8,6 +8,8 @@ import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.World;
+import net.shchoo.scafe.scafe.model.Stat;
+import net.shchoo.scafe.scafe.protocol.Event;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -112,8 +114,9 @@ public class Discovery {
         server.applyContent(WorldGenerator.newMonsterType(server.world), character);
         List<MonsterType> kinds = server.world.content.monsters;
         MonsterType kind = kinds.get(kinds.size() - 1);
-        character.say("Something new is out there: " + kind.name + " (Lv. " + kind.level + ").");
-        server.tellOthers(character, character.name + " ran into a new kind of monster: " + kind.name + ".");
+        character.say(Event.MessageKind.NOTICE, "Something new is out there: " + kind.name + " (Lv. " + kind.level + ").");
+        character.count(Stat.MONSTERS_DISCOVERED);
+        server.tellOthers(character, Event.MessageKind.NOTICE, character.name + " ran into a new kind of monster: " + kind.name + ".");
         spawnMonsterNear(server, character, kind);
     }
 
@@ -146,8 +149,9 @@ public class Discovery {
         ContentBatch batch = WorldGenerator.newSkills(server.world, 1);
         server.applyContent(batch, character);
         ContentBatch.SkillDef skill = batch.skills().get(0);
-        character.say("You discovered a new skill: " + skill.name() + " (" + skill.type().name().toLowerCase() + ")!");
-        server.tellOthers(character, character.name + " discovered a new skill: " + skill.name() + ".");
+        character.say(Event.MessageKind.NOTICE, "You discovered a new skill: " + skill.name() + " (" + skill.type().name().toLowerCase() + ")!");
+        character.count(Stat.SKILLS_DISCOVERED);
+        server.tellOthers(character, Event.MessageKind.NOTICE, character.name + " discovered a new skill: " + skill.name() + ".");
         spawnStarterNode(server, character, server.world.content.skill(skill.id()), random);
     }
 
@@ -168,7 +172,7 @@ public class Discovery {
                 20 + random.nextInt(41), recipe -> recipe.id == tier0.id ? 1 : 0);
         server.applyContent(batch, character);
         Node node = server.world.content.node(batch.nodes().get(0).id());
-        character.say("A " + skill.name + " node (" + node.label() + ") appeared nearby.");
+        character.say(Event.MessageKind.NOTICE, "A " + skill.name + " node (" + node.label() + ") appeared nearby.");
         return node;
     }
 
@@ -184,7 +188,7 @@ public class Discovery {
                 recipe -> recipe.levelMet(character.getLevel(recipe.skill)) ? UNLOCKED_WEIGHT : 1);
         server.applyContent(batch, character);
         Node node = server.world.content.node(batch.nodes().get(0).id());
-        character.say("A " + node.skill().name + " node (" + node.label() + ") appeared nearby.");
+        character.say(Event.MessageKind.NOTICE, "A " + node.skill().name + " node (" + node.label() + ") appeared nearby.");
     }
 
     static int nodesNear(World world, Position around) {

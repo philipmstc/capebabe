@@ -25,25 +25,28 @@ checks when you log in and tells you to update if not.
 
 ## Logging in
 
-The game opens on two short pages:
+The game opens on a few short pages:
 
 1. **Name** and **Password**, then **Login**. The first time you use a name on a host, that password becomes
    yours there.
-2. **Join a world:** **Host** is the host's address, e.g. `203.0.113.7` (or `203.0.113.7:43594` if they use
-   another port); leave it blank to play your own world on your computer. **World Password** is the one the host
-   gave you (not needed for your own world). **Continue** joins; **Switch User** goes back to page one. The game
-   remembers the last host and name.
+2. **Join a world:** **Play locally** plays your own world on your computer, straight away. **Connect to server**
+   goes on to page 3. **Switch User** goes back to page one.
+3. **Connect to a server:** **Host** is the host's address, e.g. `203.0.113.7` (or `203.0.113.7:43594` if they
+   use another port). **World Password** is the one the host gave you. **Continue** joins; **Back** goes back to
+   page 2. The game remembers the last host and name.
 
 A wrong name or password sends you back to page one; a wrong world password, or a host that can't be reached,
-keeps you on page two.
+keeps you on page 3.
 
 The connection is encrypted. The server's fingerprint is on the bottom line of the login screen; the first
 time you join a host it also says "first visit": check the fingerprint matches the one at the bottom of the
 host's login screen. Your game remembers it, and refuses to connect if it ever changes. One connection per
 address at a time, so two people in one house need the host to add `--max-per-ip 2`.
 
-In game, press `,` for settings and the list of controls. Your progress is saved on the host's machine (in
-`~/.capebabe`), so you keep it as long as you join the same host and world.
+In game, press `,` for settings and the list of controls. `i` and `1`-`4` jump to the inventory and tabs, `v` to
+the map, Esc goes back. Press `/` to chat with everyone in the world (`//` for debug commands).
+Your progress is saved on the host's machine (in `~/.capebabe`), so you keep it as long as you join the same host
+and world.
 
 ## Hosting a world for friends
 
@@ -73,6 +76,19 @@ On Windows without a bash shell, use `gradlew.bat`. To publish a release for eve
 (`.github/workflows/release.yml`) builds Windows and macOS (Apple Silicon) and attaches them, with the jar, to a release.
 
 # Change log
+
+## 0.0.3 - Oct 22 2026
+
+- Log in now more obvious for local connections
+- Log out no longer happens immediately on pressing escape from no selected menu, now has a button and a popup confirmation
+- XP progress bar made huge
+- player name/ total level showing in top corner
+- added proper chat functionality
+- added Stats tab showing more numbers going up
+- map hover movement now shows intended position in red after enter
+- goals can now be editted
+- more player colour choices
+- various UI cleanup / prettifying
 
 ## 0.0.2 - Oct 21 2026
 

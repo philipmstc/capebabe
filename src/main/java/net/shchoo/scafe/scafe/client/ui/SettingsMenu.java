@@ -22,7 +22,8 @@ public class SettingsMenu extends Menu {
     private static final int INVESTIGATE_ROW = 2;
     private static final int SHOW_PRODUCT_TIER_ROW = 3;
     private static final int SHOW_TIME_ESTIMATE_ROW = 4;
-    private static final int ROWS = 5;
+    private static final int COMPACT_CHAT_ROW = 5;
+    private static final int ROWS = 6;
     private static final int VALUE_X = 19;
 
     private static final List<String[]> CONTROLS = List.of(
@@ -31,13 +32,15 @@ public class SettingsMenu extends Menu {
             new String[]{"q", "use the node ahead (again: stop)"},
             new String[]{"g", "locked node ahead -> goal"},
             new String[]{"f", "fight the monster next to you"},
-            new String[]{"Left/Right", "switch tabs; Down/Enter uses one"},
             new String[]{"i", "inventory (Enter: use on a node)"},
-            new String[]{"Map: Down", "hover; Enter walks there"},
-            new String[]{"/", "command (/1-/5 debug, k lists)"},
+            new String[]{"1 2 3 4", "Skills, Goals, Stats, Settings"},
+            new String[]{"  in Goals", "Left/Right moves a goal's level"},
+            new String[]{"v", "hover the map; Enter walks there"},
+            new String[]{"Left/Right", "pick a tab; Down/Enter uses it"},
+            new String[]{"/", "chat (//1 etc: debug commands)"},
             new String[]{"k", "list every command in the log"},
             new String[]{",", "settings (again: back)"},
-            new String[]{"Esc", "back out; quit from the top"});
+            new String[]{"Esc", "back to the map; then Log Out"});
 
     private int row = COLOR_ROW;
 
@@ -68,6 +71,7 @@ public class SettingsMenu extends Menu {
                     case INVESTIGATE_ROW -> player.toggleAutoInvestigate();
                     case SHOW_PRODUCT_TIER_ROW -> player.toggleShowProductTiers();
                     case SHOW_TIME_ESTIMATE_ROW -> player.toggleShowTimeEstimate();
+                    case COMPACT_CHAT_ROW -> player.toggleCompactChat();
                 }
             }
             case Escape -> {
@@ -93,6 +97,7 @@ public class SettingsMenu extends Menu {
         settingRow(g, y++, isFocused() && row == INVESTIGATE_ROW, "Auto-investigate", player.autoInvestigate ? "on" : "off");
         settingRow(g, y++, isFocused() && row == SHOW_PRODUCT_TIER_ROW, "Contrast tiers", player.showProductTiers ? "on" : "off");
         settingRow(g, y++, isFocused() && row == SHOW_TIME_ESTIMATE_ROW, "Show time to goal", player.showTimeEstimate ? "on" : "off");
+        settingRow(g, y++, isFocused() && row == COMPACT_CHAT_ROW, "Compact chat", player.compactChat ? "on" : "off");
 
         y++;
         g.setForegroundColor(TextColor.ANSI.DEFAULT);

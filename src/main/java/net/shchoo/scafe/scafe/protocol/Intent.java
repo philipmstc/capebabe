@@ -8,13 +8,16 @@ import java.util.List;
 public sealed interface Intent {
     /** Steps the server will queue ahead of you; clients predict at most this many. */
     int MAX_QUEUED_STEPS = 2;
-    /** Player colors are an index into the client's palette of this many. */
-    int PLAYER_COLORS = 8;
+    /**
+     * Player colors are an index into the client's palette of this many (the server checks them against it, so
+     * changing it changes the protocol: bump PROTOCOL_VERSION). The client's palette is tested to match.
+     */
+    int PLAYER_COLORS = 12;
     /**
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 5;
+    int PROTOCOL_VERSION = 8;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -33,6 +36,9 @@ public sealed interface Intent {
     /** Use an inventory item on the node at {@code target}: walk over if needed, then start that node's action. */
     record UseItem(int productId, Position target) implements Intent {}
     record AddGoal() implements Intent {}
+
+    /** {@code index} into your goals; {@code level} one of {@code Goal.LEVELS}. */
+    record SetGoalLevel(int index, int level) implements Intent {}
     /** Fight a monster next to you (or stop fighting). */
     record Attack() implements Intent {}
     record SetColor(int colorIndex) implements Intent {}
@@ -42,6 +48,10 @@ public sealed interface Intent {
     record SetAutoInvestigate(boolean on) implements Intent {}
     record SetShowProductTiers(boolean on) implements Intent {}
     record SetShowTimeEstimate(boolean on) implements Intent {}
+    /** Hide routine messages ("Made x", "Interrupted.") from the chat. */
+    record SetCompactChat(boolean on) implements Intent {}
+    /** Say something to everyone in the world. */
+    record Chat(String text) implements Intent {}
     /** Debug / world-building commands (the 1 / 2 / 3 keys). */
     record Admin(String command, List<String> args) implements Intent {}
 }

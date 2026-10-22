@@ -6,7 +6,6 @@ import net.shchoo.scafe.scafe.client.SkillStyle;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
-import net.shchoo.scafe.scafe.protocol.Intent;
 
 import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.graphics.TextGraphics;
@@ -92,7 +91,7 @@ public class MapMenu extends Menu {
                     player.useItem(using, cursor(player));
                     return Result.RELEASE;
                 }
-                player.send(new Intent.WalkTo(cursor(player)));
+                player.walkTo(cursor(player));
             }
             case Escape -> {
                 return Result.RELEASE;

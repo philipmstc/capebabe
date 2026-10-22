@@ -34,6 +34,12 @@ public abstract class Widget {
 
     public abstract void draw(Screen screen, Player player, Board board);
 
+    /**
+     * Drawn after every widget's {@link #draw}, for things that must be on top (popups) whatever this widget's
+     * place in the list, which is also its place in line for keys.
+     */
+    public void drawOnTop(Screen screen, Player player, Board board) {}
+
     /** Returns true if this widget used the key, so later widgets don't see it. */
     public boolean onKey(KeyStroke key, Player player, Board board) {
         return false;

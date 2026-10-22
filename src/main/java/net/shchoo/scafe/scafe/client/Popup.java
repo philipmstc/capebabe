@@ -33,7 +33,7 @@ public class Popup {
     }
 
     public static Popup following(Supplier<Position> anchor, String text, TextColor color, TextColor background, int lifetime) {
-        return new Popup(anchor, text, color, background, lifetime, 0);
+        return new Popup(anchor, text, color, background, lifetime, 15);
     }
 
     public Position at() {

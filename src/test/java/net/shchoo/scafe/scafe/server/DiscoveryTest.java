@@ -6,6 +6,7 @@ import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
+import net.shchoo.scafe.scafe.model.Stat;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.protocol.Intent;
@@ -85,6 +86,9 @@ class DiscoveryTest {
         walk(server, alice, 1);
         assertEquals(1, alice.content.craftingSkills().size());
         assertTrue(log.stream().anyMatch(m -> m.startsWith("You discovered a new skill: skill0")));
+        assertEquals(1L, alice.stats.get(Stat.SKILLS_DISCOVERED));
+        assertEquals(1L, alice.stats.get(Stat.MONSTERS_DISCOVERED));
+        assertEquals(1L, alice.stats.get(Stat.STEPS));
         assertNotNull(alice.content.combatSkill(), "with every roll lucky, a monster kind (and combat) shows up too");
         assertTrue(alice.others.values().stream().anyMatch(Event.EntityInfo::isMonster));
         assertEquals(2, alice.content.nodes().size(), "the new skill's own tier-0 node, and a random node from the lucky roll");
@@ -146,5 +150,48 @@ class DiscoveryTest {
             }
         }
         assertTrue(unlocked > total / 3, "unlocked " + unlocked + "/" + total);
+    }
+
+    /** Counts the MOVED rolls instead of rolling. */
+    private static class CountingMoves extends Discovery {
+        int moved;
+
+        CountingMoves() {
+            super(new Unlucky());
+        }
+
+        @Override
+        void roll(GameServer server, GameCharacter character, Trigger trigger) {
+            if (trigger == Trigger.MOVED) {
+                moved++;
+            }
+        }
+    }
+
+    @Test
+    void runningRollsOncePerTickLikeWalking() {
+        GameServer server = new GameServer(new World(1, "w", 1));
+        CountingMoves discovery = new CountingMoves();
+        server.setDiscovery(discovery);
+        Player alice = join(server, "alice");
+
+        alice.send(new Intent.WalkTo(new Position(10, 0)));
+        for (int i = 0; i < 10; i++) {
+            server.tick();
+            alice.receive();
+        }
+        assertEquals(10, alice.x, "walked 10 tiles in 10 ticks");
+        assertEquals(10, discovery.moved, "one roll per tick");
+
+        discovery.moved = 0;
+        alice.toggleRunning();
+        server.tick();
+        alice.send(new Intent.WalkTo(new Position(30, 0)));
+        for (int i = 0; i < 10; i++) {
+            server.tick();
+            alice.receive();
+        }
+        assertEquals(30, alice.x, "ran 20 tiles in 10 ticks");
+        assertEquals(10, discovery.moved, "still one roll per tick, not per step");
     }
 }

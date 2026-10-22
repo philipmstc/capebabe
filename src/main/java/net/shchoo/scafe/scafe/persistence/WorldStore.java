@@ -7,6 +7,7 @@ import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.SkillType;
+import net.shchoo.scafe.scafe.model.Stat;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.model.WorldContent;
 import net.shchoo.scafe.scafe.server.GameCharacter;
@@ -112,6 +113,13 @@ public class WorldStore extends SqliteStore implements Storage {
             // v10: show time estimate setting
             """ 
             alter table game_character add column show_time_estimate integer not null default 0;
+            """,
+            // v11: compact chat setting, and lifetime stats per character (one row per stat, by Stat name)
+            """
+            alter table game_character add column compact_chat integer not null default 0;
+            create table character_stat (character_id integer not null references game_character(id),
+                                         stat text not null, value integer not null,
+                                         primary key (character_id, stat));
             """
     );
 
@@ -396,6 +404,7 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.autoInvestigate = rs.getInt("auto_investigate") != 0;
                 character.showProductTiers = rs.getInt("show_product_tiers") != 0;
                 character.showTimeEstimate = rs.getInt("show_time_estimate") != 0;
+                character.compactChat = rs.getInt("compact_chat") != 0;
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
                     character.lastActionAt = new Position(lastX, rs.getInt("last_action_y"));
@@ -412,6 +421,13 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.goals.add(new Goal(content.skill(rs.getInt("skill_id")), rs.getInt("level"), content.product(rs.getInt("product_id")))));
         query("select * from character_tried_node where character_id = ?", id, rs ->
                 character.triedNodes.add(rs.getInt("node_id")));
+        query("select * from character_stat where character_id = ?", id, rs -> {
+            try {
+                character.stats.put(Stat.valueOf(rs.getString("stat")), rs.getLong("value"));
+            } catch (IllegalArgumentException retired) {
+                // a stat this version doesn't know: skip it
+            }
+        });
         return character;
     }
 
@@ -432,15 +448,15 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ?, compact_chat = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
                         character.autoInvestigate ? 1 : 0, character.showProductTiers ? 1 : 0,
-                        character.showTimeEstimate ? 1 : 0, character.id);
+                        character.showTimeEstimate ? 1 : 0, character.compactChat ? 1 : 0, character.id);
                 ps.executeUpdate();
             }
-            for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node")) {
+            for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node", "character_stat")) {
                 try (PreparedStatement ps = connection.prepareStatement("delete from " + table + " where character_id = ?")) {
                     ps.setInt(1, character.id);
                     ps.executeUpdate();
@@ -469,6 +485,12 @@ public class WorldStore extends SqliteStore implements Storage {
             try (PreparedStatement ps = connection.prepareStatement("insert into character_tried_node values (?, ?)")) {
                 for (int nodeId : character.triedNodes) {
                     set(ps, character.id, nodeId);
+                    ps.executeUpdate();
+                }
+            }
+            try (PreparedStatement ps = connection.prepareStatement("insert into character_stat values (?, ?, ?)")) {
+                for (Map.Entry<Stat, Long> stat : character.stats.entrySet()) {
+                    set(ps, character.id, stat.getKey().name(), stat.getValue());
                     ps.executeUpdate();
                 }
             }
