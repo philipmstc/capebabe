@@ -25,9 +25,11 @@ class Combat {
     static final double PLAYER_ACCURACY = 0.8;
     static final double MONSTER_ACCURACY = 0.6;
     static final int XP_PER_DAMAGE = 4;
-    /** Out of a fight you get 1 hp back every this many ticks. */
+    /** Out of a fight a monster gets 1 hp back every this many ticks (players don't: see churches). */
     static final int REGEN_TICKS = 10;
     static final Position RESPAWN = new Position(0, 0);
+    /** Knocked out, you lie there (at 0 hp, flickering on everyone's screen) this many ticks before waking up. */
+    static final int DOWN_TICKS = 3;
 
     static int maxHp(int combatLevel) {
         return 9 + combatLevel;
@@ -120,7 +122,7 @@ class Combat {
                 ? Math.min(monster.hp, round(hitStrength(character, monster.type))) : 0;
         character.useUp(EquipSlot.WEAPON);
         monster.hp -= damage;
-        server.toObservers(monster.id, new Event.Hit(monster.id, damage, monster.position()));
+        server.toObservers(monster.id, new Event.Hit(monster.id, damage, monster.position(), character.position()));
         server.toObservers(monster.id, new Event.EntityUpdated(monster.info()));
         if (damage > 0) {
             Skill combat = server.world.content.combatSkill();
@@ -136,7 +138,7 @@ class Combat {
             character.useUp(EquipSlot.ARMOR);
             character.hp -= hit;
             character.infoChanged = true;
-            Event event = new Event.Hit(character.id, hit, character.position());
+            Event event = new Event.Hit(character.id, hit, character.position(), monster.position());
             character.emit(event);
             server.toObservers(character.id, event);
             character.emit(new Event.HpChanged(character.hp, character.maxHp()));
@@ -186,7 +188,11 @@ class Combat {
         killer.say(Event.MessageKind.NOTICE, "You defeated " + type.name + "!");
         killer.count(Stat.MONSTERS_KILLED);
         if (server.random().nextInt(type.nextDropOneIn()) == 0) {
-            dropOneOfAKind(killer, type);
+            if (killer.hasFreeSlot()) {
+                dropOneOfAKind(killer, type);
+            } else {
+                killer.say(Event.MessageKind.NOTICE, "Something glinted, but your inventory is full.");
+            }
         }
         killer.triggers.add(Discovery.Trigger.KILLED);
     }
@@ -212,29 +218,43 @@ class Combat {
         server.tellOthers(finder, finder.name + " found " + product.name + ". There won't be another.");
     }
 
+    /** Down where you fell, at 0 hp, for {@link #DOWN_TICKS} (so the hit that did it can be seen), then {@link #wakeUp}. */
     private void knockOut(GameCharacter character, Monster monster) {
         endFight(character, null);
         character.stopAction(null);
         character.stopWalking();
+        character.hp = 0;
+        character.downUntil = server.currentTick() + DOWN_TICKS;
+        character.infoChanged = true;
+        character.say(Event.MessageKind.NOTICE, monster.type.name + " knocked you out.");
+    }
+
+    /** Everyone whose time lying down is up wakes up. */
+    void wakeUp(long tick) {
+        for (GameCharacter character : server.onlineCharacters()) {
+            if (character.isDown() && tick >= character.downUntil) {
+                wakeUp(character);
+            }
+        }
+    }
+
+    /** Back at the origin with full hp (also when you log out while down). */
+    void wakeUp(GameCharacter character) {
+        character.downUntil = -1;
         character.hp = character.maxHp();
+        character.infoChanged = true;
+        character.saveSoon = true;
         character.moveTo(RESPAWN);
         character.emit(new Event.StepsCleared(RESPAWN, character.facing));
         server.toObservers(character.id, new Event.EntityMoved(character.id, RESPAWN, character.facing));
         character.emit(new Event.HpChanged(character.hp, character.maxHp()));
-        character.say(Event.MessageKind.NOTICE, monster.type.name + " knocked you out. You wake up at the origin.");
+        character.say(Event.MessageKind.NOTICE, "You wake up at the origin.");
     }
 
-    /** Out of a fight, hp slowly comes back (for monsters too). */
+    /** Out of a fight, a monster's hp slowly comes back. A player's doesn't: that's what churches are for. */
     void regenerate(long tick) {
         if (tick % REGEN_TICKS != 0) {
             return;
-        }
-        for (GameCharacter character : server.onlineCharacters()) {
-            if (character.currentFight == null && character.hp < character.maxHp()) {
-                character.hp++;
-                character.infoChanged = true;
-                character.emit(new Event.HpChanged(character.hp, character.maxHp()));
-            }
         }
         for (Monster monster : server.monsters().all()) {
             if (monster.fighters.isEmpty() && monster.hp < monster.type.maxHp) {

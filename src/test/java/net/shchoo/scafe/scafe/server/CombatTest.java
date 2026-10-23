@@ -1,5 +1,16 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.client.SkillStyle;
+import net.shchoo.scafe.scafe.model.Position;
+import com.googlecode.lanterna.terminal.virtual.DefaultVirtualTerminal;
+import com.googlecode.lanterna.screen.TerminalScreen;
+import com.googlecode.lanterna.screen.Screen;
+import com.googlecode.lanterna.TextColor;
+import net.shchoo.scafe.scafe.client.ui.MapView;
+import net.shchoo.scafe.scafe.client.ui.Layout;
+import net.shchoo.scafe.scafe.client.Board;
+import net.shchoo.scafe.scafe.client.Popup;
+import net.shchoo.scafe.scafe.model.Stacks;
 import net.shchoo.scafe.scafe.client.ui.InventoryPanel;
 import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.DamageColor;
@@ -228,13 +239,39 @@ class CombatTest {
         random.roll = 0.0;
         random.pick = Integer.MAX_VALUE;
         alice.send(new Intent.Attack());
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 10 && alice.hp > 0; i++) {
             tick();
         }
+        assertEquals(0, alice.hp, "down");
+        assertTrue(log.contains("brute knocked you out."));
+        assertNull(alice.fightingId);
+        Position fell = alice.position();
+        assertNotEquals(new Position(0, 0), fell, "where you fell, for a moment");
+        alice.moveBy(-1, 0);
+        for (int i = 0; i < Combat.DOWN_TICKS - 1; i++) {
+            tick();
+            assertEquals(0, alice.hp);
+        }
+        assertEquals(fell, server.online(alice.id).position(), "you can't move while you're down");
+        tick();
         assertEquals(new Position(0, 0), alice.position());
         assertEquals(alice.maxHp, alice.hp);
-        assertNull(alice.fightingId);
-        assertTrue(log.contains("brute knocked you out. You wake up at the origin."));
+        assertTrue(log.contains("You wake up at the origin."));
+    }
+
+    @Test
+    void knockedOutPlayersFlickerDarkGrey() throws Exception {
+        alice.hp = 0;
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        java.util.Set<TextColor> seen = new java.util.HashSet<>();
+        for (int frame = 0; frame < 4 * Player.FLICKER_FRAMES; frame++) {
+            alice.frame();
+            new MapView(Layout.MAP).draw(screen, alice, new Board(alice.content));
+            seen.add(screen.getBackCharacter(Layout.tileScreenX(alice.x, alice.x), Layout.tileScreenY(alice.y, alice.y))
+                    .getForegroundColor());
+        }
+        assertEquals(java.util.Set.of(TextColor.ANSI.BLACK_BRIGHT, SkillStyle.playerColor(alice.colorIndex)), seen);
     }
 
     @Test
@@ -475,5 +512,59 @@ class CombatTest {
         double strength = DamageColor.multiplier(DamageColor.BLACK, type.colorIndex);
         assertEquals(monster.hp() - (int) Math.ceil(strength - 1e-9), alice.others.get(monster.id()).hp(),
                 "x1/2 against colour rounds up to 1 here; x2 against the colourless");
+    }
+
+    @Test
+    void noDropWhileYourInventoryIsFull() {
+        Product item = giveItems(1, Stacks.INVENTORY_SLOTS);
+        assertEquals(Stacks.INVENTORY_SLOTS, alice.slotsUsed(), "stacks of 1 at level 1");
+        Event.EntityInfo monster = spawnNextToAlice();
+        MonsterType type = alice.content.monster(monster.monsterTypeId());
+        fightUntilOver();
+        assertTrue(log.contains("Something glinted, but your inventory is full."));
+        assertTrue(type.drops.isEmpty(), "the drop is still out there for later");
+        assertEquals(Stacks.INVENTORY_SLOTS, alice.inventory.get(item));
+    }
+
+    @Test
+    void hitsArePlainNumbersATileOutOnEachFightersSideUnderTheXp() throws Exception {
+        random.roll = 0.5;
+        Event.EntityInfo monster = spawnNextToAlice();
+        Position me = alice.position();
+        alice.send(new Intent.Attack());
+        for (int i = 0; i < 20 && alice.popups.stream().filter(p -> p.background == TextColor.ANSI.RED).count() < 2; i++) {
+            tick();
+        }
+        Popup mine = alice.popups.stream().filter(p -> p.background == TextColor.ANSI.RED && p.at().equals(me)).findFirst().orElseThrow();
+        Popup theirs = alice.popups.stream().filter(p -> p.background == TextColor.ANSI.RED && !p.at().equals(me)).findFirst().orElseThrow();
+        Popup xp = alice.popups.stream().filter(p -> p.text.endsWith("xp")).findFirst().orElseThrow();
+        assertTrue(mine.text.matches("[0-9]+") && theirs.text.matches("[0-9]+"), "no signs: " + mine.text + " " + theirs.text);
+        assertEquals(TextColor.ANSI.WHITE, mine.color);
+        int dx = monster.position().x() - alice.x;
+        assertEquals(dx == 0 ? -1 : -Integer.signum(dx), mine.side, "mine away from the monster");
+        assertEquals(-mine.side, theirs.side, "theirs the other way");
+        assertEquals(0, xp.side, "xp centred on you");
+        assertEquals(xp.rise() - 1, mine.rise(), "a row under the xp");
+
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        new MapView(Layout.MAP).draw(screen, alice, new Board(alice.content));
+        int myTile = Layout.tileScreenX(alice.x, alice.x), row = Layout.tileScreenY(alice.y, alice.y);
+        int at = mine.side < 0 ? myTile - 1 - mine.text.length() : myTile + 2;
+        assertEquals(mine.text.substring(0, 1), screen.getBackCharacter(at, row).getCharacterString(), "a tile out, on your row");
+        assertEquals(TextColor.ANSI.RED, screen.getBackCharacter(at, row).getBackgroundColor());
+    }
+
+    @Test
+    void aMissIsAZeroOnBlue() {
+        random.roll = 0.95;
+        spawnNextToAlice();
+        alice.send(new Intent.Attack());
+        for (int i = 0; i < 10 && alice.popups.stream().noneMatch(p -> p.background == TextColor.ANSI.BLUE); i++) {
+            tick();
+        }
+        Popup miss = alice.popups.stream().filter(p -> p.background == TextColor.ANSI.BLUE).findFirst().orElseThrow();
+        assertEquals("0", miss.text);
+        assertEquals(TextColor.ANSI.WHITE, miss.color);
     }
 }

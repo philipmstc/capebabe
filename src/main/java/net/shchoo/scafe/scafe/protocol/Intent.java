@@ -18,7 +18,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 10;
+    int PROTOCOL_VERSION = 15;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -43,6 +43,12 @@ public sealed interface Intent {
 
     record Unequip(EquipSlot slot) implements Intent {}
 
+    /** Only next to a bank. */
+    record Deposit(int productId, int count) implements Intent {}
+
+    /** Only next to a bank; takes no more than fits in the inventory. */
+    record Withdraw(int productId, int count) implements Intent {}
+
     /** {@code index} into your goals; {@code level} one of {@code Goal.LEVELS}. */
     record SetGoalLevel(int index, int level) implements Intent {}
     /** Fight a monster next to you (or stop fighting). */
@@ -56,6 +62,8 @@ public sealed interface Intent {
     record SetShowTimeEstimate(boolean on) implements Intent {}
     /** Hide routine messages ("Made x", "Interrupted.") from the chat. */
     record SetCompactChat(boolean on) implements Intent {}
+
+    record SetLightMode(boolean on) implements Intent {}
     /** Say something to everyone in the world. */
     record Chat(String text) implements Intent {}
     /** Debug / world-building commands (the 1 / 2 / 3 keys). */

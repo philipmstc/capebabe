@@ -15,7 +15,7 @@ public enum ConsoleAction {
     UP('w', "Move up", (player, board) -> player.moveBy(0, -1)),
     DOWN('s', "Move down", (player, board) -> player.moveBy(0, 1)),
 
-    PERFORM('q', "Perform action (again to stop)", (player, board) -> player.send(new Intent.Perform())),
+    PERFORM('q', "Perform action (again to stop)", (player, board) -> player.perform()),
 
     RUN('r', "Toggle running (2 tiles per tick)", (player, board) -> player.toggleRunning()),
 

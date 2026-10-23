@@ -76,7 +76,7 @@ class NetworkTest {
         List<Intent> intents = List.of(
                 new Intent.Join("alice"), new Intent.Login(Intent.PROTOCOL_VERSION, "alice", "s3cret!"),
                 new Intent.EnterWorld("open sesame"), new Intent.SetShowProductTiers(true), new Intent.Leave(), new Intent.Move(1, -1),
-                new Intent.WalkTo(new Position(-4, 7)), new Intent.Perform(), new Intent.AddGoal(), new Intent.SetGoalLevel(2, 50), new Intent.Equip(EquipSlot.ARMOR, 7), new Intent.Unequip(EquipSlot.WEAPON), new Intent.Attack(), new Intent.SetColor(3), new Intent.SetRunning(true),
+                new Intent.WalkTo(new Position(-4, 7)), new Intent.Perform(), new Intent.AddGoal(), new Intent.SetGoalLevel(2, 50), new Intent.Equip(EquipSlot.ARMOR, 7), new Intent.Unequip(EquipSlot.WEAPON), new Intent.Deposit(5, 40), new Intent.Withdraw(5, 3), new Intent.Attack(), new Intent.SetColor(3), new Intent.SetRunning(true),
                 new Intent.Admin("3", List.of("1", "5", "10")));
         for (Intent intent : intents) {
             assertEquals(intent, Wire.decodeIntent(Wire.encode(intent)));
@@ -92,7 +92,7 @@ class NetworkTest {
         world.content.apply(WorldGenerator.newDrop(world, world.content.monsters.get(0).id));
         Event.CharacterSnapshot you = new Event.CharacterSnapshot(7, "alice", new Position(1, 2),
                 Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10, Direction.LEFT, 3, true, true, true, true, true,
-                Map.of("STEPS", 12L, "MONSTERS_KILLED", 3L), 7, 12);
+                Map.of("STEPS", 12L, "MONSTERS_KILLED", 3L), 7, 12, true, Map.of(5, 40));
         List<Event> events = List.of(
                 new Event.Welcome("w", 12, List.copyOf(world.content.history()), you,
                         List.of(Event.EntityInfo.player(8, "bob", new Position(0, 0), Direction.UP, 4, 10, 10, 5),
@@ -102,7 +102,7 @@ class NetworkTest {
                 new Event.XpGained(1, 200, 5200, new Position(1, 2)),
                 new Event.ContentAdded(world.content.history().get(0).withOrigin(new ContentBatch.Origin("alice", 1760000000000L))),
                 new Event.ContentAdded(world.content.history().get(world.content.version() - 1)),
-                new Event.FightStarted(-3), new Event.FightEnded(), new Event.Hit(-3, 2, new Position(2, 2)),
+                new Event.FightStarted(-3), new Event.FightEnded(), new Event.Hit(-3, 2, new Position(2, 2), new Position(3, 2)),
                 new Event.HpChanged(4, 10),
                 new Event.EntityMoved(8, new Position(1, 0), Direction.RIGHT), new Event.StepsCleared(new Position(0, 0), Direction.DOWN),
                 new Event.ColorChanged(2), new Event.RunningChanged(true),

@@ -17,7 +17,8 @@ public sealed interface Event {
                              Map<Integer, Integer> inventory, List<GoalDef> goals, Set<Integer> triedNodes,
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
                              boolean running, boolean autoInvestigate, boolean showProductTiers, boolean showTimeEstimate,
-                             boolean compactChat, Map<String, Long> stats, int weaponId, int armorId) {}
+                             boolean compactChat, Map<String, Long> stats, int weaponId, int armorId,
+                             boolean lightMode, Map<Integer, Integer> bank) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -100,7 +101,8 @@ public sealed interface Event {
     record FightStarted(int monsterId) implements Event {}
     record FightEnded() implements Event {}
     /** Someone (you, a monster, another player) was hit for {@code damage}; 0 = a miss. */
-    record Hit(int targetId, int damage, Position at) implements Event {}
+    /** {@code from}: where the one hitting stands (so the client can keep the two fighters' popups apart). */
+    record Hit(int targetId, int damage, Position at, Position from) implements Event {}
     record HpChanged(int hp, int maxHp) implements Event {}
     record ColorChanged(int colorIndex) implements Event {}
     record RunningChanged(boolean running) implements Event {}
@@ -131,4 +133,8 @@ public sealed interface Event {
     record StatsChanged(Map<String, Long> stats) implements Event {}
 
     record CompactChatChanged(boolean on) implements Event {}
+
+    record LightModeChanged(boolean on) implements Event {}
+
+    record BankChanged(int productId, int count) implements Event {}
 }

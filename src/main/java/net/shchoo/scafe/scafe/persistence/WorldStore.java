@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.persistence;
 
+import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
@@ -132,6 +133,22 @@ public class WorldStore extends SqliteStore implements Storage {
             alter table game_character rename column equipped_product_id to weapon_product_id;
             alter table game_character drop column equipped_count;
             alter table game_character add column armor_product_id integer references product(id);
+            """,
+            // v14: light mode setting
+            """
+            alter table game_character add column light_mode integer not null default 0;
+            """,
+            // v15: buildings (the bank) as content, and each character's bank
+            """
+            create table building (id integer primary key, content_version integer not null, ordinal integer not null,
+                                   kind text not null, x integer not null, y integer not null);
+            create table bank_item (character_id integer not null references game_character(id), ordinal integer not null,
+                                    product_id integer not null references product(id), count integer not null,
+                                    primary key (character_id, ordinal));
+            """,
+            // v16: hp is kept (it doesn't come back by itself any more); null = full
+            """
+            alter table game_character add column hp integer;
             """
     );
 
@@ -305,6 +322,13 @@ public class WorldStore extends SqliteStore implements Storage {
             }
         }
         try (PreparedStatement ps = connection.prepareStatement(
+                "insert into building (id, content_version, ordinal, kind, x, y) values (?,?,?,?,?,?)")) {
+            for (ContentBatch.BuildingDef d : batch.buildings()) {
+                set(ps, d.id(), v, ordinal++, d.kind().name(), d.x(), d.y());
+                ps.executeUpdate();
+            }
+        }
+        try (PreparedStatement ps = connection.prepareStatement(
                 "update world_meta set content_version = ? where content_version = ?")) {
             set(ps, v, v - 1);
             if (ps.executeUpdate() != 1) {
@@ -340,6 +364,7 @@ public class WorldStore extends SqliteStore implements Storage {
         List<List<ContentBatch.NodeDef>> nodes = buckets(version);
         List<List<ContentBatch.MonsterDef>> monsters = buckets(version);
         List<List<ContentBatch.DropDef>> drops = buckets(version);
+        List<List<ContentBatch.BuildingDef>> buildings = buckets(version);
 
         all("select * from skill order by content_version, ordinal", rs ->
                 skills.get(rs.getInt("content_version") - 1).add(new ContentBatch.SkillDef(rs.getInt("id"), rs.getString("name"),
@@ -367,6 +392,10 @@ public class WorldStore extends SqliteStore implements Storage {
                 drops.get(rs.getInt("content_version") - 1).add(new ContentBatch.DropDef(rs.getInt("monster_id"),
                         rs.getInt("product_id"), rs.getInt("one_in"), rs.getString("found_by"))));
 
+        all("select * from building order by content_version, ordinal", rs ->
+                buildings.get(rs.getInt("content_version") - 1).add(new ContentBatch.BuildingDef(rs.getInt("id"),
+                        Building.Kind.valueOf(rs.getString("kind")), rs.getInt("x"), rs.getInt("y"))));
+
         Map<Integer, ContentBatch.Origin> origins = new HashMap<>();
         all("select * from content_batch", rs -> origins.put(rs.getInt("content_version"),
                 new ContentBatch.Origin(rs.getString("created_by"), rs.getLong("created_at"))));
@@ -374,7 +403,7 @@ public class WorldStore extends SqliteStore implements Storage {
         List<ContentBatch> batches = new ArrayList<>();
         for (int i = 0; i < version; i++) {
             batches.add(new ContentBatch(i + 1, skills.get(i), products.get(i), productLines.get(i), recipes.get(i), nodes.get(i),
-                    monsters.get(i), drops.get(i), origins.get(i + 1)));
+                    monsters.get(i), drops.get(i), buildings.get(i), origins.get(i + 1)));
         }
         return batches;
     }
@@ -423,6 +452,11 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.showProductTiers = rs.getInt("show_product_tiers") != 0;
                 character.showTimeEstimate = rs.getInt("show_time_estimate") != 0;
                 character.compactChat = rs.getInt("compact_chat") != 0;
+                character.lightMode = rs.getInt("light_mode") != 0;
+                int hp = rs.getInt("hp");
+                if (!rs.wasNull()) {
+                    character.savedHp = hp;
+                }
                 character.weapon = product(rs, "weapon_product_id");
                 character.armor = product(rs, "armor_product_id");
                 int lastX = rs.getInt("last_action_x");
@@ -437,6 +471,8 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.xp.put(content.skill(rs.getInt("skill_id")), rs.getLong("xp")));
         query("select * from inventory where character_id = ? order by ordinal", id, rs ->
                 character.inventory.put(content.product(rs.getInt("product_id")), rs.getInt("count")));
+        query("select * from bank_item where character_id = ? order by ordinal", id, rs ->
+                character.bank.put(content.product(rs.getInt("product_id")), rs.getInt("count")));
         query("select * from goal where character_id = ? order by ordinal", id, rs ->
                 character.goals.add(new Goal(content.skill(rs.getInt("skill_id")), rs.getInt("level"), content.product(rs.getInt("product_id")))));
         query("select * from character_tried_node where character_id = ?", id, rs ->
@@ -468,17 +504,18 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ?, compact_chat = ?, weapon_product_id = ?, armor_product_id = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ?, compact_chat = ?, weapon_product_id = ?, armor_product_id = ?, light_mode = ?, hp = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
                         character.autoInvestigate ? 1 : 0, character.showProductTiers ? 1 : 0,
                         character.showTimeEstimate ? 1 : 0, character.compactChat ? 1 : 0,
                         character.weapon == null ? null : character.weapon.id,
-                        character.armor == null ? null : character.armor.id, character.id);
+                        character.armor == null ? null : character.armor.id, character.lightMode ? 1 : 0,
+                        character.currentHp(), character.id);
                 ps.executeUpdate();
             }
-            for (String table : List.of("character_skill_xp", "inventory", "goal", "character_tried_node", "character_stat")) {
+            for (String table : List.of("character_skill_xp", "inventory", "bank_item", "goal", "character_tried_node", "character_stat")) {
                 try (PreparedStatement ps = connection.prepareStatement("delete from " + table + " where character_id = ?")) {
                     ps.setInt(1, character.id);
                     ps.executeUpdate();
@@ -495,6 +532,15 @@ public class WorldStore extends SqliteStore implements Storage {
                 for (Map.Entry<Product, Integer> e : character.inventory.entrySet()) {
                     set(ps, character.id, ordinal++, e.getKey().id, e.getValue());
                     ps.executeUpdate();
+                }
+            }
+            try (PreparedStatement ps = connection.prepareStatement("insert into bank_item values (?, ?, ?, ?)")) {
+                int ordinal = 0;
+                for (Map.Entry<Product, Integer> e : character.bank.entrySet()) {
+                    if (e.getValue() > 0) {
+                        set(ps, character.id, ordinal++, e.getKey().id, e.getValue());
+                        ps.executeUpdate();
+                    }
                 }
             }
             try (PreparedStatement ps = connection.prepareStatement("insert into goal values (?, ?, ?, ?, ?)")) {

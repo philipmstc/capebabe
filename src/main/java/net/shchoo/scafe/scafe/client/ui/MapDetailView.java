@@ -3,6 +3,7 @@ package net.shchoo.scafe.scafe.client.ui;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.SkillStyle;
+import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
@@ -69,6 +70,17 @@ public class MapDetailView extends Widget {
                     }
                 }
             }
+        }
+        Building building = player.content.buildingAt(target);
+        if (building != null && row <= last) {
+            g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
+            g.putString(textX(), row++, fit(building.kind().label, textWidth()));
+            g.setForegroundColor(TextColor.ANSI.DEFAULT);
+            if (row <= last) {
+                g.putString(textX() + 2, row++, fit(player.ahead().equals(target)
+                        ? building.kind().action : "walk up to it and press q", textWidth() - 2));
+            }
+            return;
         }
         Node node = board.nodeAt(target.x(), target.y());
         if (node == null) {

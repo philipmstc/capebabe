@@ -1,6 +1,7 @@
 package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
+import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
@@ -177,9 +178,24 @@ public class GameServer {
         return online.get(id);
     }
 
-    /** Nodes block movement; players and monsters don't. */
+    /** Nodes and buildings block movement; players and monsters don't. */
     boolean passable(Position position) {
-        return world.content.nodeAt(position) == null;
+        return !world.content.blocked(position);
+    }
+
+    /** Gives the world a bank and a church, whichever it hasn't got yet (near the origin, not right on it). */
+    public void ensureBuildings() {
+        for (Building.Kind kind : Building.Kind.values()) {
+            if (world.content.buildings().stream().noneMatch(b -> b.kind() == kind)) {
+                applyContent(WorldGenerator.newBuilding(world, kind));
+            }
+        }
+    }
+
+    /** A bank right next to (or under) {@code position}, or null. */
+    private Building bankNear(Position position) {
+        return world.content.buildings().stream()
+                .filter(b -> b.kind() == Building.Kind.BANK && b.within(position, 1)).findFirst().orElse(null);
     }
 
     /** A tile something new shouldn't appear on: a node, a monster or a player is there. */
@@ -330,6 +346,7 @@ public class GameServer {
             }
         }
         combat.regenerate(tick);
+        combat.wakeUp(tick);
         updateVisibility();
         for (GameCharacter changed : online.values()) {
             if (changed.infoChanged) {
@@ -399,6 +416,10 @@ public class GameServer {
         if (character == null) {
             return;
         }
+        if (character.isDown() && !(intent instanceof Intent.Chat)) {
+            // knocked out: nothing to do but wait (and talk)
+            return;
+        }
         if (intent instanceof Intent.Move move) {
             Direction direction = Direction.of(move.dx(), move.dy());
             if (direction != null) {
@@ -420,6 +441,10 @@ public class GameServer {
             character.compactChat = set.on();
             character.saveSoon = true;
             character.emit(new Event.CompactChatChanged(character.compactChat));
+        } else if (intent instanceof Intent.SetLightMode set) {
+            character.lightMode = set.on();
+            character.saveSoon = true;
+            character.emit(new Event.LightModeChanged(character.lightMode));
         } else if (intent instanceof Intent.Chat chat) {
             String text = chat.text() == null ? "" : chat.text().replaceAll("\\p{Cntrl}", "").strip();
             if (!text.isEmpty()) {
@@ -440,8 +465,15 @@ public class GameServer {
         } else if (intent instanceof Intent.WalkTo walkTo) {
             character.walkTo(walkTo.target());
         } else if (intent instanceof Intent.Perform) {
+            Building building = world.content.buildingAt(character.ahead());
             if (character.currentFight != null) {
                 combat.endFight(character, "You stop fighting.");
+            } else if (building != null && building.kind() == Building.Kind.BANK) {
+                // the client opened its bank window already (it has the contents); just stop what you were doing
+                character.stopAction(null);
+            } else if (building != null && building.kind() == Building.Kind.CHURCH) {
+                character.stopAction(null);
+                character.pray();
             } else {
                 character.performOrStop(nodeAhead(character), tick);
             }
@@ -457,6 +489,18 @@ public class GameServer {
         } else if (intent instanceof Intent.Equip equip) {
             if (equip.slot() != null) {
                 character.equip(equip.slot(), world.content.product(equip.productId()));
+            }
+        } else if (intent instanceof Intent.Deposit deposit) {
+            if (bankNear(character.position()) == null) {
+                character.say("You need to be at a bank.");
+            } else {
+                character.deposit(world.content.product(deposit.productId()), deposit.count());
+            }
+        } else if (intent instanceof Intent.Withdraw withdraw) {
+            if (bankNear(character.position()) == null) {
+                character.say("You need to be at a bank.");
+            } else {
+                character.withdraw(world.content.product(withdraw.productId()), withdraw.count());
             }
         } else if (intent instanceof Intent.Unequip unequip) {
             if (unequip.slot() != null) {
@@ -601,9 +645,9 @@ public class GameServer {
             return;
         }
         session.character = character;
-        character.connect(session.events::add, nodes);
+        character.connect(session.events::add, nodes, world.content);
         character.walker.setPassable(this::passable);
-        character.hp = character.maxHp();
+        character.hp = character.savedHp == null ? character.maxHp() : Math.max(1, Math.min(character.savedHp, character.maxHp()));
         List<GameCharacter> nearby = online.values().stream()
                 .filter(other -> inRange(character.position(), other.position())).toList();
         List<Monster> nearbyMonsters = monsters.all().stream()
@@ -638,7 +682,11 @@ public class GameServer {
         }
         character.stopAction(null);
         combat.endFight(character, null);
+        if (character.isDown()) {
+            combat.wakeUp(character);
+        }
         online.remove(character.id);
+        character.savedHp = character.currentHp();
         character.disconnect();
         save(character);
         tellOthers(character, Event.MessageKind.NOTICE, character.name + " logged out.");

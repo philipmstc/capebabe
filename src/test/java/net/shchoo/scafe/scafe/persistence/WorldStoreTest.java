@@ -1,6 +1,5 @@
 package net.shchoo.scafe.scafe.persistence;
 
-import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.*;
@@ -51,8 +50,8 @@ class WorldStoreTest {
     @Test
     void eachWorldIsItsOwnFileAndRemembersItsSeed() throws Exception {
         try (WorldStore one = open(1); WorldStore two = open(2)) {
-            assertEquals(13, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
-                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats, v12 equipped stack, v13 weapon + armor");
+            assertEquals(16, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
+                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats, v12 equipped stack, v13 weapon + armor, v14 light mode, v15 buildings + banks, v16 hp");
             assertEquals(777, one.loadOrCreateWorld(1, "w1", 777).seed);
             assertEquals(888, two.loadOrCreateWorld(2, "w2", 888).seed);
         }
@@ -154,6 +153,58 @@ class WorldStoreTest {
     }
 
     @Test
+    void theBankAndWhatsInItAreKept() throws Exception {
+        Position below;
+        try (WorldStore store = open(1)) {
+            GameServer server = new GameServer(store.loadOrCreateWorld(1, "w", 5), store);
+            server.setDiscovery(Discovery.off());
+            server.ensureBuildings();
+            Building bank = server.world.content.buildings().stream().filter(b -> b.kind() == Building.Kind.BANK).findFirst().orElseThrow();
+            below = new Position(bank.corner().x() + 1, bank.corner().y() + bank.kind().height());
+            Player alice = new Player(new LocalConnection(server.connect()));
+            alice.send(new Intent.Join("alice"));
+            alice.send(new Intent.Admin("1", List.of("1")));
+            alice.send(new Intent.Admin("3", List.of()));
+            server.tick();
+            alice.receive();
+            for (int i = 0; i < 50 && !alice.content.nodeAt(new Position(0, 1)).recipe.levelMet(1); i++) {
+                alice.send(new Intent.Admin("3", List.of()));
+                server.tick();
+                alice.receive();
+            }
+            alice.send(new Intent.Perform());
+            for (int i = 0; i < 6; i++) {
+                server.tick();
+                alice.receive();
+            }
+            Product made = alice.content.nodeAt(new Position(0, 1)).recipe.product;
+            alice.send(new Intent.SetRunning(true));
+            alice.send(new Intent.WalkTo(below));
+            for (int i = 0; i < 80 && !alice.position().equals(below); i++) {
+                server.tick();
+                alice.receive();
+            }
+            assertEquals(below, alice.position());
+            alice.send(new Intent.Deposit(made.id, 1));
+            server.tick();
+            alice.receive();
+            assertEquals(1, alice.bank.get(made));
+            server.stop();
+        }
+        try (WorldStore store = open(1)) {
+            GameServer server = new GameServer(store.loadOrCreateWorld(1, "w", 0), store);
+            server.ensureBuildings();
+            assertEquals(2, server.world.content.buildings().size(), "still the one bank (and church)");
+            Player alice = new Player(new LocalConnection(server.connect()));
+            alice.send(new Intent.Join("alice"));
+            server.tick();
+            alice.receive();
+            assertEquals(1, alice.bank.values().stream().mapToInt(Integer::intValue).sum(), "what's in it");
+            assertEquals(below.y() - Building.Kind.BANK.height(), alice.content.buildings().stream().filter(b -> b.kind() == Building.Kind.BANK).findFirst().orElseThrow().corner().y());
+        }
+    }
+
+    @Test
     void aServerRestartKeepsTheWorldAndYourProgress() throws Exception {
         long xpBefore;
         int skills;
@@ -185,6 +236,8 @@ class WorldStoreTest {
             alice.send(new Intent.SetAutoInvestigate(true));
             alice.send(new Intent.SetShowProductTiers(true));
             alice.send(new Intent.SetCompactChat(true));
+            alice.send(new Intent.SetLightMode(true));
+
             int made = alice.inventory.entrySet().stream().filter(e -> e.getValue() > 0).findFirst().orElseThrow().getKey().id;
             alice.send(new Intent.Equip(EquipSlot.ARMOR, made));
             server.tick();
@@ -211,6 +264,8 @@ class WorldStoreTest {
             assertTrue(alice.autoInvestigate);
             assertTrue(alice.showProductTiers, "Contrast tiers is remembered");
             assertTrue(alice.compactChat, "Compact chat too");
+            assertTrue(alice.lightMode, "and Light mode");
+
             assertNotNull(alice.armor, "what you wear");
             assertNull(alice.weapon);
             assertEquals(1L, alice.stats.get(Stat.STEPS), "both steps were in one tick");
@@ -268,7 +323,7 @@ class WorldStoreTest {
             statement.execute("insert into world_meta (id, name, seed) values (1, 'old', 55)");
         }
         try (WorldStore store = open(7)) {
-            assertEquals(13, store.schemaVersion());
+            assertEquals(16, store.schemaVersion());
             World world = store.loadOrCreateWorld(7, "ignored", 0);
             assertEquals("old", world.name);
             save(store, world, WorldGenerator.newSkills(world, 1));

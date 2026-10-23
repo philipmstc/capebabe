@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.client;
 
 import com.googlecode.lanterna.Symbols;
 import com.googlecode.lanterna.TextColor;
+import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.Stacks;
 import net.shchoo.scafe.scafe.model.Product;
@@ -43,6 +44,7 @@ public class Player {
     public boolean showTimeEstimate;
     /** Hide routine messages ("Made x") in the chat. */
     public boolean compactChat;
+    public boolean lightMode;
     /** Your lifetime counts in this world. */
     public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
 
@@ -54,6 +56,19 @@ public class Player {
     private final Deque<Pose> predicted = new ArrayDeque<>();
     private final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
+    /** Your bank's contents, mirrored from the server; {@link #bankOpen} while its window is up. */
+    public final LinkedHashMap<Product, Integer> bank = new LinkedHashMap<>();
+    public boolean bankOpen;
+    private long bankSentAt = -1;
+    /** Render frames so far, for things that flicker. */
+    private long frames;
+    /** Knocked out players (0 hp) flicker: dark grey this many frames, then their colour as many. */
+    public static final int FLICKER_FRAMES = 3;
+
+    /** Whether a knocked-out player shows dark grey this frame. */
+    public boolean flickerOff() {
+        return (frames / FLICKER_FRAMES) % 2 == 0;
+    }
     /** What you fight with (null = fists) and wear (null = none), mirrored from the server. */
     public Product weapon;
     public Product armor;
@@ -183,6 +198,13 @@ public class Player {
             onLevelUp(content.skill(levelUp.skillId()), levelUp.from(), levelUp.to());
         } else if (event instanceof Event.InventoryChanged changed) {
             inventory.put(content.product(changed.productId()), changed.count());
+        } else if (event instanceof Event.BankChanged changed) {
+            Product item = content.product(changed.productId());
+            if (changed.count() <= 0) {
+                bank.remove(item);
+            } else {
+                bank.put(item, changed.count());
+            }
         } else if (event instanceof Event.GoalAdded added) {
             goals.add(added.goal().toGoal(content));
         } else if (event instanceof Event.EquipmentChanged changed) {
@@ -219,8 +241,8 @@ public class Player {
             maxHp = changed.maxHp();
         } else if (event instanceof Event.Hit hit) {
             boolean me = hit.targetId() == id;
-            popups.add(new Popup(hit.at(), hit.damage() == 0 ? "miss" : "-" + hit.damage(),
-                    hit.damage() == 0 ? TextColor.ANSI.BLACK_BRIGHT : me ? TextColor.ANSI.RED_BRIGHT : TextColor.ANSI.YELLOW_BRIGHT));
+            popups.add(Popup.hit(hit.at(), String.valueOf(hit.damage()),
+                    hit.damage() == 0 ? TextColor.ANSI.BLUE : TextColor.ANSI.RED, hitSide(hit, me)));
         } else if (event instanceof Event.HomeChanged home) {
             lastActionAt = home.lastActionAt();
         } else if (event instanceof Event.Message message) {
@@ -231,6 +253,8 @@ public class Player {
             setStats(changed.stats());
         } else if (event instanceof Event.CompactChatChanged changed) {
             compactChat = changed.on();
+        } else if (event instanceof Event.LightModeChanged changed) {
+            lightMode = changed.on();
         }
     }
 
@@ -249,6 +273,9 @@ public class Player {
         showProductTiers = you.showProductTiers();
         showTimeEstimate = you.showTimeEstimate();
         compactChat = you.compactChat();
+        lightMode = you.lightMode();
+        bank.clear();
+        you.bank().forEach((productId, count) -> bank.put(content.product(productId), count));
         weapon = you.weaponId() < 0 ? null : content.product(you.weaponId());
         armor = you.armorId() < 0 ? null : content.product(you.armorId());
         setStats(you.stats());
@@ -288,6 +315,7 @@ public class Player {
 
     /** One render frame. */
     public void frame() {
+        frames++;
         popups.removeIf(Popup::advanceFrame);
         waypoints.update(ahead());
         if (walkTarget != null && (walkTarget.equals(new Position(x, y)) || walkTarget.equals(ahead())
@@ -309,12 +337,28 @@ public class Player {
     }
 
     /** How full the progress bar is, 0..1. The action repeats, so this wraps every durationTicks. */
+    /** The bar fills over this much of each item's time, then shows full for the rest, so "done" can be seen. */
+    static final double FILL_BY = 0.75;
+
+    /** How full the action bar is: fills over {@link #FILL_BY} of each item's time, full until the next starts. */
     public double actionFraction() {
         if (currentAction == null) {
             return 0;
         }
         long into = Math.floorMod(serverTick - currentAction.startTick(), currentAction.durationTicks());
-        return Math.min(1.0, (into + partialTick()) / currentAction.durationTicks());
+        return Math.min(1.0, (into + partialTick()) / (currentAction.durationTicks() * FILL_BY));
+    }
+
+    /**
+     * Which side of its tile a hit's popup goes: away from whoever hit, so the two fighters' popups don't overlap
+     * (straight above / below each other: yours left, the other's right).
+     */
+    static int hitSide(Event.Hit hit, boolean me) {
+        if (hit.from() == null) {
+            return 0;
+        }
+        int away = Integer.signum(hit.at().x() - hit.from().x());
+        return away != 0 ? away : me ? -1 : 1;
     }
 
     /** The monster you're fighting, if you can still see it. */
@@ -341,7 +385,7 @@ public class Player {
             return;
         }
         Position target = position().step(direction);
-        predicted.addLast(new Pose(content.nodeAt(target) == null ? target : position(), direction));
+        predicted.addLast(new Pose(content.blocked(target) ? position() : target, direction));
         showPredicted();
         send(new Intent.Move(dx, dy));
     }
@@ -435,6 +479,43 @@ public class Player {
     /** How many of {@code item} make a stack for you ({@link Stacks}). */
     public int stackSize(Product item) {
         return Stacks.size(content, item, this::getLevel);
+    }
+
+    /**
+     * q: use the node ahead (the server decides). Facing a bank, its window opens right away: the bank's contents
+     * are already here, so there's nothing to wait for.
+     */
+    public void perform() {
+        Building building = content.buildingAt(ahead());
+        if (building != null && building.kind() == Building.Kind.BANK) {
+            bankOpen = true;
+        }
+        send(new Intent.Perform());
+    }
+
+    public void deposit(Product item, int count) {
+        bankSentAt = serverTick;
+        send(new Intent.Deposit(item.id, count));
+    }
+
+    public void withdraw(Product item, int count) {
+        bankSentAt = serverTick;
+        send(new Intent.Withdraw(item.id, count));
+    }
+
+    /** A deposit / withdrawal is on its way and the server hasn't had its tick yet. */
+    public boolean bankBusy() {
+        return serverTick <= bankSentAt;
+    }
+
+    /** Inventory slots in use, out of {@link Stacks#INVENTORY_SLOTS}. */
+    public int slotsUsed() {
+        return Stacks.slots(content, inventory, this::getLevel);
+    }
+
+    public void toggleLightMode() {
+        lightMode = !lightMode;
+        send(new Intent.SetLightMode(lightMode));
     }
 
     public void toggleCompactChat() {

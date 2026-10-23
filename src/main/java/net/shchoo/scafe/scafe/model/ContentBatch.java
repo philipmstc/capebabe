@@ -16,18 +16,19 @@ public record ContentBatch(int version,
                            List<NodeDef> nodes,
                            List<MonsterDef> monsters,
                            List<DropDef> drops,
+                           List<BuildingDef> buildings,
                            Origin origin) {
 
     public ContentBatch(int version, List<SkillDef> skills, List<ProductDef> products, List<ProductLineDef> productLines,
                         List<RecipeDef> recipes, List<NodeDef> nodes, List<MonsterDef> monsters, List<DropDef> drops) {
-        this(version, skills, products, productLines, recipes, nodes, monsters, drops, null);
+        this(version, skills, products, productLines, recipes, nodes, monsters, drops, List.of(), null);
     }
 
     /** Who caused this content (a character's name) and when, in epoch milliseconds. */
     public record Origin(String by, long at) {}
 
     public ContentBatch withOrigin(Origin origin) {
-        return new ContentBatch(version, skills, products, productLines, recipes, nodes, monsters, drops, origin);
+        return new ContentBatch(version, skills, products, productLines, recipes, nodes, monsters, drops, buildings, origin);
     }
 
     public record SkillDef(int id, String name, SkillType type, int colorIndex, char symbol) {}
@@ -49,8 +50,11 @@ public record ContentBatch(int version,
     /** A one-of-a-kind drop that just dropped; a monster's drops are listed (across batches) in the order found. */
     public record DropDef(int monsterId, int productId, int oneIn, String foundBy) {}
 
+    /** {@code x}, {@code y}: its top-left tile. */
+    public record BuildingDef(int id, Building.Kind kind, int x, int y) {}
+
     public boolean isEmpty() {
         return skills.isEmpty() && products.isEmpty() && productLines.isEmpty() && recipes.isEmpty() && nodes.isEmpty()
-                && monsters.isEmpty() && drops.isEmpty();
+                && monsters.isEmpty() && drops.isEmpty() && buildings.isEmpty();
     }
 }

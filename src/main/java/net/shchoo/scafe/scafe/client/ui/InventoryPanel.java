@@ -3,6 +3,7 @@ package net.shchoo.scafe.scafe.client.ui;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.SkillStyle;
+import net.shchoo.scafe.scafe.model.Stacks;
 import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Product;
@@ -62,8 +63,13 @@ public class InventoryPanel extends Menu {
 
     /** Every item you hold in stacks of {@link Player#stackSize} (the last one of each may be short), in the order you got them. */
     public static List<Slot> slots(Player player) {
+        return slots(player, player.inventory);
+    }
+
+    /** {@code items} (your inventory or bank) in stacks of {@link Player#stackSize}. */
+    public static List<Slot> slots(Player player, Map<Product, Integer> items) {
         List<Slot> slots = new ArrayList<>();
-        for (Map.Entry<Product, Integer> entry : player.inventory.entrySet()) {
+        for (Map.Entry<Product, Integer> entry : items.entrySet()) {
             int stack = player.stackSize(entry.getKey());
             for (int left = entry.getValue(); left > 0; left -= stack) {
                 slots.add(new Slot(entry.getKey(), Math.min(stack, left)));
@@ -230,25 +236,15 @@ public class InventoryPanel extends Menu {
                 TextColor bg = isSelected ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT;
                 g.setBackgroundColor(bg);
                 if (index >= slots.size()) {
-                    g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-                    g.putString(x, y, pad(" ."));
-                    g.putString(x, y + 1, pad(""));
+                    drawEmptyCell(g, x, y);
                     continue;
                 }
-                Slot slot = slots.get(index);
-                String[] lines = label(slot.product());
-                g.setForegroundColor(colorOf(slot.product(), player));
-                if (isSelected) {
-                    g.enableModifiers(SGR.BOLD);
-                }
-                g.putString(x, y, pad(lines[0]));
-                g.putString(x, y + 1, countLine(lines[1], slot.count()));
-                g.disableModifiers(SGR.BOLD);
+                drawCell(g, x, y, slots.get(index), player, isSelected);
             }
         }
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        g.putString(left + 2, bottom, String.valueOf(slots.size()));
+        g.setForegroundColor(slots.size() >= Stacks.INVENTORY_SLOTS ? TextColor.ANSI.RED_BRIGHT : TextColor.ANSI.BLACK_BRIGHT);
+        g.putString(left + 2, bottom, slots.size() + "/" + Stacks.INVENTORY_SLOTS);
 
         drawScrollbar(screen, right, top, bottom, topRow, INVENTORY_ROWS, totalRows);
     }
@@ -289,6 +285,25 @@ public class InventoryPanel extends Menu {
             g.putString(box.x() + 1, box.y() + 1 + i, (isSelected ? "> " : "  ") + option.label);
             g.disableModifiers(SGR.BOLD);
         }
+    }
+
+    /** One cell: the label over the tier and the stack's count, in the item's colour (background already set). */
+    static void drawCell(TextGraphics g, int x, int y, Slot slot, Player player, boolean selected) {
+        String[] lines = label(slot.product());
+        g.setForegroundColor(colorOf(slot.product(), player));
+        if (selected) {
+            g.enableModifiers(SGR.BOLD);
+        }
+        g.putString(x, y, pad(lines[0]));
+        g.putString(x, y + 1, countLine(lines[1], slot.count()));
+        g.disableModifiers(SGR.BOLD);
+    }
+
+    /** An empty cell. */
+    static void drawEmptyCell(TextGraphics g, int x, int y) {
+        g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+        g.putString(x, y, pad(" ."));
+        g.putString(x, y + 1, pad(""));
     }
 
     private static String pad(String text) {

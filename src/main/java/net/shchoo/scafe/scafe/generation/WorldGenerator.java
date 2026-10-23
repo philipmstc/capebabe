@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.generation;
 
+import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.DamageColor;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.MonsterType;
@@ -12,6 +13,7 @@ import net.shchoo.scafe.scafe.model.SkillType;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.model.WorldContent;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.function.BiConsumer;
@@ -93,6 +95,48 @@ public final class WorldGenerator {
             content.addMonster(new MonsterType(content.allocateId(), "monster" + n, level, maxHp, maxHit, color,
                     MONSTER_SYMBOLS.charAt(n % MONSTER_SYMBOLS.length()), roamRadius, moveTicks));
         });
+    }
+
+    /** Nothing of a building (bank, church) may be in here, so you have to walk a little to find it. */
+    public static final int BUILDING_CLEAR_RADIUS = 10;
+    /** ...and all of it within this far. */
+    public static final int BUILDING_MAX_RADIUS = 20;
+
+    /**
+     * A building of {@code kind}, at a random spot (from the world's seed) whose every tile is outside the
+     * {@link #BUILDING_CLEAR_RADIUS} square round the origin and inside {@link #BUILDING_MAX_RADIUS}, with nothing
+     * on or right around it. Empty if there's no such spot.
+     */
+    public static ContentBatch newBuilding(World world, Building.Kind kind) {
+        return generate(world, (content, rng) -> {
+            List<Position> spots = new ArrayList<>();
+            for (int y = -BUILDING_MAX_RADIUS; y <= BUILDING_MAX_RADIUS - kind.height() + 1; y++) {
+                for (int x = -BUILDING_MAX_RADIUS; x <= BUILDING_MAX_RADIUS - kind.width() + 1; x++) {
+                    Building candidate = new Building(0, kind, new Position(x, y));
+                    if (candidate.tiles().stream().allMatch(t -> Math.max(Math.abs(t.x()), Math.abs(t.y())) > BUILDING_CLEAR_RADIUS)
+                            && clearAround(content, candidate)) {
+                        spots.add(candidate.corner());
+                    }
+                }
+            }
+            if (!spots.isEmpty()) {
+                content.addBuilding(new Building(content.allocateId(), kind, spots.get(rng.nextInt(spots.size()))));
+            }
+        });
+    }
+
+    /** Nothing on it or one tile round it, so it walls nothing in and can always be walked up to. */
+    private static boolean clearAround(WorldContent content, Building building) {
+        for (Position tile : building.tiles()) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (content.blocked(new Position(tile.x() + dx, tile.y() + dy))) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     /** The monster's next one-of-a-kind drop: a new neutral product (the k-th one was 1 in 2^(k+1)). */

@@ -16,6 +16,9 @@ public class WorldContent {
     public final List<MonsterType> monsters = new ArrayList<>();
     private final Map<Integer, MonsterType> monstersById = new HashMap<>();
     private final Map<Position, Node> nodesAt = new HashMap<>();
+    private final List<Building> buildings = new ArrayList<>();
+    /** Every tile of every building. */
+    private final Map<Position, Building> buildingsAt = new HashMap<>();
     private final List<ContentBatch> history = new ArrayList<>();
     /** Whose action made each skill, node and monster kind, and when (absent if unknown). */
     private final Map<Integer, ContentBatch.Origin> origins = new HashMap<>();
@@ -84,6 +87,10 @@ public class WorldContent {
             nodesAt.put(node.position, node);
             seen(def.id());
         }
+        for (ContentBatch.BuildingDef def : batch.buildings()) {
+            addBuilding(new Building(def.id(), def.kind(), new Position(def.x(), def.y())));
+            seen(def.id());
+        }
         version = batch.version();
         history.add(batch);
     }
@@ -126,6 +133,11 @@ public class WorldContent {
     public void addNode(Node node) {
         nodesById.put(node.id, node);
         nodesAt.put(node.position, node);
+    }
+
+    public void addBuilding(Building building) {
+        buildings.add(building);
+        building.tiles().forEach(tile -> buildingsAt.put(tile, building));
     }
 
     /** Everything in this (generated-into) copy that {@code original} doesn't have yet, as the next batch. */
@@ -181,8 +193,12 @@ public class WorldContent {
         }
         List<ContentBatch.ProductDef> products = new ArrayList<>(newProducts.values());
         products.sort(Comparator.comparingInt(ContentBatch.ProductDef::id));
+        Set<Integer> had = new HashSet<>();
+        original.buildings.forEach(b -> had.add(b.id()));
+        List<ContentBatch.BuildingDef> newBuildings = buildings.stream().filter(b -> !had.contains(b.id()))
+                .map(b -> new ContentBatch.BuildingDef(b.id(), b.kind(), b.corner().x(), b.corner().y())).toList();
         return new ContentBatch(original.version + 1, newSkills, products, newProductLines, newRecipes, newNodes,
-                newMonsters, newDrops);
+                newMonsters, newDrops, newBuildings, null);
     }
 
     private static void addIfNew(WorldContent original, Product product, Map<Integer, ContentBatch.ProductDef> into) {
@@ -254,5 +270,18 @@ public class WorldContent {
 
     public Collection<Node> nodes() {
         return nodesById.values();
+    }
+
+    public List<Building> buildings() {
+        return Collections.unmodifiableList(buildings);
+    }
+
+    public Building buildingAt(Position position) {
+        return buildingsAt.get(position);
+    }
+
+    /** Nodes and buildings: what you can't walk onto. */
+    public boolean blocked(Position position) {
+        return nodesAt.containsKey(position) || buildingsAt.containsKey(position);
     }
 }

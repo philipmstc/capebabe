@@ -1,5 +1,8 @@
 package net.shchoo.scafe.scafe.server;
 
+import net.shchoo.scafe.scafe.model.WorldContent;
+import net.shchoo.scafe.scafe.model.Stacks;
+import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.Goal;
@@ -32,6 +35,8 @@ public class GameCharacter implements Walker.Mobile {
     public boolean showProductTiers;
     public boolean showTimeEstimate;
     public boolean compactChat;
+    /** Every colour on screen inverted (drawn by the client). */
+    public boolean lightMode;
     /** Lifetime counts (see {@link Stat}); sent to the client at the end of a tick in which they changed. */
     public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
     boolean statsChanged;
@@ -41,6 +46,8 @@ public class GameCharacter implements Walker.Mobile {
     Position pendingUse;
     public final Map<Skill, Long> xp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
+    /** What's in your bank (unlimited), in the order you first put things in. */
+    public final LinkedHashMap<Product, Integer> bank = new LinkedHashMap<>();
     /** What you fight with (null = fists) and wear (null = none); used up from the inventory, one at a time. */
     public Product weapon;
     public Product armor;
@@ -51,8 +58,21 @@ public class GameCharacter implements Walker.Mobile {
     final Walker walker = new Walker(this);
     ActionProgress currentAction;
     Combat.Fight currentFight;
-    /** Not saved: you log in at full hp. */
+    /** Doesn't come back by itself: a church (q) or getting knocked out fills it up. Saved. */
     int hp = Combat.maxHp(1);
+    /** Knocked out until this tick (-1: up and about); see {@link Combat#knockOut}. */
+    long downUntil = -1;
+
+    boolean isDown() {
+        return downUntil >= 0;
+    }
+
+    /** The hp it was saved with (null: never saved = full), used when it joins. */
+    public Integer savedHp;
+
+    public int currentHp() {
+        return hp;
+    }
     /** Set on milestones (level ups) so the server saves this character at the end of the tick. */
     boolean saveSoon;
     /** Set when something others can see about this character changed (level ups). */
@@ -63,15 +83,18 @@ public class GameCharacter implements Walker.Mobile {
     final Set<Integer> seen = new HashSet<>();
     private Consumer<Event> outbox = event -> {};
     private NodeStates nodes = new NodeStates(event -> {});
+    /** The world's content (for stack sizes), once connected. */
+    private WorldContent content = new WorldContent();
 
     public GameCharacter(int id, String name) {
         this.id = id;
         this.name = name;
     }
 
-    void connect(Consumer<Event> outbox, NodeStates nodes) {
+    void connect(Consumer<Event> outbox, NodeStates nodes, WorldContent content) {
         this.outbox = outbox;
         this.nodes = nodes;
+        this.content = content;
     }
 
     void disconnect() {
@@ -148,7 +171,77 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     public boolean canPerform(Node node) {
-        return !isLockedFor(node) && has(node.recipe.components);
+        return !isLockedFor(node) && has(node.recipe.components) && roomToMake(node.recipe);
+    }
+
+    /** Making it (its components gone, the product in) wouldn't overfill the inventory. */
+    boolean roomToMake(Recipe recipe) {
+        Map<Product, Integer> changes = new HashMap<>();
+        recipe.components.forEach((part, count) -> changes.merge(part, -count, Integer::sum));
+        changes.merge(recipe.product, 1, Integer::sum);
+        return Stacks.fits(content, inventory, changes, this::getLevel);
+    }
+
+    /** Inventory slots in use (stacks: see {@link Stacks}). */
+    public int slotsUsed() {
+        return Stacks.slots(content, inventory, this::getLevel);
+    }
+
+    /** At least one slot free (for something new, like a drop). */
+    boolean hasFreeSlot() {
+        return slotsUsed() < Stacks.INVENTORY_SLOTS;
+    }
+
+    /** At a church: all your hp back. */
+    void pray() {
+        if (hp >= maxHp()) {
+            say("You're already at full health.");
+            return;
+        }
+        hp = maxHp();
+        infoChanged = true;
+        saveSoon = true;
+        emit(new Event.HpChanged(hp, maxHp()));
+        say(Event.MessageKind.NOTICE, "You pray, and feel restored (" + hp + "/" + hp + " hp).");
+    }
+
+    /** Up to {@code count} from the inventory into the bank. */
+    void deposit(Product item, int count) {
+        int n = Math.min(count, item == null ? 0 : inventory.getOrDefault(item, 0));
+        if (n <= 0) {
+            say("You don't have that.");
+            return;
+        }
+        changeInventory(item, -n);
+        changeBank(item, n);
+    }
+
+    /** Up to {@code count} from the bank, as much as fits in the inventory. */
+    void withdraw(Product item, int count) {
+        int stored = item == null ? 0 : bank.getOrDefault(item, 0);
+        if (stored <= 0) {
+            say("That's not in your bank.");
+            return;
+        }
+        int n = Math.min(Math.min(count, stored), Stacks.room(content, inventory, item, this::getLevel));
+        if (n <= 0) {
+            say("Your inventory is full.");
+            return;
+        }
+        changeBank(item, -n);
+        changeInventory(item, n);
+        if (n < Math.min(count, stored)) {
+            say("Your inventory is full.");
+        }
+    }
+
+    private void changeBank(Product product, int delta) {
+        int count = bank.merge(product, delta, Integer::sum);
+        if (count <= 0) {
+            bank.remove(product);
+        }
+        saveSoon = true;
+        emit(new Event.BankChanged(product.id, Math.max(0, count)));
     }
 
     /** Start using the node, or stop if busy. */
@@ -274,6 +367,10 @@ public class GameCharacter implements Walker.Mobile {
             }
             say("Need " + recipe.skill.name + " Lv. " + recipe.levelNeeded + " (you're Lv. " + getLevel(recipe.skill) + ")");
             say("(press g to make it a goal)");
+            return false;
+        }
+        if (!roomToMake(recipe)) {
+            say("Your inventory is full.");
             return false;
         }
         if (!attemptToUseAll(recipe.components)) {
@@ -425,7 +522,13 @@ public class GameCharacter implements Walker.Mobile {
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
                 facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate, compactChat, statsByName(),
-                weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id);
+                weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id, lightMode, bankById());
+    }
+
+    private Map<Integer, Integer> bankById() {
+        Map<Integer, Integer> byId = new LinkedHashMap<>();
+        bank.forEach((product, count) -> byId.put(product.id, count));
+        return byId;
     }
 
     Event.EntityInfo info() {

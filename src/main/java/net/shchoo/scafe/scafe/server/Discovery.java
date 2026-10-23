@@ -203,11 +203,25 @@ public class Discovery {
     }
 
     /** A random tile between min and max tiles away (either axis) with no node, monster or player on it, or null. */
-    /** Like {@link #freeSpot}, also making sure a node there doesn't wall anything in ({@link NodePlacement}). */
+    /**
+     * Like {@link #freeSpot}, with nothing (no node, no building) on any of the 8 tiles round it -- so nodes can't
+     * form walls or checkerboards, or crowd the bank -- and, to be sure, not walling anything in ({@link NodePlacement}).
+     */
     static Position nodeSpot(GameServer server, Position around, int min, int max, Random random) {
         List<Position> spots = freeSpots(server, around, min, max);
-        spots.removeIf(spot -> !NodePlacement.safe(p -> !server.passable(p), spot));
+        spots.removeIf(spot -> hasNeighbour(server, spot) || !NodePlacement.safe(p -> !server.passable(p), spot));
         return spots.isEmpty() ? null : spots.get(random.nextInt(spots.size()));
+    }
+
+    static boolean hasNeighbour(GameServer server, Position spot) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                if ((dx != 0 || dy != 0) && !server.passable(new Position(spot.x() + dx, spot.y() + dy))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     static Position freeSpot(GameServer server, Position around, int min, int max, Random random) {

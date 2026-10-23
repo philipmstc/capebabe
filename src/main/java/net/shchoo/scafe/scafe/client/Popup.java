@@ -16,14 +16,32 @@ public class Popup {
     public final TextColor background;
     private final int lifetime;
     private final int framesPerRow;
+    /** -1: drawn ending a tile left of its tile, 1: starting a tile right of it, 0: centred on it. */
+    public final int side;
+    /** Starts this many rows higher (negative: lower) than usual. */
+    private int lift;
     private int age = 0;
 
     public Popup(Position at, String text, TextColor color) {
-        this(() -> at, text, color, TextColor.ANSI.DEFAULT, LIFETIME_FRAMES, FRAMES_PER_ROW);
+        this(() -> at, text, color, TextColor.ANSI.DEFAULT, LIFETIME_FRAMES, FRAMES_PER_ROW, 0);
+    }
+
+    /**
+     * A hit's damage: white on {@code background}, a tile out on {@code side} (see {@link #side}: away from the
+     * other fighter), starting on the fighters' own row so it's a row under the xp popup the whole way up.
+     */
+    public static Popup hit(Position at, String text, TextColor background, int side) {
+        return new Popup(() -> at, text, TextColor.ANSI.WHITE, background, LIFETIME_FRAMES, FRAMES_PER_ROW, side).lifted(-1);
     }
 
     /** Lifetime and rise speed are in render frames. framesPerRow 0 = stays put above its anchor. */
     public Popup(Supplier<Position> anchor, String text, TextColor color, TextColor background, int lifetime, int framesPerRow) {
+        this(anchor, text, color, background, lifetime, framesPerRow, 0);
+    }
+
+    private Popup(Supplier<Position> anchor, String text, TextColor color, TextColor background, int lifetime,
+                  int framesPerRow, int side) {
+        this.side = side;
         this.anchor = anchor;
         this.text = text;
         this.color = color;
@@ -36,6 +54,11 @@ public class Popup {
         return new Popup(anchor, text, color, background, lifetime, 15);
     }
 
+    public Popup lifted(int rows) {
+        lift = rows;
+        return this;
+    }
+
     public Position at() {
         return anchor.get();
     }
@@ -46,6 +69,6 @@ public class Popup {
     }
 
     public int rise() {
-        return framesPerRow == 0 ? 2 : 1 + age / framesPerRow;
+        return lift + (framesPerRow == 0 ? 2 : 1 + age / framesPerRow);
     }
 }

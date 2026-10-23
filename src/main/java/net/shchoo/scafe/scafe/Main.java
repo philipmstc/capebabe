@@ -157,6 +157,7 @@ public class Main {
                 : WorldStore.fileFor(options.data(), options.world()), accounts);
         World world = store.loadOrCreateWorld(worldId, numbered ? "world" + worldId : options.world(), new Random().nextLong());
         GameServer server = new GameServer(world, store);
+        server.ensureBuildings();
         server.setWorldPassword(options.worldPassword());
         server.start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -209,6 +210,7 @@ public class Main {
         };
         // Order matters: earlier widgets get each key first, later ones draw on top (popups: drawOnTop).
         List<Widget> widgets = List.of(
+                new BankView(),
                 commandLine,
                 new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut[0] = true),
                 new MapView(Layout.MAP),
@@ -231,6 +233,9 @@ public class Main {
             }
             for (Widget widget : widgets) {
                 widget.drawOnTop(screen, player, board);
+            }
+            if (player.lightMode) {
+                LightMode.invert(screen);
             }
             screen.refresh();
             KeyStroke key;

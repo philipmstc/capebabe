@@ -23,13 +23,14 @@ public class SettingsMenu extends Menu {
     private static final int SHOW_PRODUCT_TIER_ROW = 3;
     private static final int SHOW_TIME_ESTIMATE_ROW = 4;
     private static final int COMPACT_CHAT_ROW = 5;
-    private static final int ROWS = 6;
+    private static final int LIGHT_MODE_ROW = 6;
+    private static final int ROWS = 7;
     private static final int VALUE_X = 19;
 
     private static final List<String[]> CONTROLS = List.of(
             new String[]{"w a s d", "move / turn (nodes block you)"},
             new String[]{"r", "run on / off (2 tiles a tick)"},
-            new String[]{"q", "use the node ahead (again: stop)"},
+            new String[]{"q", "use the node / building ahead"},
             new String[]{"g", "locked node ahead -> goal"},
             new String[]{"f", "fight the monster next to you"},
             new String[]{"i", "inventory (Enter: equip / use)"},
@@ -72,6 +73,7 @@ public class SettingsMenu extends Menu {
                     case SHOW_PRODUCT_TIER_ROW -> player.toggleShowProductTiers();
                     case SHOW_TIME_ESTIMATE_ROW -> player.toggleShowTimeEstimate();
                     case COMPACT_CHAT_ROW -> player.toggleCompactChat();
+                    case LIGHT_MODE_ROW -> player.toggleLightMode();
                 }
             }
             case Escape -> {
@@ -98,6 +100,7 @@ public class SettingsMenu extends Menu {
         settingRow(g, y++, isFocused() && row == SHOW_PRODUCT_TIER_ROW, "Contrast tiers", player.showProductTiers ? "on" : "off");
         settingRow(g, y++, isFocused() && row == SHOW_TIME_ESTIMATE_ROW, "Show time to goal", player.showTimeEstimate ? "on" : "off");
         settingRow(g, y++, isFocused() && row == COMPACT_CHAT_ROW, "Compact chat", player.compactChat ? "on" : "off");
+        settingRow(g, y++, isFocused() && row == LIGHT_MODE_ROW, "Light mode", player.lightMode ? "on" : "off");
 
         y++;
         g.setForegroundColor(TextColor.ANSI.DEFAULT);

@@ -4,6 +4,7 @@ import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.Popup;
 import net.shchoo.scafe.scafe.client.SkillStyle;
+import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
@@ -65,7 +66,8 @@ public class MapView extends Widget {
             int tileX = tileScreenX(at.x(), player.x);
             int tileY = tileScreenY(at.y(), player.y);
             int y = Math.max(map.y() + 1, tileY - popup.rise());
-            int x = Math.max(map.x() + 1, Math.min(map.right() - text.length(), tileX - text.length() / 2));
+            int x = popup.side < 0 ? tileX - 1 - text.length() : popup.side > 0 ? tileX + 2 : tileX - text.length() / 2;
+            x = Math.max(map.x() + 1, Math.min(map.right() - text.length(), x));
             graphics.setForegroundColor(popup.color);
             graphics.setBackgroundColor(popup.background);
             graphics.enableModifiers(SGR.BOLD);
@@ -177,6 +179,7 @@ public class MapView extends Widget {
 
     public static void drawTile(Player player, Board board, Screen screen, int worldX, int worldY, boolean highlighted) {
         Node node = board.nodeAt(worldX, worldY);
+        Building building = player.content.buildingAt(new Position(worldX, worldY));
         boolean isPlayerPosition = player.x == worldX && player.y == worldY;
         boolean hasAction = node != null;
         boolean isOrigin = worldX == 0 && worldY == 0;
@@ -187,11 +190,20 @@ public class MapView extends Widget {
                 : isOrigin ? 'o' : Symbols.BULLET;
 
         TextColor fg = isPlayerPosition
-                ? SkillStyle.playerColor(player.colorIndex)
+                ? player.hp <= 0 && player.flickerOff() ? TextColor.ANSI.BLACK_BRIGHT : SkillStyle.playerColor(player.colorIndex)
                 : hasAction
                 ? nodeColor(node, player)
                 : new Position(worldX, worldY).equals(player.walkTarget) ? TextColor.ANSI.RED_BRIGHT
                 : worldX % 10 == 0 && worldY % 10 == 0 ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.BLACK_BRIGHT;
+        char leftOfBuilding = ' ';
+        char rightOfBuilding = ' ';
+        if (building != null && !isPlayerPosition) {
+            Position at = new Position(worldX, worldY);
+            result = building.glyph(at);
+            fg = TextColor.ANSI.YELLOW_BRIGHT;
+            leftOfBuilding = building.leftOf(at);
+            rightOfBuilding = building.rightOf(at);
+        }
         if (!isPlayerPosition) {
             List<Event.EntityInfo> here = player.othersAt(new Position(worldX, worldY));
             Event.EntityInfo monster = here.stream().filter(Event.EntityInfo::isMonster).findFirst().orElse(null);
@@ -201,7 +213,8 @@ public class MapView extends Widget {
                 fg = SkillStyle.getColorForMonster(type);
             } else if (!here.isEmpty()) {
                 result = here.get(0).facing().arrow;
-                fg = SkillStyle.playerColor(here.get(0).colorIndex());
+                fg = here.get(0).hp() <= 0 && player.flickerOff() ? TextColor.ANSI.BLACK_BRIGHT
+                        : SkillStyle.playerColor(here.get(0).colorIndex());
             }
         }
 
@@ -212,8 +225,8 @@ public class MapView extends Widget {
             fg = TextColor.ANSI.WHITE;
         }
 
-        char leftOfNode = ' ';
-        char rightOfNode = ' ';
+        char leftOfNode = leftOfBuilding;
+        char rightOfNode = rightOfBuilding;
         boolean marked = false;
         if (hasAction) {
             if (player.highlightedRecipes.contains(node.recipe)) {
