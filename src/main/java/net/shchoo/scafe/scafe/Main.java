@@ -175,7 +175,7 @@ public class Main {
     private static Screen openWindow() throws IOException {
         SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
                 true, AWTTerminalFontConfiguration.BoldMode.EVERYTHING_BUT_SYMBOLS,
-        new Font(monospacedFont(), Font.PLAIN, 20));
+        new Font(monospacedFont(), Font.PLAIN, 14));
 
         DefaultTerminalFactory factory = new DefaultTerminalFactory();
         factory.setTerminalEmulatorFontConfiguration(fontConfig);
