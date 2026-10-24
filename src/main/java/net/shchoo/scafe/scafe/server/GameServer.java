@@ -1,6 +1,8 @@
 package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
+import net.shchoo.scafe.scafe.model.View;
+import net.shchoo.scafe.scafe.model.Stations;
 import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.ContentBatch;
@@ -119,6 +121,15 @@ public class GameServer {
         this.store = store;
     }
 
+    /** Account names (lower case) allowed admin commands from anywhere, on top of local / {@code --admin} sessions. */
+    private Set<String> admins = Set.of();
+
+    /** {@code --admins name1,name2}: these players may use admin (world-building) commands. */
+    public void setAdmins(Collection<String> names) {
+        admins = names.stream().map(n -> n.trim().toLowerCase(java.util.Locale.ROOT)).filter(n -> !n.isEmpty())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     /** A local session (same JVM), which is trusted with admin commands. */
     public Session connect() {
         return connect(true);
@@ -183,12 +194,120 @@ public class GameServer {
         return !world.content.blocked(position);
     }
 
-    /** Gives the world a bank and a church, whichever it hasn't got yet (near the origin, not right on it). */
+    /** Gives the world one of each building (bank, church, station, merchant) it hasn't got, near the origin but not on it. */
     public void ensureBuildings() {
         for (Building.Kind kind : Building.Kind.values()) {
             if (world.content.buildings().stream().noneMatch(b -> b.kind() == kind)) {
                 applyContent(WorldGenerator.newBuilding(world, kind));
             }
+        }
+    }
+
+    /** The prestige version of {@code base}: made (new content, saved and sent to everyone) the first time it's needed. */
+    Product prestigeProduct(Product base, int prestige) {
+        Product variant = world.content.variant(base, prestige);
+        if (variant == null) {
+            applyContent(WorldGenerator.newPrestigeProduct(world, base, prestige));
+            variant = world.content.variant(base, prestige);
+        }
+        return variant == null ? base : variant;
+    }
+
+    /** Ticks on the train, end to end. */
+    static final int TRAIN_TICKS = 5;
+
+    /**
+     * All aboard for {@code stationId} (picked from the station menu, which the client opened on q), paying the
+     * fare ({@link Stations#fare}): one of skillN{0}-0 for station N.
+     */
+    void ride(GameCharacter character, int stationId) {
+        Building from = Stations.near(world.content, character.position());
+        List<Building> line = Stations.all(world.content);
+        Building to = line.stream().filter(b -> b.id() == stationId).findFirst().orElse(null);
+        if (from == null) {
+            character.say("You need to be at a station.");
+            return;
+        }
+        if (to == null) {
+            character.say("There's no such station.");
+            return;
+        }
+        if (to.equals(from)) {
+            character.say("You're already here.");
+            return;
+        }
+        int index = line.indexOf(to);
+        if (!Stations.connected(world.content, from, to)) {
+            character.say("There's no direct line from " + Stations.name(line.indexOf(from)) + " to " + Stations.name(index) + ".");
+            return;
+        }
+        Product fare = Stations.fare(world.content, index);
+        if (fare != null && character.inventory.getOrDefault(fare, 0) < 1) {
+            character.say("The fare to " + Stations.name(index) + " is 1 x " + fare.name + ".");
+            return;
+        }
+        if (fare != null) {
+            character.changeInventory(fare, -1);
+        }
+        character.stopAction(null);
+        character.stopWalking();
+        character.rideTo = to;
+        character.ridingUntil = tick + TRAIN_TICKS;
+        character.emit(new Event.ActionStarted(-1, "riding the train", tick, TRAIN_TICKS));
+        character.say(Event.MessageKind.NOTICE, "All aboard for " + Stations.name(index) + "! The train pulls out...");
+    }
+
+    /** Far from every station you might come across a new one ({@link Discovery}); just inside your view, ahead. */
+    void discoverStation(GameCharacter character) {
+        Position wanted = edgeOfView(Building.Kind.STATION, character.position(), character.facing);
+        int before = Stations.all(world.content).size();
+        applyContent(WorldGenerator.newBuildingAt(world, Building.Kind.STATION, wanted, 6, this::taken), character);
+        List<Building> line = Stations.all(world.content);
+        if (line.size() == before) {
+            return;
+        }
+        Building found = line.get(line.size() - 1);
+        Position at = found.platform();
+        String name = Stations.name(line.size() - 1);
+        character.say(Event.MessageKind.NOTICE, "You spot a train station ahead: " + name + " (" + at.x() + ", " + at.y() + ")!");
+        tellOthers(character, Event.MessageKind.NOTICE, character.name + " found a new train station: " + name
+                + " (" + at.x() + ", " + at.y() + ").");
+    }
+
+    /**
+     * Where a building found by someone at {@code at} facing {@code facing} goes: just inside the edge of their
+     * view in that direction (its nearest 4 tiles, or all of it if smaller, on screen), centred across it --
+     * so it's seen, but not on top of them.
+     */
+    static Position edgeOfView(Building.Kind kind, Position at, Direction facing) {
+        int w = kind.width(), h = kind.height();
+        int showW = Math.min(w, 4), showH = Math.min(h, 4);
+        return switch (facing) {
+            case RIGHT -> new Position(at.x() + View.HALF_WIDTH - showW + 1, at.y() - h / 2);
+            case LEFT -> new Position(at.x() - View.HALF_WIDTH + showW - w, at.y() - h / 2);
+            case DOWN -> new Position(at.x() - w / 2, at.y() + View.HALF_HEIGHT - showH + 1);
+            case UP -> new Position(at.x() - w / 2, at.y() - View.HALF_HEIGHT + showH - h);
+        };
+    }
+
+    /** Riders whose train is in: off at the platform. */
+    private void arrive() {
+        for (GameCharacter character : online.values()) {
+            if (!character.isRiding() || tick < character.ridingUntil) {
+                continue;
+            }
+            Building to = character.rideTo;
+            character.ridingUntil = -1;
+            character.rideTo = null;
+            Position platform = to.platform();
+            character.moveTo(platform);
+            character.face(Direction.DOWN);
+            character.saveSoon = true;
+            character.emit(new Event.StepsCleared(platform, character.facing));
+            toObservers(character.id, new Event.EntityMoved(character.id, platform, character.facing));
+            character.emit(new Event.ActionStopped());
+            character.say(Event.MessageKind.NOTICE, "The train pulls in at "
+                    + Stations.name(Stations.all(world.content).indexOf(to)) + ".");
         }
     }
 
@@ -200,7 +319,7 @@ public class GameServer {
 
     /** A tile something new shouldn't appear on: a node, a monster or a player is there. */
     boolean taken(Position position) {
-        return !passable(position) || monsters.occupied(position)
+        return world.content.builtOn(position) || monsters.occupied(position)
                 || online.values().stream().anyMatch(c -> c.position().equals(position));
     }
 
@@ -328,7 +447,8 @@ public class GameServer {
         afterMovement.forEach(entry -> handle(entry.getKey(), entry.getValue()));
         for (int id : nodes.drainStranded()) {
             GameCharacter character = online.get(id);
-            if (character != null && character.currentAction != null) {
+            // AFK, you wait for it to come back (ActionProgress)
+            if (character != null && character.currentAction != null && !character.currentAction.afk) {
                 character.stopAction("The " + character.currentAction.node.label() + " ran out.");
             }
         }
@@ -347,6 +467,9 @@ public class GameServer {
         }
         combat.regenerate(tick);
         combat.wakeUp(tick);
+        // time played: counted quietly (the client counts along between updates, see Player.timePlayedTicks)
+        online.values().forEach(c -> c.stats.merge(Stat.TIME_PLAYED, 1L, Long::sum));
+        arrive();
         updateVisibility();
         for (GameCharacter changed : online.values()) {
             if (changed.infoChanged) {
@@ -416,8 +539,11 @@ public class GameServer {
         if (character == null) {
             return;
         }
-        if (character.isDown() && !(intent instanceof Intent.Chat)) {
-            // knocked out: nothing to do but wait (and talk)
+        if ((character.isDown() || character.isRiding()) && !(intent instanceof Intent.Chat)) {
+            // knocked out or on the train: nothing to do but wait (and talk); undo any steps the client guessed at
+            if (intent instanceof Intent.Move) {
+                character.emit(new Event.StepsCleared(character.position(), character.facing));
+            }
             return;
         }
         if (intent instanceof Intent.Move move) {
@@ -465,7 +591,7 @@ public class GameServer {
         } else if (intent instanceof Intent.WalkTo walkTo) {
             character.walkTo(walkTo.target());
         } else if (intent instanceof Intent.Perform) {
-            Building building = world.content.buildingAt(character.ahead());
+            Building building = world.content.solidBuildingAt(character.ahead());
             if (character.currentFight != null) {
                 combat.endFight(character, "You stop fighting.");
             } else if (building != null && building.kind() == Building.Kind.BANK) {
@@ -474,6 +600,11 @@ public class GameServer {
             } else if (building != null && building.kind() == Building.Kind.CHURCH) {
                 character.stopAction(null);
                 character.pray();
+            } else if (building != null && building.kind() == Building.Kind.STATION) {
+                // the client opened its station menu already; just stop what you were doing
+                character.stopAction(null);
+            } else if (building != null && building.kind() == Building.Kind.MERCHANT) {
+                character.say("The ant waves its antennae: not open for business yet.");
             } else {
                 character.performOrStop(nodeAhead(character), tick);
             }
@@ -482,6 +613,11 @@ public class GameServer {
                 combat.endFight(character, null);
             }
             character.useItem(world.content.product(use.productId()), world.content.nodeAt(use.target()), use.target(), tick);
+        } else if (intent instanceof Intent.Craft craft) {
+            if (character.currentFight != null) {
+                combat.endFight(character, null);
+            }
+            character.craftAt(world.content.nodeAt(craft.target()), craft.target(), craft.afk(), tick);
         } else if (intent instanceof Intent.Attack) {
             combat.attack(character, tick);
         } else if (intent instanceof Intent.AddGoal) {
@@ -490,6 +626,10 @@ public class GameServer {
             if (equip.slot() != null) {
                 character.equip(equip.slot(), world.content.product(equip.productId()));
             }
+        } else if (intent instanceof Intent.Prestige prestige) {
+            character.prestige(world.content.skill(prestige.skillId()));
+        } else if (intent instanceof Intent.Ride ride) {
+            ride(character, ride.stationId());
         } else if (intent instanceof Intent.Deposit deposit) {
             if (bankNear(character.position()) == null) {
                 character.say("You need to be at a bank.");
@@ -509,7 +649,7 @@ public class GameServer {
         } else if (intent instanceof Intent.SetGoalLevel set) {
             character.setGoalLevel(set.index(), set.level());
         } else if (intent instanceof Intent.Admin admin) {
-            if (session.admin) {
+            if (session.admin || admins.contains(character.name.toLowerCase(java.util.Locale.ROOT))) {
                 admin(character, admin.command(), admin.args());
             } else {
                 character.say("Admin commands are turned off for you on this server.");
@@ -645,7 +785,7 @@ public class GameServer {
             return;
         }
         session.character = character;
-        character.connect(session.events::add, nodes, world.content);
+        character.connect(session.events::add, nodes, world.content, this::prestigeProduct);
         character.walker.setPassable(this::passable);
         character.hp = character.savedHp == null ? character.maxHp() : Math.max(1, Math.min(character.savedHp, character.maxHp()));
         List<GameCharacter> nearby = online.values().stream()
@@ -685,6 +825,9 @@ public class GameServer {
         if (character.isDown()) {
             combat.wakeUp(character);
         }
+        // logging out on the train: you never left the platform
+        character.ridingUntil = -1;
+        character.rideTo = null;
         online.remove(character.id);
         character.savedHp = character.currentHp();
         character.disconnect();

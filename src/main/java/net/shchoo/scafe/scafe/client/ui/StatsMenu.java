@@ -2,6 +2,7 @@ package net.shchoo.scafe.scafe.client.ui;
 
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
+import net.shchoo.scafe.scafe.protocol.GameClock;
 import net.shchoo.scafe.scafe.model.Stat;
 
 import com.googlecode.lanterna.TextColor;
@@ -42,7 +43,11 @@ public class StatsMenu extends Menu {
         y = row(g, y, "Highest level", player.highestLevel());
         y++;
         for (Stat stat : Stat.values()) {
-            y = row(g, y, stat.label, player.stats.getOrDefault(stat, 0L));
+            if (stat == Stat.TIME_PLAYED) {
+                y = row(g, y, stat.label, XpTrackerView.duration(player.timePlayedTicks() * GameClock.TICK_MILLIS));
+            } else {
+                y = row(g, y, stat.label, player.stats.getOrDefault(stat, 0L));
+            }
         }
         row(g, y, "Trophies collected", player.trophies());
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
@@ -50,10 +55,14 @@ public class StatsMenu extends Menu {
     }
 
     private int row(TextGraphics g, int y, String label, long value) {
+        return row(g, y, label, String.format(Locale.ROOT, "%,d", value));
+    }
+
+    private int row(TextGraphics g, int y, String label, String value) {
         g.setForegroundColor(TextColor.ANSI.DEFAULT);
         g.putString(textX(), y, label);
         g.setForegroundColor(TextColor.ANSI.WHITE_BRIGHT);
-        g.putString(textX() + VALUE_X, y, String.format(Locale.ROOT, "%,d", value));
+        g.putString(textX() + VALUE_X, y, value);
         return y + 1;
     }
 }

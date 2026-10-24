@@ -18,7 +18,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 15;
+    int PROTOCOL_VERSION = 21;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -42,6 +42,15 @@ public sealed interface Intent {
     record Equip(EquipSlot slot, int productId) implements Intent {}
 
     record Unequip(EquipSlot slot) implements Intent {}
+
+    /** Craft at the node at {@code target} (walking over first if need be); {@code afk}: half the xp, waits out respawns. */
+    record Craft(Position target, boolean afk) implements Intent {}
+
+    /** At Lv. 100: start the skill over from Lv. 1, banking its xp; what you make with it hits harder. */
+    record Prestige(int skillId) implements Intent {}
+
+    /** From the station you're at to the one with this id (see {@code Stations}), paying the fare. */
+    record Ride(int stationId) implements Intent {}
 
     /** Only next to a bank. */
     record Deposit(int productId, int count) implements Intent {}

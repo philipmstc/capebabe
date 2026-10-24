@@ -154,7 +154,7 @@ class Combat {
      */
     double hitStrength(GameCharacter character, MonsterType type) {
         Product weapon = character.weapon;
-        int base = weapon == null ? 1 : Math.max(0, weapon.tier) + 1;
+        int base = weaponBase(weapon);
         int color = weapon == null ? DamageColor.FISTS : DamageColor.of(server.world.content, weapon);
         return (base + character.combatLevel() / 4) * DamageColor.multiplier(color, type.colorIndex);
     }
@@ -167,6 +167,14 @@ class Combat {
         Product armor = character.armor;
         return armor == null ? raw
                 : raw * DamageColor.multiplier(type.colorIndex, DamageColor.of(server.world.content, armor));
+    }
+
+    /**
+     * A weapon's base damage: its tier + 1, plus {@link Product#PRESTIGE_DAMAGE} a prestige level -- a level
+     * outdoes a whole line of tiers (tier 0 prestige 1: 6, tier 4: 5). Fists: 1.
+     */
+    static int weaponBase(Product weapon) {
+        return weapon == null ? 1 : Product.PRESTIGE_DAMAGE * weapon.prestige + Math.max(0, weapon.tier) + 1;
     }
 
     /** Down or up at random, by the fraction (2.5 = 3 half the time), so weak hits still add up. */

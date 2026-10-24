@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v2, worlds v16). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v17). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -58,7 +58,7 @@ CREATE TABLE world_meta (id integer primary key check (id = 1), name text not nu
 CREATE TABLE skill (id integer primary key, content_version integer not null, ordinal integer not null,
                     name text not null, type text not null, color_index integer not null, symbol text not null);
 CREATE TABLE product (id integer primary key, content_version integer not null, ordinal integer not null,
-                      name text not null, tier integer);
+                      name text not null, tier integer, base_id integer references product(id), prestige integer not null default 0);
 CREATE TABLE product_line (id integer primary key, content_version integer not null, ordinal integer not null,
                            skill_id integer not null references skill(id));
 CREATE TABLE recipe (id integer primary key, content_version integer not null, ordinal integer not null,
@@ -97,6 +97,10 @@ CREATE TABLE content_batch (content_version integer primary key, created_by text
                             created_at integer not null);
 CREATE TABLE building (id integer primary key, content_version integer not null, ordinal integer not null,
                        kind text not null, x integer not null, y integer not null);
+CREATE TABLE character_prestige (character_id integer not null references game_character(id),
+                                 skill_id integer not null references skill(id),
+                                 prestige integer not null, banked_xp integer not null,
+                                 primary key (character_id, skill_id));
 CREATE TABLE bank_item (character_id integer not null references game_character(id), ordinal integer not null,
                         product_id integer not null references product(id), count integer not null,
                         primary key (character_id, ordinal));

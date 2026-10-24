@@ -180,38 +180,31 @@ it's plain Java 17.
    - **No inbound rules for 43594.** For SSH, either none at all (AWS SSM / `tailscale ssh`) or only from your IP.
 3. **Install:** Java 17 (`openjdk-17-jre-headless`) and Tailscale. Join the VM to your tailnet with a pre-auth key
    and tag it, e.g. `tag:capebabe`. Share it with friends the same way as in Phase 1.
-4. **Run it as a service**, with a `capebabe` user. Put the jar in `/opt/capebabe` and the data in
-   `/var/lib/capebabe`:
-
-   ```ini
-   # /etc/systemd/system/capebabe.service
-   [Unit]
-   Description=capebabe world
-   After=network-online.target tailscaled.service
-   Wants=network-online.target
-
-   [Service]
-   User=capebabe
-   ExecStart=/usr/bin/java -Xmx384m -Djava.awt.headless=true -jar /opt/capebabe/capebabe.jar --server --data /var/lib/capebabe
-   Restart=on-failure
-   # the JVM's shutdown hook saves everyone on SIGTERM; give it time
-   TimeoutStopSec=20
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-   Then use `systemctl enable --now capebabe`, and `journalctl -u capebabe -f` for the logs. The world-file lock
-   means a second copy can't open the same world by accident.
-5. **Moving your existing world (optional):** stop the game, then copy `~/.capebabe/accounts.db` and
-   `~/.capebabe/worlds/world-1.db` to `/var/lib/capebabe/` on the VM. Older saves upgrade themselves on first
-   start.
-6. **Backups:** SQLite files must be copied safely while in use. Either stop the service briefly, or use
-   `sqlite3 world-1.db ".backup /backups/world-1-$(date +%F).db"` from a daily cron or systemd timer, and keep a
-   week of copies. Add volume snapshots if the provider makes that cheap. Copy one off the box now and then.
-7. **Updates:** build a new jar, copy it to `/opt/capebabe`, `systemctl restart capebabe`, and tell friends to
-   update their jar too, until the version check exists. A tiny `deploy.sh` (scp + ssh restart) or a GitHub
-   Action can automate this later.
+4. **Run it as a service**, with the files in `deploy/` (they keep Unix line endings even in a Windows checkout):
+   - Copy the `deploy/` folder to the VM and run `sudo bash setup.sh`. It installs Java 17 (`keytool` included,
+     for the server's TLS key) and `sqlite3`, makes a `capebabe` user, `/opt/capebabe` for the jar and
+     `/var/lib/capebabe` for the data, and installs and enables `capebabe.service` (systemd, locked down:
+     it can only write its data folder).
+   - Edit `/etc/capebabe.env` (root-only): `CAPEBABE_WORLD_PASSWORD`, and in `CAPEBABE_ARGS` put
+     `--bind $(tailscale ip -4)` so the game listens on the Tailscale address only, and `--admins yourname` for
+     who may use admin commands. If Tailscale isn't up yet after a boot the bind fails and systemd retries every 5s.
+   - From your machine: `bash deploy/deploy.sh user@vm` builds the jar, copies it over and restarts the service
+     (restarting saves everyone first), then shows the last log lines. `journalctl -u capebabe -f` for the
+     live log. The world-file lock means a second copy can't open the same world by accident.
+5. **Moving your existing world (optional):** stop the game at home, then copy `~/.capebabe/accounts.db` to
+   `/var/lib/capebabe/` and `~/.capebabe/worlds/world-1.db` to `/var/lib/capebabe/worlds/`, and
+   `chown -R capebabe:capebabe /var/lib/capebabe`. Older saves upgrade themselves on first start (and are backed
+   up just before, see below). Your TLS key stays at home: the VM makes its own, so friends see a new fingerprint
+   once and need to delete the old line for your home address from `known-servers` only if they reuse the address.
+6. **Backups are built in:** hosting (`--server` / `--host`) copies `accounts.db` and the world into
+   `<data>/backups` when it starts (before any upgrade runs) and every 24 hours, keeping the newest 7 of each
+   (`--backups DIR`, `--backup-hours H` (0 = off), `--keep-backups N`). The copies are made with SQLite's
+   `VACUUM INTO` on their own connection, so they're consistent while people play. Put one off the box now and
+   then (`scp user@vm:/var/lib/capebabe/backups/*.db .`), and add volume snapshots if the provider makes that cheap.
+   To put one back: `sudo bash deploy/restore.sh /var/lib/capebabe/backups/world-1-<date>.db` (it stops the game,
+   keeps the current file as `*.before-restore`, copies the backup in and starts the game again).
+7. **Updates:** `bash deploy/deploy.sh user@vm` again. Friends update their client from the GitHub release; an
+   old client is told to update (the protocol version check).
 
 ### Phase 3: only if you ever want strangers / the public internet
 
@@ -226,13 +219,15 @@ These are worth doing even for Phase 1-2, and they're small:
 2. ~~Server password~~ **done** (`--world-password`, required when hosting).
 3. ~~Per-character logins~~ **done** (hashed passwords in `accounts.db`, a login screen in the client, a lockout
    after repeated failures).
-4. **Bind address** (`--bind 100.x.y.z`). Right now `NetworkServer` listens on every interface. Binding to the
-   Tailscale address means that even if a firewall rule slips, the game isn't listening anywhere else.
-5. **Admin allowlist** (`--admins phili,friend`), instead of `--admin` for everyone or no one.
+4. ~~Bind address~~ **done** (`--bind 100.x.y.z`: listen on that address only; the start-up line says where it's
+   listening).
+5. ~~Admin allowlist~~ **done** (`--admins phili,friend`: just those players get admin commands; `--admin` is still
+   everyone).
 6. ~~Rate / connection limits~~ **done** (`NetworkServer.Limits`, `--max-per-ip`).
 7. ~~Encryption (TLS)~~ **done** (TLS 1.3, a self-signed key per host, clients trust it on first use).
-8. **Configurable font / fallback.** The client hardcodes its font (Consolas now), so friends without it get a
-   fallback. Make it a `--font` option or a setting.
+8. ~~Configurable font / fallback~~ **done** (a fallback list of common monospace fonts, and `--font name` to pick
+   one first).
+9. ~~Backups~~ **done** (built in, see Phase 2 step 6).
 
 ## Getting friends a client
 

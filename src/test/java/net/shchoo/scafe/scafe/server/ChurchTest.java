@@ -76,7 +76,7 @@ class ChurchTest {
         Position besideTheCross = new Position(church.corner().x(), church.corner().y());
         assertTrue(server.passable(besideTheCross), "the cross stands on its own");
         server.ensureBuildings();
-        assertEquals(2, server.world.content.buildings().size(), "one of each");
+        assertEquals(Building.Kind.values().length, server.world.content.buildings().size(), "one of each");
     }
 
     @Test

@@ -200,7 +200,11 @@ public class MapView extends Widget {
         if (building != null && !isPlayerPosition) {
             Position at = new Position(worldX, worldY);
             result = building.glyph(at);
-            fg = TextColor.ANSI.YELLOW_BRIGHT;
+            fg = buildingColor(building, at, 0);
+            if (building.isKeeper(result)) {
+                fg = KEEPER_COLOR;
+                result = keeper(result, player);
+            }
             leftOfBuilding = building.leftOf(at);
             rightOfBuilding = building.rightOf(at);
         }
@@ -255,12 +259,35 @@ public class MapView extends Widget {
         // ...and never onto the map's frame: the outermost columns' side cells are the border itself
         boolean wholeCell = marked || highlighted;
         if ((wholeCell || leftOfNode != ' ') && screenX - 1 > Layout.MAP.x()) {
-            screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter(leftOfNode, fg, bg)[0]);
+            boolean keeper = building != null && building.isKeeper(leftOfNode);
+            TextColor side = building != null && leftOfBuilding != ' ' ? buildingColor(building, new Position(worldX, worldY), -1) : fg;
+            screen.setCharacter(screenX - 1, screenY, TextCharacter.fromCharacter(keeper ? keeper(leftOfNode, player) : leftOfNode,
+                    keeper ? KEEPER_COLOR : side, bg)[0]);
         }
         if ((wholeCell || rightOfNode != ' ') && screenX + 1 < Layout.MAP.right()) {
-            screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter(rightOfNode, fg, bg)[0]);
+            boolean keeper = building != null && building.isKeeper(rightOfNode);
+            TextColor side = building != null && rightOfBuilding != ' ' ? buildingColor(building, new Position(worldX, worldY), 1) : fg;
+            screen.setCharacter(screenX + 1, screenY, TextCharacter.fromCharacter(keeper ? keeper(rightOfNode, player) : rightOfNode,
+                    keeper ? KEEPER_COLOR : side, bg)[0]);
         }
         screen.setCharacter(screenX, screenY, TextCharacter.fromCharacter(result, fg, bg)[0]);
+    }
+
+    /** A building's colour at a tile (0) or the gap beside it (-1 / 1): bright yellow, or its paint. */
+    static TextColor buildingColor(Building building, Position at, int offset) {
+        return switch (Character.toLowerCase(building.paintAt(at, offset))) {
+            case 'b' -> TextColor.ANSI.YELLOW;
+            case 'g' -> TextColor.ANSI.WHITE;
+            default -> TextColor.ANSI.YELLOW_BRIGHT;
+        };
+    }
+
+    /** The one minding a building (the merchant's ant): dark red. */
+    private static final TextColor KEEPER_COLOR = TextColor.ANSI.RED;
+
+    /** Now and then the ant flexes (upper case: "\u0416"), waving its antennae. */
+    private static char keeper(char c, Player player) {
+        return player.wiggle() ? Character.toUpperCase(c) : c;
     }
 
     public static TextColor nodeColor(Node node, Player player) {

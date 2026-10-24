@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.client.ui;
 
+import net.shchoo.scafe.scafe.model.View;
 import net.shchoo.scafe.scafe.model.Position;
 
 import com.googlecode.lanterna.TerminalSize;
@@ -25,12 +26,12 @@ public final class Layout {
     public static final TerminalSize TERMINAL_SIZE = new TerminalSize(142, 40);
 
     /** The map's size in tiles; each tile is 2 columns by 1 row. */
-    public static final int BOARD_WIDTH = 29;
-    public static final int BOARD_HEIGHT = 23;
+    public static final int BOARD_WIDTH = View.WIDTH;
+    public static final int BOARD_HEIGHT = View.HEIGHT;
 
     public static final int HEADER_ROW = 1;
     public static final int HEADER_GAP = 4;
-    private static final int LEFT_WIDTH = 23;
+    private static final int LEFT_WIDTH = 24;
 
     public static final Rect MAP = new Rect(LEFT_WIDTH + 1, HEADER_ROW + 1, 2 * BOARD_WIDTH + 1, BOARD_HEIGHT + 2);
     public static final Rect INVENTORY = new Rect(0, MAP.y(), LEFT_WIDTH, MAP.height() - 4);

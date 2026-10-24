@@ -7,6 +7,7 @@ import net.shchoo.scafe.scafe.client.ui.BankView;
 import net.shchoo.scafe.scafe.client.ui.InventoryPanel;
 import net.shchoo.scafe.scafe.client.ui.Layout;
 import net.shchoo.scafe.scafe.client.ui.MapView;
+import net.shchoo.scafe.scafe.client.ui.Rect;
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.Direction;
@@ -86,7 +87,7 @@ class BankTest {
     @Test
     void everyWorldGetsOneBankNearButNotAtTheOrigin() {
         server.ensureBuildings();
-        assertEquals(2, server.world.content.buildings().size(), "a bank and a church, only if there isn't one already");
+        assertEquals(Building.Kind.values().length, server.world.content.buildings().size(), "one of each kind, only if there isn't one already");
         assertEquals(Building.Kind.BANK, bank.kind());
         for (Position tile : bank.tiles()) {
             int away = Math.max(Math.abs(tile.x()), Math.abs(tile.y()));
@@ -216,26 +217,59 @@ class BankTest {
         assertFalse(view.onKey(new KeyStroke('w', false, false), player, board), "closed: keys go back to the game");
     }
 
+    private String screenText(Screen screen, Rect area) {
+        StringBuilder text = new StringBuilder();
+        for (int y = area.y(); y <= area.bottom(); y++) {
+            for (int x = area.x(); x <= area.right(); x++) {
+                text.append(screen.getBackCharacter(x, y).getCharacterString());
+            }
+            text.append('\n');
+        }
+        return text.toString();
+    }
+
     @Test
-    void theWindowShowsBothSides() throws IOException {
+    void theBankOpensBesideTheInventoryWhichIsShownJustOnce() throws IOException {
         alice.changeInventory(item, 5);
         standAtTheBank();
         player.perform();
         Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
         screen.startScreen();
         new BankView().drawOnTop(screen, player, new Board(player.content));
-        StringBuilder text = new StringBuilder();
-        for (int y = Layout.MAP.y(); y <= Layout.MAP.bottom(); y++) {
-            for (int x = Layout.MAP.x(); x <= Layout.MAP.right(); x++) {
-                text.append(screen.getBackCharacter(x, y).getCharacterString());
-            }
-            text.append('\n');
+        String inventory = screenText(screen, Layout.INVENTORY);
+        String bank = screenText(screen, new Rect(Layout.INVENTORY.right() + 1, Layout.INVENTORY.y(),
+                Layout.MAP.width(), Layout.MAP.height()));
+        assertTrue(inventory.contains("5/100"), inventory);
+        assertTrue(bank.contains("Bank") && bank.contains("empty") && bank.contains("[Enter] deposit"), bank);
+        String label = InventoryPanel.label(item)[0];
+        assertTrue(inventory.contains(label), "the inventory's in its usual place");
+        assertFalse(bank.contains(label), "and not again in the bank's window");
+        assertEquals("\u250c", screen.getBackCharacter(Layout.MAP.x(), Layout.INVENTORY.y()).getCharacterString(),
+                "the bank opens right next to it");
+    }
+
+    @Test
+    void aFullBankScrolls() throws IOException {
+        server.applyContent(WorldGenerator.newSkills(server.world, 8));
+        tick();
+        List<Product> kinds = server.world.content.skills.stream().flatMap(skill -> skill.productLines.stream())
+                .flatMap(line -> line.recipes.stream()).map(r -> r.product).distinct().toList();
+        assertTrue(kinds.size() > 30, "more kinds than fit: " + kinds.size());
+        kinds.forEach(kind -> alice.changeInventory(kind, 1));
+        standAtTheBank();
+        player.perform();
+        kinds.forEach(kind -> player.deposit(mine(kind), 1));
+        tick();
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        new BankView().drawOnTop(screen, player, new Board(player.content));
+        int right = Layout.MAP.x() + 2 * (Layout.INVENTORY.width() + 3) - 1;
+        boolean thumb = false;
+        for (int y = Layout.INVENTORY.y() + 1; y < Layout.INVENTORY.y() + Layout.MAP.height() - 1; y++) {
+            thumb |= screen.getBackCharacter(right, y).getCharacterString().equals("\u2551");
         }
-        String shown = text.toString();
-        assertTrue(shown.contains("Inventory 5/100"), shown);
-        assertTrue(shown.contains("Bank"));
-        assertTrue(shown.contains("empty"));
-        assertTrue(shown.contains("[Enter] deposit"));
+        assertTrue(thumb, "a scrollbar on the bank's right border");
+        assertTrue(screenText(screen, Layout.MAP).contains(kinds.size() + " items"));
     }
 
     @Test
@@ -267,4 +301,69 @@ class BankTest {
             }
         }
     }
+
+    @Test
+    void equipBothMakesItYourWeaponAndArmour() {
+        alice.changeInventory(item, 3);
+        tick();
+        net.shchoo.scafe.scafe.client.ui.TabBar tabs = new net.shchoo.scafe.scafe.client.ui.TabBar(Layout.TABS,
+                new InventoryPanel(Layout.INVENTORY), new net.shchoo.scafe.scafe.client.ui.MapMenu(),
+                List.of(new net.shchoo.scafe.scafe.client.ui.SkillsMenu(), new net.shchoo.scafe.scafe.client.ui.GoalsMenu(),
+                        new net.shchoo.scafe.scafe.client.ui.StatsMenu()), new net.shchoo.scafe.scafe.client.ui.SettingsMenu());
+        Board board = new Board(player.content);
+        tabs.onKey(new KeyStroke('i', false, false), player, board);
+        tabs.onKey(new KeyStroke(KeyType.Enter), player, board);
+        tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
+        tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
+        tabs.onKey(new KeyStroke(KeyType.Enter), player, board);
+        tick();
+        assertEquals(mine(item), player.weapon);
+        assertEquals(mine(item), player.armor);
+    }
+
+    @Test
+    void theBankIsTwiceAsWideWithOneCellAnItemHoweverMany() throws IOException {
+        // Lv. 5 in the skill making it: stacks of 5
+        player.send(new Intent.Admin("5", List.of(server.world.content.madeBy(item).skill.name,
+                String.valueOf(net.shchoo.scafe.scafe.model.Skill.XP_PER_LEVEL[4]))));
+        tick();
+        assertEquals(5, player.stackSize(mine(item)));
+        alice.changeInventory(item, 1150);
+        standAtTheBank();
+        player.perform();
+        player.deposit(mine(item), 1120);
+        tick();
+        assertEquals(List.of(new InventoryPanel.Slot(mine(item), 1120)), bankCells(), "one cell, all of it");
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        BankView view = new BankView();
+        view.drawOnTop(screen, player, new Board(player.content));
+        int width = 2 * (Layout.INVENTORY.width() + 3);
+        assertEquals("\u2510", screen.getBackCharacter(Layout.MAP.x() + width - 1, Layout.INVENTORY.y()).getCharacterString(),
+                "twice the inventory box's width (and a bit)");
+        String bank = screenText(screen, new Rect(Layout.MAP.x(), Layout.INVENTORY.y() + 2, width, 2));
+        assertTrue(bank.contains("1.1k"), "big counts shortened:\n" + bank);
+        assertEquals(6, bank.split("\n")[0].split("\\.", -1).length - 1 + 1, "6 across (the rest empty):\n" + bank);
+        assertTrue(screenText(screen, Layout.MAP).contains("1 items"));
+
+        Board board = new Board(player.content);
+        view.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
+        view.onKey(new KeyStroke(KeyType.ArrowRight), player, board);
+        view.onKey(new KeyStroke(KeyType.ArrowRight), player, board);
+        view.onKey(new KeyStroke(KeyType.ArrowRight), player, board);
+        assertTrue(view.onBankSide());
+        assertEquals(new InventoryPanel.Slot(mine(item), 1120), view.selectedSlot(player));
+        view.onKey(new KeyStroke(KeyType.Enter), player, board);
+        view.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
+        view.onKey(new KeyStroke(KeyType.Enter), player, board);
+        tick();
+        assertEquals(1120 - player.stackSize(mine(item)), player.bank.get(mine(item)), "Stack: one inventory stack's worth out");
+        view.onKey(new KeyStroke(KeyType.ArrowLeft), player, board);
+        assertFalse(view.onBankSide(), "and back again");
+    }
+
+    private List<InventoryPanel.Slot> bankCells() {
+        return player.bank.entrySet().stream().map(e -> new InventoryPanel.Slot(e.getKey(), e.getValue())).toList();
+    }
+
 }

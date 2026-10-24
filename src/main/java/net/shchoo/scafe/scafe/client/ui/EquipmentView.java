@@ -49,15 +49,25 @@ public class EquipmentView extends Widget {
         }
         TextColor bright = InventoryPanel.colorOf(item, player);
         TextColor dark = bright instanceof TextColor.ANSI ansi ? SkillStyle.dim(ansi) : bright;
+        // a prestige version: bright yellow brackets
+        g.setForegroundColor(item.prestige > 0 ? TextColor.ANSI.YELLOW_BRIGHT : dark);
+        g.putString(x, y, "[");
+        g.putString(x + 3, y, "]");
         g.setForegroundColor(dark);
-        g.putString(x, y, "[" + tierMark(item) + "]");
+        g.putString(x + 1, y, tierMark(item));
         x += 4;
-        String label = InventoryPanel.label(item)[0];
-        String count = String.valueOf(player.inventory.getOrDefault(item, 0));
+        String count = ShortNumbers.of(player.inventory.getOrDefault(item, 0));
+        // label, a space, "x", the count -- dropping the space, then a prestige version's "+N", before cutting the label
         int room = bounds().right() - x - 2 - count.length();
+        String label = InventoryPanel.label(item)[0];
+        if (label.length() > room + 1 && item.base != null) {
+            label = InventoryPanel.label(item.base)[0];
+        }
+        boolean gap = label.length() <= room;
+        room = gap ? room : room + 1;
         g.setForegroundColor(bright);
         g.putString(x, y, Layout.fit(label, Math.max(0, room)));
-        x += Math.min(label.length(), Math.max(0, room)) + 1;
+        x += Math.min(label.length(), Math.max(0, room)) + (gap ? 1 : 0);
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         g.putString(x, y, "x");
         g.setForegroundColor(TextColor.ANSI.WHITE);

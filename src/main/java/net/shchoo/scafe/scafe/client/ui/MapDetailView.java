@@ -72,6 +72,11 @@ public class MapDetailView extends Widget {
             }
         }
         Building building = player.content.buildingAt(target);
+        if (building != null && building.walkable(target) && row <= last) {
+            g.setForegroundColor(TextColor.ANSI.YELLOW);
+            g.putString(textX(), row, fit("Train tracks", textWidth()));
+            return;
+        }
         if (building != null && row <= last) {
             g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
             g.putString(textX(), row++, fit(building.kind().label, textWidth()));

@@ -18,7 +18,8 @@ public sealed interface Event {
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
                              boolean running, boolean autoInvestigate, boolean showProductTiers, boolean showTimeEstimate,
                              boolean compactChat, Map<String, Long> stats, int weaponId, int armorId,
-                             boolean lightMode, Map<Integer, Integer> bank) {}
+                             boolean lightMode, Map<Integer, Integer> bank, Map<Integer, Integer> prestige,
+                             Map<Integer, Long> bankedXp) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -87,6 +88,9 @@ public sealed interface Event {
 
     record XpGained(int skillId, long amount, long totalXp, Position at) implements Event {}
     record LevelUp(int skillId, int from, int to) implements Event {}
+
+    /** The skill starts over (its xp back to 0), {@code prestige} times now, with {@code bankedXp} banked in all. */
+    record Prestiged(int skillId, int prestige, long bankedXp) implements Event {}
     record InventoryChanged(int productId, int count) implements Event {}
     record GoalAdded(GoalDef goal) implements Event {}
 

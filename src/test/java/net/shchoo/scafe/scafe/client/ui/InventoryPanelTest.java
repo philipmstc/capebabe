@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe.client.ui;
 
+import com.googlecode.lanterna.TextColor;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
@@ -218,8 +219,9 @@ class InventoryPanelTest {
         int row = Layout.INVENTORY.y() + 2;
         assertTrue(lines[row].contains("> Equip weapon"), lines[row]);
         assertTrue(lines[row + 1].contains("Equip armor"));
-        assertTrue(lines[row + 2].contains("Use"));
-        assertTrue(lines[row + 3].contains("Cancel"));
+        assertTrue(lines[row + 2].contains("Equip both"));
+        assertTrue(lines[row + 3].contains("Use"));
+        assertTrue(lines[row + 4].contains("Cancel"));
         assertFalse(screenText().contains("Unequip"), "it isn't equipped");
         int at = lines[row].indexOf("> Equip");
         assertTrue(at > Layout.INVENTORY.x() + 2 + Layout.CELL_WIDTH && at < Layout.INVENTORY.x() + 2 + 2 * Layout.CELL_WIDTH,
@@ -227,7 +229,7 @@ class InventoryPanelTest {
 
         type('w');
         assertTrue(inventory.popupOpen(), "keys stay in the popup");
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             press(KeyType.ArrowDown);
         }
         press(KeyType.Enter);
@@ -250,5 +252,19 @@ class InventoryPanelTest {
 
     private void type(char c) {
         tabs.onKey(new KeyStroke(c, false, false), player, board);
+    }
+
+    @Test
+    void theCountIsWhiteApartFromTheLabel() throws IOException {
+        Product item = stackOf(4, 3);
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        tabs.draw(screen, player, board);
+        int x = Layout.INVENTORY.x() + 2, y = Layout.INVENTORY.y() + 2;
+        assertEquals("3", screen.getBackCharacter(x + Layout.CELL_WIDTH - 1, y + 1).getCharacterString());
+        assertEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x + Layout.CELL_WIDTH - 1, y + 1).getForegroundColor());
+        assertEquals("T", screen.getBackCharacter(x, y + 1).getCharacterString());
+        assertNotEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x, y + 1).getForegroundColor(), "the tier keeps the item's colour");
+        assertNotNull(item);
     }
 }

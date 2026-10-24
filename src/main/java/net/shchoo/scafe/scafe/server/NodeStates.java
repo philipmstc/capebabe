@@ -68,6 +68,12 @@ public class NodeStates {
         return null;
     }
 
+    /** Ticks until an empty node is back (0 if it isn't empty). */
+    int respawnIn(Node node) {
+        State state = states.get(node.id);
+        return state != null && state.depleted() ? state.respawnIn : 0;
+    }
+
     boolean isDepleted(Node node) {
         State state = states.get(node.id);
         return state != null && state.depleted();

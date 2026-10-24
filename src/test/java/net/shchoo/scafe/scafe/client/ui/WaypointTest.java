@@ -86,7 +86,7 @@ class WaypointTest {
         for (int i = board.skills.indexOf(skill); i > 0; i--) {
             press(KeyType.ArrowDown);
         }
-        press(KeyType.ArrowRight);
+        press(KeyType.Enter);
         for (ProductLine line : skill.productLines) {
             int tier = line.recipes.indexOf(recipe);
             if (tier >= 0) {

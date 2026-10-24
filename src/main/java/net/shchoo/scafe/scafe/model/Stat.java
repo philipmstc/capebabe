@@ -10,7 +10,9 @@ public enum Stat {
     ITEMS_CRAFTED("Items crafted"),
     SKILLS_DISCOVERED("Skills discovered"),
     MONSTERS_DISCOVERED("Monsters discovered"),
-    MONSTERS_KILLED("Monsters killed");
+    MONSTERS_KILLED("Monsters killed"),
+    /** In ticks, counted while you're online. */
+    TIME_PLAYED("Time played");
 
     public final String label;
 

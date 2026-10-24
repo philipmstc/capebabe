@@ -62,6 +62,11 @@ to host, by name or number; each one is its own save, and players are welcomed b
 `43594` (`--port` to change it). Give the world password to friends privately. To be reachable from outside your
 home you'll need to forward that port; see [HOSTING.md](HOSTING.md) for the checklist and safer alternatives.
 
+A few more hosting options: `--admins name1,name2` lets just those players use admin commands, `--bind address`
+listens on one address only, and backups of the accounts and the world go to `<data>/backups` at start and every
+24 hours (`--backup-hours`, `--keep-backups`). For an always-on server there's a ready-made setup in `deploy/`
+(see HOSTING.md, Phase 2). Players can pick their font with `--font "Font Name"`.
+
 ## Building from source
 
 Use `git clone` (a GitHub zip download loses `gradlew`'s permission to run on macOS/Linux), then:

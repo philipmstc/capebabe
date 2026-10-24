@@ -108,14 +108,22 @@ public final class WorldGenerator {
      * on or right around it. Empty if there's no such spot.
      */
     public static ContentBatch newBuilding(World world, Building.Kind kind) {
+        return newBuilding(world, kind, BUILDING_CLEAR_RADIUS, BUILDING_MAX_RADIUS);
+    }
+
+    /** Like {@link #newBuilding(World, Building.Kind)}, between {@code clear} (exclusive) and {@code max} tiles out. */
+    public static ContentBatch newBuilding(World world, Building.Kind kind, int clear, int max) {
         return generate(world, (content, rng) -> {
             List<Position> spots = new ArrayList<>();
-            for (int y = -BUILDING_MAX_RADIUS; y <= BUILDING_MAX_RADIUS - kind.height() + 1; y++) {
-                for (int x = -BUILDING_MAX_RADIUS; x <= BUILDING_MAX_RADIUS - kind.width() + 1; x++) {
-                    Building candidate = new Building(0, kind, new Position(x, y));
-                    if (candidate.tiles().stream().allMatch(t -> Math.max(Math.abs(t.x()), Math.abs(t.y())) > BUILDING_CLEAR_RADIUS)
-                            && clearAround(content, candidate)) {
-                        spots.add(candidate.corner());
+            // no room within the radius (a long one, with others in the way): look further out
+            for (int radius = max; spots.isEmpty() && radius <= 4 * max; radius += 10) {
+                for (int y = -radius; y <= radius - kind.height() + 1; y++) {
+                    for (int x = -radius; x <= radius - kind.width() + 1; x++) {
+                        Building candidate = new Building(0, kind, new Position(x, y));
+                        if (candidate.tiles().stream().allMatch(t -> Math.max(Math.abs(t.x()), Math.abs(t.y())) > clear)
+                                && clearAround(content, candidate)) {
+                            spots.add(candidate.corner());
+                        }
                     }
                 }
             }
@@ -125,12 +133,44 @@ public final class WorldGenerator {
         });
     }
 
+    /**
+     * A building of {@code kind} with its corner as close as it can get to {@code wanted} (within {@code search}
+     * tiles), clear all round like any building and on no {@code occupied} tile (someone standing there). Empty
+     * if there's nowhere.
+     */
+    public static ContentBatch newBuildingAt(World world, Building.Kind kind, Position wanted, int search,
+                                             java.util.function.Predicate<Position> occupied) {
+        return generate(world, (content, rng) -> {
+            for (int distance = 0; distance <= search; distance++) {
+                for (int dy = -distance; dy <= distance; dy++) {
+                    for (int dx = -distance; dx <= distance; dx++) {
+                        if (Math.max(Math.abs(dx), Math.abs(dy)) != distance) {
+                            continue;
+                        }
+                        Building candidate = new Building(0, kind, new Position(wanted.x() + dx, wanted.y() + dy));
+                        if (clearAround(content, candidate) && candidate.tiles().stream().noneMatch(occupied)
+                                && candidate.tiles().stream().allMatch(t -> Math.max(Math.abs(t.x()), Math.abs(t.y())) > BUILDING_CLEAR_RADIUS)) {
+                            content.addBuilding(new Building(content.allocateId(), kind, candidate.corner()));
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /** The prestige {@code prestige} version of {@code base} (an item made by someone that many times prestiged). */
+    public static ContentBatch newPrestigeProduct(World world, Product base, int prestige) {
+        return generate(world, (content, rng) -> content.addProduct(new Product(content.allocateId(),
+                Product.prestigeName(base, prestige), base.tier, content.product(base.id), prestige)));
+    }
+
     /** Nothing on it or one tile round it, so it walls nothing in and can always be walked up to. */
     private static boolean clearAround(WorldContent content, Building building) {
         for (Position tile : building.tiles()) {
             for (int dy = -1; dy <= 1; dy++) {
                 for (int dx = -1; dx <= 1; dx++) {
-                    if (content.blocked(new Position(tile.x() + dx, tile.y() + dy))) {
+                    if (content.builtOn(new Position(tile.x() + dx, tile.y() + dy))) {
                         return false;
                     }
                 }

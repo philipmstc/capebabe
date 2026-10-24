@@ -1,0 +1,2 @@
+# the VM runs these: keep Unix line endings even in a Windows checkout
+deploy/** text eol=lf

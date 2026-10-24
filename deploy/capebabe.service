@@ -1,0 +1,25 @@
+# /etc/systemd/system/capebabe.service -- installed by setup.sh
+[Unit]
+Description=capebabe world
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=capebabe
+Group=capebabe
+# the world password and extra options (--bind, --admins, --world ...): see capebabe.env.example
+EnvironmentFile=/etc/capebabe.env
+ExecStart=/usr/bin/java -Xmx384m -Djava.awt.headless=true -jar /opt/capebabe/capebabe.jar --server --data /var/lib/capebabe $CAPEBABE_ARGS
+# --bind to the Tailscale address fails until Tailscale has it after a boot: just try again shortly
+Restart=on-failure
+RestartSec=5
+# the JVM's shutdown hook saves everyone on SIGTERM; give it time
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/capebabe
+
+[Install]
+WantedBy=multi-user.target

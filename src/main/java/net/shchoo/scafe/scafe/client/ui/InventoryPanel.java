@@ -26,7 +26,7 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
  * The inventory: always shown on the left as cells (3 across, 5 visible, scrolling), one stack per cell (as many
  * as your level in the skill making it, {@link Player#stackSize}). As
  * a tab (the leftmost header, or "i"), arrows move the selection like the map's hover cursor and the right column
- * shows the selected item; Enter opens a popup next to it: Equip weapon / armor (used up from every stack of it),
+ * shows the selected item; Enter opens a popup next to it: Equip weapon / armor / both (used up from every stack of it),
  * Use (on a node), Unequip (when it's equipped), Cancel.
  */
 public class InventoryPanel extends Menu {
@@ -37,7 +37,7 @@ public class InventoryPanel extends Menu {
     public record Slot(Product product, int count) {}
 
     enum Option {
-        WEAPON("Equip weapon"), ARMOR("Equip armor"), USE("Use"), UNEQUIP("Unequip"), CANCEL("Cancel");
+        WEAPON("Equip weapon"), ARMOR("Equip armor"), BOTH("Equip both"), USE("Use"), UNEQUIP("Unequip"), CANCEL("Cancel");
 
         final String label;
 
@@ -80,6 +80,10 @@ public class InventoryPanel extends Menu {
 
     /** The two lines in an item's cell: skill N's line P, tier t -> "SN-P" / "Tt"; monsterN-dropK -> "MN-DK". */
     public static String[] label(Product product) {
+        if (product.base != null) {
+            String[] plain = label(product.base);
+            return new String[]{plain[0] + "+" + product.prestige, plain[1]};
+        }
         Matcher skill = SKILL_PRODUCT.matcher(product.lineName());
         if (product.hasTier() && skill.matches()) {
             return new String[]{"S" + skill.group(1) + "-" + skill.group(2), "T" + product.tier};
@@ -95,10 +99,14 @@ public class InventoryPanel extends Menu {
 
     /** A cell's second line: the label's, with the stack's count on the right. */
     static String countLine(String labelLine, int count) {
-        String number = String.valueOf(count);
-        int room = CELL_WIDTH - number.length();
+        return countLine(labelLine, String.valueOf(count), CELL_WIDTH);
+    }
+
+    /** {@code width} wide: the label line on the left (cut if it has to be), the count on the right. */
+    static String countLine(String labelLine, String number, int width) {
+        int room = width - number.length();
         String left = labelLine.length() > room - 1 ? labelLine.substring(0, Math.max(0, room - 1)) : labelLine;
-        return left + " ".repeat(CELL_WIDTH - left.length() - number.length()) + number;
+        return left + " ".repeat(Math.max(0, width - left.length() - number.length())) + number;
     }
 
     /** The item picked with Enter to use on a node (once; null if none). */
@@ -157,7 +165,7 @@ public class InventoryPanel extends Menu {
             case Enter -> {
                 Slot slot = selectedSlot(player);
                 if (slot != null) {
-                    popup = new ArrayList<>(List.of(Option.WEAPON, Option.ARMOR, Option.USE));
+                    popup = new ArrayList<>(List.of(Option.WEAPON, Option.ARMOR, Option.BOTH, Option.USE));
                     if (slot.product().equals(player.weapon) || slot.product().equals(player.armor)) {
                         popup.add(Option.UNEQUIP);
                     }
@@ -189,6 +197,10 @@ public class InventoryPanel extends Menu {
                 switch (option) {
                     case WEAPON -> player.equip(EquipSlot.WEAPON, slot.product());
                     case ARMOR -> player.equip(EquipSlot.ARMOR, slot.product());
+                    case BOTH -> {
+                        player.equip(EquipSlot.WEAPON, slot.product());
+                        player.equip(EquipSlot.ARMOR, slot.product());
+                    }
                     case USE -> {
                         toUse = slot.product();
                         return Result.RELEASE;
@@ -287,27 +299,36 @@ public class InventoryPanel extends Menu {
         }
     }
 
-    /** One cell: the label over the tier and the stack's count, in the item's colour (background already set). */
+    /** One cell: the label over the tier in the item's colour, the stack's count in white (background already set). */
     static void drawCell(TextGraphics g, int x, int y, Slot slot, Player player, boolean selected) {
-        String[] lines = label(slot.product());
-        g.setForegroundColor(colorOf(slot.product(), player));
+        drawCell(g, x, y, slot.product(), String.valueOf(slot.count()), CELL_WIDTH, player, selected);
+    }
+
+    /** A cell {@code width} wide showing {@code count} (already formatted, e.g. "1.1k"). */
+    static void drawCell(TextGraphics g, int x, int y, Product product, String count, int width, Player player, boolean selected) {
+        String[] lines = label(product);
+        g.setForegroundColor(colorOf(product, player));
         if (selected) {
             g.enableModifiers(SGR.BOLD);
         }
-        g.putString(x, y, pad(lines[0]));
-        g.putString(x, y + 1, countLine(lines[1], slot.count()));
+        g.putString(x, y, String.format("%-" + width + "s", fit(lines[0], width)));
+        String line = countLine(lines[1], count, width);
+        int digits = count.length();
+        g.putString(x, y + 1, line.substring(0, width - digits));
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(x + width - digits, y + 1, line.substring(width - digits));
         g.disableModifiers(SGR.BOLD);
     }
 
     /** An empty cell. */
     static void drawEmptyCell(TextGraphics g, int x, int y) {
-        g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        g.putString(x, y, pad(" ."));
-        g.putString(x, y + 1, pad(""));
+        drawEmptyCell(g, x, y, CELL_WIDTH);
     }
 
-    private static String pad(String text) {
-        return String.format("%-" + CELL_WIDTH + "s", text.length() > CELL_WIDTH ? text.substring(0, CELL_WIDTH) : text);
+    static void drawEmptyCell(TextGraphics g, int x, int y, int width) {
+        g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+        g.putString(x, y, String.format("%-" + width + "s", " ."));
+        g.putString(x, y + 1, " ".repeat(width));
     }
 
     static TextColor colorOf(Product product, Player player) {
@@ -353,7 +374,14 @@ public class InventoryPanel extends Menu {
             }
         }
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        g.putString(textX(), y + 1, fit("as a weapon: hits for " + (Math.max(0, item.tier) + 1) + " (fists: 1), one used per swing",
+        if (item.prestige > 0) {
+            g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
+            g.putString(textX(), y++, fit("prestige " + item.prestige + ": +" + Product.PRESTIGE_DAMAGE * item.prestige
+                    + " damage", textWidth()));
+            g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+        }
+        g.putString(textX(), y + 1, fit("as a weapon: hits for "
+                + (Product.PRESTIGE_DAMAGE * item.prestige + Math.max(0, item.tier) + 1) + " (fists: 1), one used per swing",
                 textWidth()));
         g.putString(textX(), y + 2, fit("as armor: its colour takes the hits, one used per hit at you", textWidth()));
         g.putString(textX(), hintRow(),

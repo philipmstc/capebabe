@@ -22,15 +22,31 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 
 /**
  * The bank's window, over the map while {@link Player#bankOpen} (q at a bank, opened on the spot by
- * {@link Player#perform}): your inventory on the left, the
- * bank on the right, both in stacks. Arrows move (across into the other side at the edge), Tab switches side,
+ * {@link Player#perform}): your inventory where it always is (on the left, with the selection on it), and the
+ * bank in a box opening out to its right over the map, with its own scrollbar; both in stacks, laid out like the
+ * inventory. Arrows move (across into the other side at the edge), Tab switches side,
  * Enter on a stack asks how many to move across (1, the stack, all, or a number you type), Esc closes. It takes
  * every key while open.
  */
 public class BankView extends Widget {
-    private static final int COLUMNS = 3;
-    private static final int CELL_STEP_Y = 3;
-    static final Rect BOX = new Rect(MAP.x() + 2, MAP.y() + 1, MAP.width() - 4, MAP.height() - 2);
+    /** The bank, opening out to the right of the inventory over the map: twice the inventory's width and a bit. */
+    static final Rect BOX = new Rect(MAP.x(), INVENTORY.y(), 2 * (INVENTORY.width() + 3), MAP.height());
+    /**
+     * The bank's cells: one an item, however many (no stacks), so a column wider than the inventory's for counts
+     * like "1.1k" beside the tier.
+     */
+    private static final int BANK_CELL_WIDTH = CELL_WIDTH + 1;
+    private static final int BANK_CELL_STEP_X = BANK_CELL_WIDTH + 1;
+    /** Across: the inventory's 3, and as many as the bank's box fits. */
+    private static final int BANK_COLUMNS = (BOX.width() - 4) / BANK_CELL_STEP_X;
+
+    private static int columns(Side of) {
+        return of == Side.INVENTORY ? INVENTORY_COLUMNS : BANK_COLUMNS;
+    }
+
+    private static int cellWidth(Side of) {
+        return of == Side.INVENTORY ? CELL_WIDTH : BANK_CELL_WIDTH;
+    }
 
     private enum Side { INVENTORY, BANK }
 
@@ -49,16 +65,27 @@ public class BankView extends Widget {
         super(BOX);
     }
 
+    /** Rows of cells either side shows: the inventory's. */
     private static int cellRows() {
-        return (BOX.height() - 6) / CELL_STEP_Y;
+        return INVENTORY_ROWS;
+    }
+
+    /** Where a side's grid starts: the inventory box, or the bank box. */
+    private static Rect area(Side of) {
+        return of == Side.INVENTORY ? INVENTORY : BOX;
     }
 
     private Map<Product, Integer> items(Player player, Side of) {
         return of == Side.INVENTORY ? player.inventory : player.bank;
     }
 
+    /** The inventory in stacks, as ever; the bank one cell an item, all of it in one. */
     private List<InventoryPanel.Slot> slots(Player player, Side of) {
-        return InventoryPanel.slots(player, items(player, of));
+        if (of == Side.INVENTORY) {
+            return InventoryPanel.slots(player, player.inventory);
+        }
+        return player.bank.entrySet().stream().filter(e -> e.getValue() > 0)
+                .map(e -> new InventoryPanel.Slot(e.getKey(), e.getValue())).toList();
     }
 
     public InventoryPanel.Slot selectedSlot(Player player) {
@@ -94,23 +121,24 @@ public class BankView extends Widget {
         int count = slots(player, side).size();
         switch (key.getKeyType()) {
             case ArrowLeft -> {
-                if (selected[s] % COLUMNS == 0 && side == Side.BANK) {
-                    switchTo(Side.INVENTORY, player, selected[s] + COLUMNS - 1);
+                if (selected[s] % columns(side) == 0 && side == Side.BANK) {
+                    // across to the end of the same row of the inventory
+                    switchTo(Side.INVENTORY, player, (selected[s] / BANK_COLUMNS) * INVENTORY_COLUMNS + INVENTORY_COLUMNS - 1);
                     return;
                 }
                 selected[s]--;
             }
             case ArrowRight -> {
-                if (selected[s] % COLUMNS == COLUMNS - 1 || selected[s] >= count - 1) {
+                if (selected[s] % columns(side) == columns(side) - 1 || selected[s] >= count - 1) {
                     if (side == Side.INVENTORY) {
-                        switchTo(Side.BANK, player, selected[s] - selected[s] % COLUMNS);
+                        switchTo(Side.BANK, player, (selected[s] / INVENTORY_COLUMNS) * BANK_COLUMNS);
                     }
                     return;
                 }
                 selected[s]++;
             }
-            case ArrowUp -> selected[s] -= selected[s] >= COLUMNS ? COLUMNS : 0;
-            case ArrowDown -> selected[s] += selected[s] + COLUMNS < count ? COLUMNS : 0;
+            case ArrowUp -> selected[s] -= selected[s] >= columns(side) ? columns(side) : 0;
+            case ArrowDown -> selected[s] += selected[s] + columns(side) < count ? columns(side) : 0;
             case Tab, ReverseTab -> switchTo(side == Side.INVENTORY ? Side.BANK : Side.INVENTORY, player,
                     selected[1 - s]);
             case Enter -> openOptions(player);
@@ -135,12 +163,14 @@ public class BankView extends Widget {
             return;
         }
         int all = items(player, side).getOrDefault(slot.product(), 0);
+        // depositing: this stack; withdrawing: one inventory stack's worth
+        int stack = side == Side.INVENTORY ? slot.count() : Math.min(all, player.stackSize(slot.product()));
         options = new ArrayList<>();
         options.add(new Option("1", 1));
-        if (slot.count() > 1) {
-            options.add(new Option("Stack (" + slot.count() + ")", slot.count()));
+        if (stack > 1) {
+            options.add(new Option("Stack (" + stack + ")", stack));
         }
-        if (all > slot.count()) {
+        if (all > stack) {
             options.add(new Option("All (" + all + ")", all));
         }
         options.add(new Option("Amount...", 0));
@@ -211,90 +241,77 @@ public class BankView extends Widget {
         }
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        g.fillRectangle(new TerminalPosition(BOX.x(), BOX.y()), new TerminalSize(BOX.width(), BOX.height()), ' ');
-        drawFrame(screen, BOX);
+        for (Side of : Side.values()) {
+            Rect area = area(of);
+            g.fillRectangle(new TerminalPosition(area.x() + 1, area.y() + 1), new TerminalSize(area.width() - 2, area.height() - 2), ' ');
+            drawFrame(screen, area);
+            drawSide(screen, g, player, of);
+        }
         g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
         g.enableModifiers(SGR.BOLD);
         g.putString(BOX.x() + 2, BOX.y(), "Bank");
         g.disableModifiers(SGR.BOLD);
-
-        int half = BOX.width() / 2;
-        for (int y = BOX.y() + 1; y < BOX.bottom() - 1; y++) {
-            g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            g.setCharacter(BOX.x() + half, y, '\u2502');
-        }
-        List<InventoryPanel.Slot> inventory = slots(player, Side.INVENTORY);
-        drawSide(g, player, Side.INVENTORY, BOX.x() + 2, "Inventory " + inventory.size() + "/" + Stacks.INVENTORY_SLOTS);
-        drawSide(g, player, Side.BANK, BOX.x() + half + 2, "Bank");
         if (player.bankBusy()) {
-            g.setBackgroundColor(TextColor.ANSI.DEFAULT);
             g.setForegroundColor(TextColor.ANSI.YELLOW);
-            g.putString(BOX.right() - 11, BOX.y(), " moving... ");
+            g.putString(BOX.x() + 7, BOX.y(), " moving... ");
         }
-
-        g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        String hint = typing != null ? "[0-9] how many  [Enter] move  [Esc] back"
-                : side == Side.INVENTORY ? "[arrows/Tab] pick  [Enter] deposit  [Esc] close"
-                : "[arrows/Tab] pick  [Enter] withdraw  [Esc] close";
-        g.putString(BOX.x() + 2, BOX.bottom() - 1, fit(hint, BOX.width() - 4));
+        g.putString(INVENTORY.x() + 2, INVENTORY.bottom(), slots(player, Side.INVENTORY).size() + "/" + Stacks.INVENTORY_SLOTS);
+        g.putString(BOX.x() + 2, BOX.bottom(), slots(player, Side.BANK).size() + " items");
+
+        String[] hint = typing != null ? new String[]{"[0-9] how many", "[Enter] move", "[Esc] back"}
+                : new String[]{"[arrows/Tab] pick", side == Side.INVENTORY ? "[Enter] deposit" : "[Enter] withdraw", "[Esc] close"};
+        for (int k = 0; k < hint.length; k++) {
+            g.putString(BOX.x() + 2, BOX.bottom() - hint.length + k, fit(hint[k], BOX.width() - 4));
+        }
         drawOptions(screen, g, player);
     }
 
-    private int cellX(int left, int column) {
-        return left + column * CELL_STEP_X;
+    private static int cellX(Side of, int column) {
+        return area(of).x() + 2 + column * (of == Side.INVENTORY ? CELL_STEP_X : BANK_CELL_STEP_X);
     }
 
-    private int cellY(int row) {
-        return BOX.y() + 3 + row * CELL_STEP_Y;
+    private static int cellY(Side of, int row) {
+        return area(of).y() + 2 + row * Layout.CELL_STEP_Y;
     }
 
-    private void drawSide(TextGraphics g, Player player, Side of, int left, String title) {
+    private void drawSide(Screen screen, TextGraphics g, Player player, Side of) {
         int s = of.ordinal();
         boolean current = side == of;
-        g.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        g.setForegroundColor(current ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.BLACK_BRIGHT);
-        if (current) {
-            g.enableModifiers(SGR.BOLD);
-        }
-        g.putString(left, BOX.y() + 1, title);
-        g.disableModifiers(SGR.BOLD);
-
         List<InventoryPanel.Slot> slots = slots(player, of);
         selected[s] = Math.max(0, Math.min(selected[s], Math.max(0, slots.size() - 1)));
-        int row = selected[s] / COLUMNS;
+        int columns = columns(of);
+        int row = selected[s] / columns;
         if (row < topRow[s]) {
             topRow[s] = row;
         } else if (row >= topRow[s] + cellRows()) {
             topRow[s] = row - cellRows() + 1;
         }
+        int totalRows = (slots.size() + columns - 1) / columns;
+        topRow[s] = Math.max(0, Math.min(topRow[s], Math.max(0, totalRows - cellRows())));
         if (slots.isEmpty()) {
             g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            g.putString(left, cellY(0), of == Side.BANK ? "empty" : "nothing to deposit");
+            g.putString(cellX(of, 0), cellY(of, 0), of == Side.BANK ? "empty" : "nothing to deposit");
             return;
         }
         for (int r = 0; r < cellRows(); r++) {
-            for (int c = 0; c < COLUMNS; c++) {
-                int index = (topRow[s] + r) * COLUMNS + c;
-                int x = cellX(left, c), y = cellY(r);
+            for (int c = 0; c < columns; c++) {
+                int index = (topRow[s] + r) * columns + c;
+                int x = cellX(of, c), y = cellY(of, r);
                 boolean isSelected = current && index == selected[s];
                 g.setBackgroundColor(isSelected ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT);
                 if (index < slots.size()) {
-                    InventoryPanel.drawCell(g, x, y, slots.get(index), player, isSelected);
+                    InventoryPanel.Slot slot = slots.get(index);
+                    String count = of == Side.INVENTORY ? String.valueOf(slot.count()) : ShortNumbers.of(slot.count());
+                    InventoryPanel.drawCell(g, x, y, slot.product(), count, cellWidth(of), player, isSelected);
                 } else {
-                    InventoryPanel.drawEmptyCell(g, x, y);
+                    InventoryPanel.drawEmptyCell(g, x, y, cellWidth(of));
                 }
             }
         }
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        int totalRows = (slots.size() + COLUMNS - 1) / COLUMNS;
-        g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        if (topRow[s] > 0) {
-            g.putString(left + 3 * CELL_STEP_X - 1, cellY(0), "^");
-        }
-        if (topRow[s] + cellRows() < totalRows) {
-            g.putString(left + 3 * CELL_STEP_X - 1, cellY(cellRows() - 1) + 1, "v");
-        }
+        Rect area = area(of);
+        drawScrollbar(screen, area.right(), area.y(), area.bottom(), topRow[s], cellRows(), totalRows);
     }
 
     /** "How many?" next to the selected stack. */
@@ -303,9 +320,8 @@ public class BankView extends Widget {
             return;
         }
         int s = side.ordinal();
-        int left = side == Side.INVENTORY ? BOX.x() + 2 : BOX.x() + BOX.width() / 2 + 2;
-        int x = cellX(left, selected[s] % COLUMNS) + CELL_WIDTH;
-        int y = cellY(selected[s] / COLUMNS - topRow[s]);
+        int x = cellX(side, selected[s] % columns(side)) + cellWidth(side);
+        int y = cellY(side, selected[s] / columns(side) - topRow[s]);
         List<String> lines = new ArrayList<>();
         if (typing != null) {
             lines.add((side == Side.INVENTORY ? "Deposit " : "Withdraw ") + typing + "_");
@@ -313,7 +329,7 @@ public class BankView extends Widget {
             options.forEach(o -> lines.add(o.label()));
         }
         int width = lines.stream().mapToInt(String::length).max().orElse(0) + 4;
-        Rect box = new Rect(Math.min(x, BOX.right() - width - 1), y - 1, width + 2, lines.size() + 2);
+        Rect box = new Rect(Math.min(x, TERMINAL_SIZE.getColumns() - width - 3), y - 1, width + 2, lines.size() + 2);
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         g.fillRectangle(new TerminalPosition(box.x(), box.y()), new TerminalSize(box.width(), box.height()), ' ');
         drawFrame(screen, box);

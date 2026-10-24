@@ -36,7 +36,7 @@ public class SettingsMenu extends Menu {
             new String[]{"i", "inventory (Enter: equip / use)"},
             new String[]{"1 2 3 4", "Skills, Goals, Stats, Settings"},
             new String[]{"  in Goals", "Left/Right moves a goal's level"},
-            new String[]{"v", "hover the map; Enter walks there"},
+            new String[]{"v", "hover; Enter: walk / node menu (AFK)"},
             new String[]{"Left/Right", "pick a tab; Down/Enter uses it"},
             new String[]{"/", "chat (//1 etc: debug commands)"},
             new String[]{"k", "list every command in the log"},

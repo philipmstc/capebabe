@@ -55,15 +55,25 @@ public class Player {
     /** Steps (or turns) sent but not yet confirmed, each with where it should leave you. */
     private final Deque<Pose> predicted = new ArrayDeque<>();
     private final Map<Skill, Long> xp = new HashMap<>();
+    /** Times each skill's been prestiged, and the xp banked each time (all of it added up). */
+    private final Map<Skill, Integer> prestige = new HashMap<>();
+    private final Map<Skill, Long> bankedXp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     /** Your bank's contents, mirrored from the server; {@link #bankOpen} while its window is up. */
     public final LinkedHashMap<Product, Integer> bank = new LinkedHashMap<>();
     public boolean bankOpen;
+    /** The station menu is up (q at a station). */
+    public boolean stationMenuOpen;
     private long bankSentAt = -1;
     /** Render frames so far, for things that flicker. */
     private long frames;
     /** Knocked out players (0 hp) flicker: dark grey this many frames, then their colour as many. */
     public static final int FLICKER_FRAMES = 3;
+
+    /** Every so often, for a moment: the merchant's ant flexing (waving its antennae). */
+    public boolean wiggle() {
+        return frames % 40 >= 34;
+    }
 
     /** Whether a knocked-out player shows dark grey this frame. */
     public boolean flickerOff() {
@@ -95,6 +105,8 @@ public class Player {
     public final List<Popup> popups = new ArrayList<>();
     public final XpTracker xpTracker = new XpTracker();
     private long serverTick;
+    /** The tick the stats last came in (time played counts on from there). */
+    private long statsTick;
     /** Where a hover + Enter walk is headed (drawn red on the map), or null. Client-only. */
     public Position walkTarget;
     /** The server tick of the last step we took (or of setting the walk target): a walk that stalls gets forgotten. */
@@ -194,6 +206,11 @@ public class Player {
             xp.put(skill, gained.totalXp());
             xpTracker.record(skill, gained.amount());
             popups.add(new Popup(gained.at(), "+" + gained.amount() + "xp", SkillStyle.getColorForSkill(skill)));
+        } else if (event instanceof Event.Prestiged prestiged) {
+            Skill skill = content.skill(prestiged.skillId());
+            xp.put(skill, 0L);
+            prestige.put(skill, prestiged.prestige());
+            bankedXp.put(skill, prestiged.bankedXp());
         } else if (event instanceof Event.LevelUp levelUp) {
             onLevelUp(content.skill(levelUp.skillId()), levelUp.from(), levelUp.to());
         } else if (event instanceof Event.InventoryChanged changed) {
@@ -280,6 +297,14 @@ public class Player {
         armor = you.armorId() < 0 ? null : content.product(you.armorId());
         setStats(you.stats());
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
+        prestige.clear();
+        bankedXp.clear();
+        if (you.prestige() != null) {
+            you.prestige().forEach((skillId, times) -> prestige.put(content.skill(skillId), times));
+        }
+        if (you.bankedXp() != null) {
+            you.bankedXp().forEach((skillId, banked) -> bankedXp.put(content.skill(skillId), banked));
+        }
         you.inventory().forEach((productId, count) -> inventory.put(content.product(productId), count));
         you.goals().forEach(def -> goals.add(def.toGoal(content)));
         triedNodes.addAll(you.triedNodes());
@@ -289,6 +314,7 @@ public class Player {
         hp = you.hp();
         maxHp = you.maxHp();
         serverTick = welcome.tick();
+        statsTick = serverTick;
         lastTickAt = System.currentTimeMillis();
         joined = true;
         GameLog.say(Event.MessageKind.NOTICE, "Welcome to " + worldName + ", " + name + "!");
@@ -336,17 +362,30 @@ public class Player {
         return Math.min(1.0, Math.max(0.0, (double) (System.currentTimeMillis() - lastTickAt) / GameClock.TICK_MILLIS));
     }
 
-    /** How full the progress bar is, 0..1. The action repeats, so this wraps every durationTicks. */
-    /** The bar fills over this much of each item's time, then shows full for the rest, so "done" can be seen. */
-    static final double FILL_BY = 0.75;
+    /**
+     * The action bar shows full for this many frames before the next item (or the wait) ends, however long it is,
+     * so you see it finish. 5 frames (300ms) is what a normal 2-tick item always had.
+     */
+    static final int FULL_FRAMES = 5;
 
-    /** How full the action bar is: fills over {@link #FILL_BY} of each item's time, full until the next starts. */
+    /** How full the action bar is, 0..1. The action repeats, so this wraps every durationTicks. */
     public double actionFraction() {
         if (currentAction == null) {
             return 0;
         }
-        long into = Math.floorMod(serverTick - currentAction.startTick(), currentAction.durationTicks());
-        return Math.min(1.0, (into + partialTick()) / (currentAction.durationTicks() * FILL_BY));
+        int duration = currentAction.durationTicks();
+        long into = Math.floorMod(serverTick - currentAction.startTick(), duration);
+        return barFraction(into + partialTick(), duration);
+    }
+
+    /**
+     * {@code elapsed} ticks into a {@code duration}-tick action: it fills over the duration less
+     * {@link #FULL_FRAMES}' worth (never less than half of it, for very short ones), then stays full.
+     */
+    static double barFraction(double elapsed, int duration) {
+        double hold = FULL_FRAMES * (double) GameClock.FRAME_MILLIS / GameClock.TICK_MILLIS;
+        double fill = Math.max(duration / 2.0, duration - hold);
+        return Math.min(1.0, elapsed / fill);
     }
 
     /**
@@ -414,6 +453,11 @@ public class Player {
     }
 
     /** Use an inventory item on the node at {@code target} (the server walks you over if needed). */
+    /** Craft at the node at {@code target}, walking over if need be; {@code afk}: half the xp, waits out respawns. */
+    public void craft(Position target, boolean afk) {
+        send(new Intent.Craft(target, afk));
+    }
+
     public void useItem(Product item, Position target) {
         send(new Intent.UseItem(item.id, target));
     }
@@ -436,7 +480,13 @@ public class Player {
         return inWorld;
     }
 
+    /** Time played so far, in ticks: the last count the server sent, plus the ticks since. */
+    public long timePlayedTicks() {
+        return stats.getOrDefault(Stat.TIME_PLAYED, 0L) + Math.max(0, serverTick - statsTick);
+    }
+
     private void setStats(Map<String, Long> byName) {
+        statsTick = serverTick;
         stats.clear();
         if (byName != null) {
             byName.forEach((name, value) -> {
@@ -486,11 +536,18 @@ public class Player {
      * are already here, so there's nothing to wait for.
      */
     public void perform() {
-        Building building = content.buildingAt(ahead());
+        Building building = content.solidBuildingAt(ahead());
         if (building != null && building.kind() == Building.Kind.BANK) {
             bankOpen = true;
+        } else if (building != null && building.kind() == Building.Kind.STATION) {
+            stationMenuOpen = true;
         }
         send(new Intent.Perform());
+    }
+
+    /** Off to the station with this id (the server takes the fare). */
+    public void rideTo(int stationId) {
+        send(new Intent.Ride(stationId));
     }
 
     public void deposit(Product item, int count) {
@@ -572,12 +629,28 @@ public class Player {
      * Every skill's level added up, skills you haven't trained counting as 1 -- the same number others see for you
      * on hover (skills in the world + levels gained).
      */
+    /** Every skill's level, plus 99 for each prestige (the levels it took): it never goes down. */
     public int totalLevel() {
-        return content.skills.stream().mapToInt(this::getLevel).sum();
+        return content.skills.stream().mapToInt(s -> getLevel(s) + getPrestige(s) * (Levels.MAX_LEVEL - 1)).sum();
     }
 
+    /** All the xp you've ever gained, banked prestiges included. */
     public long totalExperience() {
-        return content.skills.stream().mapToLong(this::getExperience).sum();
+        return content.skills.stream().mapToLong(this::lifetimeExperience).sum();
+    }
+
+    public int getPrestige(Skill skill) {
+        return prestige.getOrDefault(skill, 0);
+    }
+
+    /** A skill's xp across all its prestiges: what's banked plus what it has now. */
+    public long lifetimeExperience(Skill skill) {
+        return bankedXp.getOrDefault(skill, 0L) + getExperience(skill);
+    }
+
+    /** At Lv. 100: start the skill over (see {@code GameCharacter.prestige}). */
+    public void prestige(Skill skill) {
+        send(new Intent.Prestige(skill.id));
     }
 
     public int highestLevel() {

@@ -9,9 +9,34 @@ public class Product {
     }
 
     public Product(int id, String name, int tier) {
+        this(id, name, tier, null, 0);
+    }
+
+    /** A prestige version of {@code base}: made by someone {@code prestige} times prestiged in its skill. */
+    public Product(int id, String name, int tier, Product base, int prestige) {
         this.id = id;
         this.name = name;
         this.tier = tier;
+        this.base = base;
+        this.prestige = prestige;
+    }
+
+    /** How much more a prestige level adds to a weapon's base damage than the tiers do: one line's worth. */
+    public static final int PRESTIGE_DAMAGE = 5;
+
+    /** The plain item this is a prestige version of, or null if it's plain. */
+    public final Product base;
+    /** 0 for a plain item. */
+    public final int prestige;
+
+    /** The plain item (itself, if it is one): what recipes ask for. */
+    public Product root() {
+        return base == null ? this : base;
+    }
+
+    /** A prestige version's name: "skill0{1}-2+1". */
+    public static String prestigeName(Product base, int prestige) {
+        return base.name + "+" + prestige;
     }
 
     public final int id;
@@ -26,6 +51,9 @@ public class Product {
 
     /** The name without its "-tier" ending: the product line's name ("skill1{0}-3" -> "skill1{0}"). */
     public String lineName() {
+        if (base != null) {
+            return base.lineName();
+        }
         String suffix = "-" + tier;
         return hasTier() && name.endsWith(suffix) ? name.substring(0, name.length() - suffix.length()) : name;
     }

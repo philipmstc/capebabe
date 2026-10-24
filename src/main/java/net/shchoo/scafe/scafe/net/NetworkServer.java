@@ -6,6 +6,7 @@ import net.shchoo.scafe.scafe.server.GameServer;
 
 import javax.net.ssl.SSLServerSocket;
 import java.io.*;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
@@ -21,6 +22,7 @@ import java.util.Map;
 public class NetworkServer implements AutoCloseable {
     public static final int DEFAULT_PORT = 43594;
     private static final long WRITE_POLL_MILLIS = 15;
+    private static final long ACCEPT_RETRY_MILLIS = 250;
 
     /**
      * {@code perAddress}: connections from one IP at once (friends sharing a house share an IP).
@@ -48,8 +50,14 @@ public class NetworkServer implements AutoCloseable {
 
     /** remoteAdmin: whether network players may use admin (world-building) commands. */
     public NetworkServer(GameServer game, int port, boolean remoteAdmin, Tls.Server tls, Limits limits) throws IOException {
+        this(game, null, port, remoteAdmin, tls, limits);
+    }
+
+    /** {@code bind}: the one address to listen on (e.g. the Tailscale one), or null for every interface. */
+    public NetworkServer(GameServer game, InetAddress bind, int port, boolean remoteAdmin, Tls.Server tls, Limits limits)
+            throws IOException {
         this.game = game;
-        SSLServerSocket secure = (SSLServerSocket) tls.context().getServerSocketFactory().createServerSocket(port);
+        SSLServerSocket secure = (SSLServerSocket) tls.context().getServerSocketFactory().createServerSocket(port, 50, bind);
         secure.setEnabledProtocols(new String[]{Tls.PROTOCOL});
         this.socket = secure;
         this.remoteAdmin = remoteAdmin;
@@ -58,6 +66,12 @@ public class NetworkServer implements AutoCloseable {
 
     public int port() {
         return socket.getLocalPort();
+    }
+
+    /** Where it's listening: an address, or "every interface". */
+    public String listeningOn() {
+        InetAddress address = socket.getInetAddress();
+        return address == null || address.isAnyLocalAddress() ? "every interface" : address.getHostAddress();
     }
 
     /** Accepts clients until closed. Blocks. */
@@ -76,10 +90,21 @@ public class NetworkServer implements AutoCloseable {
             } catch (SocketException e) {
                 if (running) {
                     e.printStackTrace();
+                    backOff();
                 }
             } catch (IOException e) {
                 e.printStackTrace();
+                backOff();
             }
+        }
+    }
+
+    /** After a failed accept: a moment's pause, so a socket that keeps failing can't spin a core (and flood the log). */
+    private static void backOff() {
+        try {
+            Thread.sleep(ACCEPT_RETRY_MILLIS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

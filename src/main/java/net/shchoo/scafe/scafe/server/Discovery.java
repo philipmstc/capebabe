@@ -1,6 +1,8 @@
 package net.shchoo.scafe.scafe.server;
 
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
+import net.shchoo.scafe.scafe.model.Building;
+import net.shchoo.scafe.scafe.model.Stations;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
@@ -61,6 +63,11 @@ public class Discovery {
     public static final int FAIR_FIGHT_LEVELS = 3;
     public static final int FAIR_FIGHT_WEIGHT = 4;
 
+    /** More than this many tiles from every station, on the move, you might come across a new one. */
+    public static final int STATION_LONELY_DISTANCE = 60;
+    /** ...with this chance a tick. */
+    public static final double STATION_CHANCE = 0.02;
+
     private final Random random;
     private final boolean enabled;
 
@@ -104,10 +111,22 @@ public class Discovery {
                 && random.nextDouble() < chance(trigger.monsterKindChance, MONSTER_KIND_BACKOFF, world.content.monsters.size())) {
             discoverMonsterKind(server, character);
         }
+        if (trigger == Trigger.MOVED && farFromStations(world, character.position()) && random.nextDouble() < STATION_CHANCE) {
+            server.discoverStation(character);
+        }
         if (!world.content.monsters.isEmpty() && random.nextDouble() < chance(trigger.monsterSpawnChance,
                 MONSTER_CROWD_BACKOFF, server.monsters().near(character.position(), MONSTER_CROWD_RADIUS))) {
             spawnMonsterNear(server, character, pickKind(world.content.monsters, character.combatLevel()));
         }
+    }
+
+    /**
+     * There's a line (the station by the origin) and you're further than {@link #STATION_LONELY_DISTANCE} (either
+     * axis) from every station on it.
+     */
+    static boolean farFromStations(World world, Position at) {
+        List<Building> line = Stations.all(world.content);
+        return !line.isEmpty() && line.stream().noneMatch(b -> b.within(at, STATION_LONELY_DISTANCE));
     }
 
     private void discoverMonsterKind(GameServer server, GameCharacter character) {
@@ -216,7 +235,7 @@ public class Discovery {
     static boolean hasNeighbour(GameServer server, Position spot) {
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
-                if ((dx != 0 || dy != 0) && !server.passable(new Position(spot.x() + dx, spot.y() + dy))) {
+                if ((dx != 0 || dy != 0) && server.world.content.builtOn(new Position(spot.x() + dx, spot.y() + dy))) {
                     return true;
                 }
             }

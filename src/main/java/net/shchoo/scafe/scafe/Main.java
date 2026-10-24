@@ -1,5 +1,6 @@
 package net.shchoo.scafe.scafe;
 
+import net.shchoo.scafe.scafe.persistence.Backups;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.ClientPrefs;
 import net.shchoo.scafe.scafe.client.GameLog;
@@ -25,6 +26,7 @@ import com.googlecode.lanterna.screen.Screen;
 import com.googlecode.lanterna.terminal.DefaultTerminalFactory;
 import com.googlecode.lanterna.terminal.swing.AWTTerminalFontConfiguration;
 import com.googlecode.lanterna.terminal.swing.SwingTerminalFontConfiguration;
+import java.net.InetAddress;
 import java.awt.*;
 import javax.swing.JOptionPane;
 import java.io.IOException;
@@ -50,9 +52,14 @@ public class Main {
     private static final List<String> FONTS = List.of("Comic Mono NerdFont", "Consolas", "Menlo", "Monaco", "Cascadia Mono", "DejaVu Sans Mono",
             "Liberation Mono", "Ubuntu Mono", "Courier New");
 
-    private static String monospacedFont() {
+    /** {@code --font} if it's installed, else the first of {@link #FONTS} that is, else Java's monospace. */
+    private static String monospacedFont(String wanted) {
         Set<String> installed = Set.of(GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames());
-        return FONTS.stream().filter(installed::contains).findFirst().orElse(Font.MONOSPACED);
+        if (wanted != null && !installed.contains(wanted)) {
+            System.err.println("Font \"" + wanted + "\" isn't installed; using the usual one.");
+        }
+        return java.util.stream.Stream.concat(java.util.stream.Stream.ofNullable(wanted), FONTS.stream())
+                .filter(installed::contains).findFirst().orElse(Font.MONOSPACED);
     }
 
     /** Says why (in a popup too: a double-clicked jar has no console) and quits. */
@@ -76,22 +83,23 @@ public class Main {
         if (options.server()) {
             GameServer server = startServer(options);
             Tls.Server tls = Tls.server(options.data());
-            NetworkServer network = new NetworkServer(server, options.port(), options.admin(), tls, limits);
-            System.out.println(server.world.name + " is up on port " + network.port()
-                    + (options.admin() ? " (admin commands on for everyone)" : ""));
+            NetworkServer network = new NetworkServer(server, bindAddress(options), options.port(), options.admin(), tls, limits);
+            System.out.println(server.world.name + " is up on " + network.listeningOn() + ", port " + network.port()
+                    + (options.admin() ? " (admin commands on for everyone)"
+                    : options.admins().isEmpty() ? "" : " (admin commands for " + String.join(", ", options.admins()) + ")"));
             System.out.println("Fingerprint (friends see this when they first connect): " + tls.fingerprint());
             network.acceptForever();
             return;
         }
         ClientPrefs prefs = ClientPrefs.load(options.data());
         String name = options.name() != null ? options.name() : prefs.name() != null ? prefs.name() : Options.defaultName();
-        Screen screen = openWindow();
+        Screen screen = openWindow(options.font());
         GameServer hosted = null;
         Tls.Server hostTls = null;
         if (options.host()) {
             hosted = startServer(options);
             hostTls = Tls.server(options.data());
-            NetworkServer network = new NetworkServer(hosted, options.port(), options.admin(), hostTls, limits);
+            NetworkServer network = new NetworkServer(hosted, bindAddress(options), options.port(), options.admin(), hostTls, limits);
             network.startInBackground();
             System.out.println("Fingerprint (friends see this when they first connect): " + hostTls.fingerprint());
         }
@@ -147,18 +155,35 @@ public class Main {
                 "server fingerprint " + tls.trust().fingerprint());
     }
 
-    /** Opens the account and world databases, loads (or creates) the world and starts ticking. Saves on exit. */
+    /** {@code --bind}: the one address to listen on, or null for all of them. */
+    private static InetAddress bindAddress(Options options) throws IOException {
+        return options.bind() == null ? null : InetAddress.getByName(options.bind());
+    }
+
+    /**
+     * Opens the account and world databases, loads (or creates) the world and starts ticking. Saves on exit.
+     * Hosting ({@code --server} / {@code --host}), it backs them both up first and then every
+     * {@code --backup-hours} ({@link Backups}).
+     */
     private static GameServer startServer(Options options) throws Exception {
-        AccountStore accounts = new AccountStore(options.data().resolve("accounts.db"));
+        Path accountsFile = options.data().resolve("accounts.db");
         // "--world 2" is world-2.db, named "world2"; "--world "Gabe's World"" is world-gabes-world.db, named exactly that
         boolean numbered = options.world().matches("\\d+");
         int worldId = numbered ? Integer.parseInt(options.world()) : 0;
-        WorldStore store = new WorldStore(numbered ? WorldStore.fileFor(options.data(), worldId)
-                : WorldStore.fileFor(options.data(), options.world()), accounts);
+        Path worldFile = numbered ? WorldStore.fileFor(options.data(), worldId) : WorldStore.fileFor(options.data(), options.world());
+        if ((options.server() || options.host()) && options.backupHours() > 0) {
+            Backups backups = new Backups(options.backups(), options.keepBackups(), List.of(accountsFile, worldFile));
+            // before the stores open: a copy from before any upgrade they're about to make
+            backups.runNow();
+            backups.every(java.time.Duration.ofHours(options.backupHours()));
+        }
+        AccountStore accounts = new AccountStore(accountsFile);
+        WorldStore store = new WorldStore(worldFile, accounts);
         World world = store.loadOrCreateWorld(worldId, numbered ? "world" + worldId : options.world(), new Random().nextLong());
         GameServer server = new GameServer(world, store);
         server.ensureBuildings();
         server.setWorldPassword(options.worldPassword());
+        server.setAdmins(options.admins());
         server.start();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             server.stop();
@@ -172,10 +197,10 @@ public class Main {
         return server;
     }
 
-    private static Screen openWindow() throws IOException {
+    private static Screen openWindow(String font) throws IOException {
         SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
                 true, AWTTerminalFontConfiguration.BoldMode.EVERYTHING_BUT_SYMBOLS,
-        new Font(monospacedFont(), Font.PLAIN, 14));
+        new Font(monospacedFont(font), Font.PLAIN, 14));
 
         DefaultTerminalFactory factory = new DefaultTerminalFactory();
         factory.setTerminalEmulatorFontConfiguration(fontConfig);
@@ -211,6 +236,7 @@ public class Main {
         // Order matters: earlier widgets get each key first, later ones draw on top (popups: drawOnTop).
         List<Widget> widgets = List.of(
                 new BankView(),
+                new StationView(),
                 commandLine,
                 new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut[0] = true),
                 new MapView(Layout.MAP),
@@ -265,9 +291,15 @@ public class Main {
      * {@code --server [--port p] [--admin] --world-password s} runs a world with no window.
      * Hosting needs {@code --world-password} (or {@code --no-world-password} to go without, on a trusted network);
      * {@code --max-per-ip n} lets n connections in from one address (default 1, e.g. 2 for two friends in one house).
+     * {@code --bind address} listens on that address only (e.g. the Tailscale one; default every interface);
+     * {@code --admins name1,name2} gives just those players admin commands (instead of {@code --admin}'s everyone).
+     * Hosting backs up the accounts and the world into {@code --backups dir} (default {@code <data>/backups}) at start
+     * and every {@code --backup-hours h} (default 24; 0 = never), keeping the last {@code --keep-backups n} (7).
+     * {@code --font name} picks the client's font, if it's installed.
      */
     record Options(String name, String world, Path data, boolean server, boolean host, int port, boolean admin, String connect,
-                   String worldPassword, boolean noWorldPassword, int maxPerIp) {
+                   String worldPassword, boolean noWorldPassword, int maxPerIp, String bind, List<String> admins,
+                   String font, Path backups, int backupHours, int keepBackups) {
         static Options parse(String[] args) {
             String name = null;
             String world = "1";
@@ -278,6 +310,11 @@ public class Main {
             String worldPassword = System.getenv("CAPEBABE_WORLD_PASSWORD");
             boolean noWorldPassword = false;
             int maxPerIp = 1;
+            String bind = null;
+            List<String> admins = List.of();
+            String font = null;
+            Path backups = null;
+            int backupHours = 24, keepBackups = 7;
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
                     case "--name" -> name = args[++i];
@@ -291,6 +328,12 @@ public class Main {
                     case "--world-password" -> worldPassword = args[++i];
                     case "--no-world-password" -> noWorldPassword = true;
                     case "--max-per-ip" -> maxPerIp = Math.max(1, Integer.parseInt(args[++i]));
+                    case "--bind" -> bind = args[++i];
+                    case "--admins" -> admins = List.of(args[++i].split(","));
+                    case "--font" -> font = args[++i];
+                    case "--backups" -> backups = Path.of(args[++i]);
+                    case "--backup-hours" -> backupHours = Math.max(0, Integer.parseInt(args[++i]));
+                    case "--keep-backups" -> keepBackups = Math.max(1, Integer.parseInt(args[++i]));
                     default -> throw new IllegalArgumentException("Unknown option " + args[i]);
                 }
             }
@@ -298,7 +341,8 @@ public class Main {
                 throw new IllegalArgumentException("--world takes a number or a name (up to 40 characters, with some letters or digits)");
             }
             return new Options(name, world, data, server, host, port, admin, connect,
-                    worldPassword == null || worldPassword.isEmpty() ? null : worldPassword, noWorldPassword, maxPerIp);
+                    worldPassword == null || worldPassword.isEmpty() ? null : worldPassword, noWorldPassword, maxPerIp,
+                    bind, admins, font, backups == null ? data.resolve("backups") : backups, backupHours, keepBackups);
         }
 
         /** The OS user name, cleaned up to a valid game name: the login screen's name when nothing else is known. */

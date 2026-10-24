@@ -44,7 +44,12 @@ public class GameCharacter implements Walker.Mobile {
     long lastSteppedTick = -1;
     /** Walking over to use an item on the node here; its action starts on arrival. */
     Position pendingUse;
+    /** ...AFK (see {@link ActionProgress#afk}). */
+    boolean pendingAfk;
     public final Map<Skill, Long> xp = new HashMap<>();
+    /** Times each skill's been prestiged (absent = 0), and the xp it had each time, all added up. */
+    public final Map<Skill, Integer> prestige = new HashMap<>();
+    public final Map<Skill, Long> bankedXp = new HashMap<>();
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     /** What's in your bank (unlimited), in the order you first put things in. */
     public final LinkedHashMap<Product, Integer> bank = new LinkedHashMap<>();
@@ -60,6 +65,14 @@ public class GameCharacter implements Walker.Mobile {
     Combat.Fight currentFight;
     /** Doesn't come back by itself: a church (q) or getting knocked out fills it up. Saved. */
     int hp = Combat.maxHp(1);
+    /** On the train until this tick (-1: not riding), getting off at {@link #rideTo}; see {@link GameServer#ride}. */
+    long ridingUntil = -1;
+    Building rideTo;
+
+    boolean isRiding() {
+        return ridingUntil >= 0;
+    }
+
     /** Knocked out until this tick (-1: up and about); see {@link Combat#knockOut}. */
     long downUntil = -1;
 
@@ -91,10 +104,50 @@ public class GameCharacter implements Walker.Mobile {
         this.name = name;
     }
 
-    void connect(Consumer<Event> outbox, NodeStates nodes, WorldContent content) {
+    void connect(Consumer<Event> outbox, NodeStates nodes, WorldContent content,
+                 java.util.function.BiFunction<Product, Integer, Product> prestigeProduct) {
         this.outbox = outbox;
         this.nodes = nodes;
         this.content = content;
+        this.prestigeProduct = prestigeProduct;
+    }
+
+    /** The prestige version of a product, made (as new world content) the first time anyone needs it. */
+    private java.util.function.BiFunction<Product, Integer, Product> prestigeProduct = (base, level) -> base;
+
+    public int getPrestige(Skill skill) {
+        return prestige.getOrDefault(skill, 0);
+    }
+
+    /** What {@code recipe} makes for you: its product, or the prestige version of it if you've prestiged the skill. */
+    Product made(Recipe recipe) {
+        int level = getPrestige(recipe.skill);
+        return level <= 0 ? recipe.product : prestigeProduct.apply(recipe.product, level);
+    }
+
+    /**
+     * At Lv. 100 in a crafting skill: start it over -- its xp banked and back to 0 (Lv. 1), the prestige count up
+     * one. What it makes from now on is the prestige version, which hits harder.
+     */
+    void prestige(Skill skill) {
+        if (skill == null) {
+            return;
+        }
+        if (skill.type == SkillType.COMBAT) {
+            say("Combat can't be prestiged (yet).");
+            return;
+        }
+        if (getLevel(skill) < Levels.MAX_LEVEL) {
+            say("Reach " + skill.name + " Lv. " + Levels.MAX_LEVEL + " to prestige it.");
+            return;
+        }
+        long banked = bankedXp.merge(skill, getExperience(skill), Long::sum);
+        int times = prestige.merge(skill, 1, Integer::sum);
+        xp.put(skill, 0L);
+        infoChanged = true;
+        saveSoon = true;
+        emit(new Event.Prestiged(skill.id, times, banked));
+        say(Event.MessageKind.NOTICE, skill.name + " prestige " + times + "! Back to Lv. 1 -- what you make with it now hits harder.");
     }
 
     void disconnect() {
@@ -178,7 +231,7 @@ public class GameCharacter implements Walker.Mobile {
     boolean roomToMake(Recipe recipe) {
         Map<Product, Integer> changes = new HashMap<>();
         recipe.components.forEach((part, count) -> changes.merge(part, -count, Integer::sum));
-        changes.merge(recipe.product, 1, Integer::sum);
+        changes.merge(made(recipe), 1, Integer::sum);
         return Stacks.fits(content, inventory, changes, this::getLevel);
     }
 
@@ -264,7 +317,7 @@ public class GameCharacter implements Walker.Mobile {
             say("You don't have that.");
         } else if (node == null) {
             say("There's nothing there to use it on.");
-        } else if (!node.recipe.components.containsKey(item)) {
+        } else if (!node.recipe.components.containsKey(item.root())) {
             say("Nothing interesting happens.");
         } else if (ahead().equals(target)) {
             if (currentAction != null && currentAction.node.equals(node)) {
@@ -288,13 +341,46 @@ public class GameCharacter implements Walker.Mobile {
         }
     }
 
+    /**
+     * Craft at the node at {@code target} (the map's node menu): facing it, the action starts (instead of whatever
+     * you were doing); otherwise you walk over and it starts on arrival. {@code afk}: see {@link ActionProgress}.
+     */
+    void craftAt(Node node, Position target, boolean afk, long tick) {
+        pendingUse = null;
+        if (node == null) {
+            say("There's nothing there to craft at.");
+        } else if (ahead().equals(target)) {
+            if (currentAction != null && currentAction.node.equals(node) && currentAction.afk == afk) {
+                say("You're already on it.");
+                return;
+            }
+            if (currentAction != null) {
+                stopAction(null);
+            }
+            startAction(node, tick, afk);
+        } else {
+            Position at = position();
+            if (Math.abs(target.x() - at.x()) + Math.abs(target.y() - at.y()) == 1) {
+                queueStep(Direction.of(target.x() - at.x(), target.y() - at.y()));
+            } else {
+                walkTo(target);
+            }
+            if (walker.isWalking()) {
+                pendingUse = target;
+                pendingAfk = afk;
+            }
+        }
+    }
+
     /** After walking: start the use that was waiting for us to arrive, if we got there. */
     void arrive(Node node, long tick) {
         if (pendingUse == null || walker.isWalking()) {
             return;
         }
         Position target = pendingUse;
+        boolean afk = pendingAfk;
         pendingUse = null;
+        pendingAfk = false;
         if (!ahead().equals(target) || node == null) {
             say("Couldn't get to it.");
             return;
@@ -302,24 +388,29 @@ public class GameCharacter implements Walker.Mobile {
         if (currentAction != null) {
             stopAction(null);
         }
-        startAction(node, tick);
+        startAction(node, tick, afk);
     }
 
     private void startAction(Node node, long tick) {
+        startAction(node, tick, false);
+    }
+
+    /** {@code afk}: an empty node isn't a reason not to start -- you wait for it. */
+    private void startAction(Node node, long tick, boolean afk) {
         if (node == null) {
             say("Nothing to do here...");
         } else if (!canPerform(node)) {
             perform(node);
         } else {
-            String busy = nodes.whyNot(node, id);
+            String busy = afk && nodes.isDepleted(node) ? null : nodes.whyNot(node, id);
             if (busy != null) {
                 say(busy);
                 return;
             }
             stopWalking();
             nodes.join(node, id);
-            currentAction = new ActionProgress(node, this, tick);
-            emit(new Event.ActionStarted(node.id, node.label(), tick, node.durationTicks()));
+            currentAction = new ActionProgress(node, this, tick, afk);
+            emit(new Event.ActionStarted(node.id, ActionProgress.label(node, afk), tick, node.durationTicks()));
         }
     }
 
@@ -360,6 +451,11 @@ public class GameCharacter implements Walker.Mobile {
 
     /** Makes the node's product once, or says why not. Returns whether something was made. */
     boolean perform(Node node) {
+        return perform(node, false);
+    }
+
+    /** {@code afk}: half the xp (at least 1). */
+    boolean perform(Node node, boolean afk) {
         Recipe recipe = node.recipe;
         if (isLockedFor(node)) {
             if (triedNodes.add(node.id)) {
@@ -376,13 +472,13 @@ public class GameCharacter implements Walker.Mobile {
         if (!attemptToUseAll(recipe.components)) {
             return false;
         }
-        changeInventory(recipe.product, 1);
+        changeInventory(made(recipe), 1);
         lastActionAt = position();
         emit(new Event.HomeChanged(lastActionAt));
         say(Event.MessageKind.ROUTINE, "Made " + recipe.product.name);
         triggers.add(Discovery.Trigger.MADE);
         count(Stat.ITEMS_CRAFTED);
-        gainExperience(recipe.skill, recipe.expGained);
+        gainExperience(recipe.skill, afk ? Math.max(1, recipe.expGained / 2) : recipe.expGained);
         return true;
     }
 
@@ -446,18 +542,37 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     public boolean has(Map<Product, Integer> components) {
-        return components.entrySet().stream().allMatch(c -> inventory.getOrDefault(c.getKey(), 0) >= c.getValue());
+        return components.entrySet().stream().allMatch(c -> available(c.getKey()) >= c.getValue());
+    }
+
+    /** How many of a component you have: the plain item and its prestige versions all count. */
+    int available(Product part) {
+        return inventory.entrySet().stream().filter(e -> e.getKey().root().equals(part.root()))
+                .mapToInt(Map.Entry::getValue).sum();
     }
 
     boolean attemptToUseAll(Map<Product, Integer> components) {
         for (Product part : components.keySet()) {
-            if (inventory.getOrDefault(part, 0) < components.get(part)) {
+            if (available(part) < components.get(part)) {
                 say(part.name + " x " + components.get(part) + " are not available");
                 return false;
             }
         }
-        components.forEach((part, count) -> changeInventory(part, -count));
+        components.forEach(this::useUp);
         return true;
+    }
+
+    /** {@code count} of a component: the plain ones first, then the prestige versions, lowest first. */
+    private void useUp(Product part, int count) {
+        List<Product> kinds = inventory.keySet().stream().filter(p -> p.root().equals(part.root()))
+                .sorted(java.util.Comparator.comparingInt(p -> p.prestige)).toList();
+        for (Product kind : kinds) {
+            int take = Math.min(count, inventory.getOrDefault(kind, 0));
+            if (take > 0) {
+                changeInventory(kind, -take);
+                count -= take;
+            }
+        }
     }
 
     public Product equipped(EquipSlot slot) {
@@ -522,7 +637,13 @@ public class GameCharacter implements Walker.Mobile {
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
                 facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate, compactChat, statsByName(),
-                weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id, lightMode, bankById());
+                weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id, lightMode, bankById(), byId(prestige), byId(bankedXp));
+    }
+
+    private static <V> Map<Integer, V> byId(Map<Skill, V> bySkill) {
+        Map<Integer, V> byId = new HashMap<>();
+        bySkill.forEach((skill, value) -> byId.put(skill.id, value));
+        return byId;
     }
 
     private Map<Integer, Integer> bankById() {
@@ -532,7 +653,9 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     Event.EntityInfo info() {
-        int levelsGained = xp.keySet().stream().mapToInt(skill -> getLevel(skill) - 1).sum();
+        // a prestige keeps the 99 levels it took: the total never goes down
+        int levelsGained = xp.keySet().stream().mapToInt(skill -> getLevel(skill) - 1).sum()
+                + prestige.values().stream().mapToInt(times -> times * (Levels.MAX_LEVEL - 1)).sum();
         return Event.EntityInfo.player(id, name, position(), facing, levelsGained, hp, maxHp(), colorIndex);
     }
 }

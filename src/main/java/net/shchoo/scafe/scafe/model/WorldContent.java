@@ -10,6 +10,8 @@ public class WorldContent {
     public final List<Skill> skills = new ArrayList<>();
     private final Map<Integer, Skill> skillsById = new HashMap<>();
     private final Map<Integer, Product> productsById = new HashMap<>();
+    /** Prestige versions, by base product and prestige. */
+    private final Map<Long, Product> variants = new HashMap<>();
     private final Map<Integer, ProductLine> productLinesById = new HashMap<>();
     private final Map<Integer, Recipe> recipesById = new HashMap<>();
     private final Map<Integer, Node> nodesById = new HashMap<>();
@@ -49,7 +51,8 @@ public class WorldContent {
             seen(def.id());
         }
         for (ContentBatch.ProductDef def : batch.products()) {
-            productsById.put(def.id(), new Product(def.id(), def.name(), def.tier()));
+            Product base = def.prestige() > 0 ? require(productsById, def.baseId(), "product") : null;
+            addProduct(new Product(def.id(), def.name(), def.tier(), base, def.prestige()));
             seen(def.id());
         }
         for (ContentBatch.ProductLineDef def : batch.productLines()) {
@@ -130,6 +133,23 @@ public class WorldContent {
         monstersById.put(monster.id, monster);
     }
 
+    /** A product on its own (a prestige version; others come with their recipes or drops). */
+    public void addProduct(Product product) {
+        productsById.put(product.id, product);
+        if (product.base != null) {
+            variants.put(variantKey(product.base, product.prestige), product);
+        }
+    }
+
+    private static long variantKey(Product base, int prestige) {
+        return ((long) base.id << 16) | prestige;
+    }
+
+    /** The prestige version of {@code base}, or null if nobody's made one yet. */
+    public Product variant(Product base, int prestige) {
+        return prestige <= 0 ? base : variants.get(variantKey(base, prestige));
+    }
+
     public void addNode(Node node) {
         nodesById.put(node.id, node);
         nodesAt.put(node.position, node);
@@ -191,6 +211,12 @@ public class WorldContent {
                 addIfNew(original, drop.product(), newProducts);
             }
         }
+        for (Product product : productsById.values()) {
+            // products not reached through recipes or drops: prestige versions
+            if (product.base != null) {
+                addIfNew(original, product, newProducts);
+            }
+        }
         List<ContentBatch.ProductDef> products = new ArrayList<>(newProducts.values());
         products.sort(Comparator.comparingInt(ContentBatch.ProductDef::id));
         Set<Integer> had = new HashSet<>();
@@ -203,7 +229,8 @@ public class WorldContent {
 
     private static void addIfNew(WorldContent original, Product product, Map<Integer, ContentBatch.ProductDef> into) {
         if (!original.productsById.containsKey(product.id)) {
-            into.putIfAbsent(product.id, new ContentBatch.ProductDef(product.id, product.name, product.tier));
+            into.putIfAbsent(product.id, new ContentBatch.ProductDef(product.id, product.name, product.tier,
+                    product.base == null ? 0 : product.base.id, product.prestige));
         }
     }
 
@@ -217,10 +244,11 @@ public class WorldContent {
         return skills.stream().filter(s -> s.type == SkillType.COMBAT).findFirst().orElse(null);
     }
 
-    /** The recipe that makes this product, or null (monster drops aren't made by anything). */
+    /** The recipe that makes this product (a prestige version: its plain one's), or null (monster drops). */
     public Recipe madeBy(Product product) {
+        Product root = product.root();
         for (Recipe recipe : recipesById.values()) {
-            if (recipe.product.equals(product)) {
+            if (recipe.product.equals(root)) {
                 return recipe;
             }
         }
@@ -280,8 +308,20 @@ public class WorldContent {
         return buildingsAt.get(position);
     }
 
-    /** Nodes and buildings: what you can't walk onto. */
+    /** Nodes and buildings (but not a station's track): what you can't walk onto. */
     public boolean blocked(Position position) {
+        Building building = buildingsAt.get(position);
+        return nodesAt.containsKey(position) || building != null && !building.walkable(position);
+    }
+
+    /** A node or any part of a building, track included: where nothing new may go. */
+    public boolean builtOn(Position position) {
         return nodesAt.containsKey(position) || buildingsAt.containsKey(position);
+    }
+
+    /** The building whose solid part (not track) is here, or null: what q acts on. */
+    public Building solidBuildingAt(Position position) {
+        Building building = buildingsAt.get(position);
+        return building == null || building.walkable(position) ? null : building;
     }
 }

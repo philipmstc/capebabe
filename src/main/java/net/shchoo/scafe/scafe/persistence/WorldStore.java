@@ -149,6 +149,15 @@ public class WorldStore extends SqliteStore implements Storage {
             // v16: hp is kept (it doesn't come back by itself any more); null = full
             """
             alter table game_character add column hp integer;
+            """,
+            // v17: prestige -- prestige versions of products, and each character's prestige + banked xp per skill
+            """
+            alter table product add column base_id integer references product(id);
+            alter table product add column prestige integer not null default 0;
+            create table character_prestige (character_id integer not null references game_character(id),
+                                             skill_id integer not null references skill(id),
+                                             prestige integer not null, banked_xp integer not null,
+                                             primary key (character_id, skill_id));
             """
     );
 
@@ -272,9 +281,9 @@ public class WorldStore extends SqliteStore implements Storage {
             }
         }
         try (PreparedStatement ps = connection.prepareStatement(
-                "insert into product (id, content_version, ordinal, name, tier) values (?,?,?,?,?)")) {
+                "insert into product (id, content_version, ordinal, name, tier, base_id, prestige) values (?,?,?,?,?,?,?)")) {
             for (ContentBatch.ProductDef d : batch.products()) {
-                set(ps, d.id(), v, ordinal++, d.name(), d.tier());
+                set(ps, d.id(), v, ordinal++, d.name(), d.tier(), d.prestige() > 0 ? d.baseId() : null, d.prestige());
                 ps.executeUpdate();
             }
         }
@@ -371,7 +380,7 @@ public class WorldStore extends SqliteStore implements Storage {
                         SkillType.valueOf(rs.getString("type")), rs.getInt("color_index"), rs.getString("symbol").charAt(0))));
         all("select * from product order by content_version, ordinal", rs ->
                 products.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductDef(rs.getInt("id"), rs.getString("name"),
-                        tierOf(rs))));
+                        tierOf(rs), rs.getInt("base_id"), rs.getInt("prestige"))));
         all("select * from product_line order by content_version, ordinal", rs ->
                 productLines.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductLineDef(rs.getInt("id"), rs.getInt("skill_id"))));
         Map<Integer, Map<Integer, Integer>> components = new HashMap<>();
@@ -469,6 +478,11 @@ public class WorldStore extends SqliteStore implements Storage {
         int id = character.id;
         query("select * from character_skill_xp where character_id = ?", id, rs ->
                 character.xp.put(content.skill(rs.getInt("skill_id")), rs.getLong("xp")));
+        query("select * from character_prestige where character_id = ?", id, rs -> {
+            Skill skill = content.skill(rs.getInt("skill_id"));
+            character.prestige.put(skill, rs.getInt("prestige"));
+            character.bankedXp.put(skill, rs.getLong("banked_xp"));
+        });
         query("select * from inventory where character_id = ? order by ordinal", id, rs ->
                 character.inventory.put(content.product(rs.getInt("product_id")), rs.getInt("count")));
         query("select * from bank_item where character_id = ? order by ordinal", id, rs ->
@@ -515,9 +529,15 @@ public class WorldStore extends SqliteStore implements Storage {
                         character.currentHp(), character.id);
                 ps.executeUpdate();
             }
-            for (String table : List.of("character_skill_xp", "inventory", "bank_item", "goal", "character_tried_node", "character_stat")) {
+            for (String table : List.of("character_skill_xp", "character_prestige", "inventory", "bank_item", "goal", "character_tried_node", "character_stat")) {
                 try (PreparedStatement ps = connection.prepareStatement("delete from " + table + " where character_id = ?")) {
                     ps.setInt(1, character.id);
+                    ps.executeUpdate();
+                }
+            }
+            try (PreparedStatement ps = connection.prepareStatement("insert into character_prestige values (?, ?, ?, ?)")) {
+                for (Map.Entry<Skill, Integer> e : character.prestige.entrySet()) {
+                    set(ps, character.id, e.getKey().id, e.getValue(), character.bankedXp.getOrDefault(e.getKey(), 0L));
                     ps.executeUpdate();
                 }
             }

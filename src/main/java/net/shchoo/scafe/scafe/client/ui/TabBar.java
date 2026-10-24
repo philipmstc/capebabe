@@ -93,6 +93,7 @@ public class TabBar extends Widget {
     @Override
     public void drawOnTop(Screen screen, Player player, Board board) {
         inventory.drawOnTop(screen, player, board);
+        map.drawOnTop(screen, player, board);
     }
 
     private static void header(Screen screen, int x, String key, String title, boolean selected) {

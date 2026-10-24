@@ -34,7 +34,11 @@ public record ContentBatch(int version,
     public record SkillDef(int id, String name, SkillType type, int colorIndex, char symbol) {}
 
     /** {@code tier}: which tier of its product line, or {@link Product#NO_TIER}. */
-    public record ProductDef(int id, String name, int tier) {}
+    public record ProductDef(int id, String name, int tier, int baseId, int prestige) {
+        public ProductDef(int id, String name, int tier) {
+            this(id, name, tier, 0, 0);
+        }
+    }
 
     public record ProductLineDef(int id, int skillId) {}
 

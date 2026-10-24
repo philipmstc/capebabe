@@ -87,6 +87,7 @@ class UseItemTest {
         tabs.onKey(new KeyStroke(KeyType.Enter), player, board);
         tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
         tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
+        tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);
         tabs.onKey(new KeyStroke(KeyType.Enter), player, board);
 
         MapMenu map = tabs.map();

@@ -66,6 +66,12 @@ class EquipmentViewTest {
         assertEquals(SkillStyle.darkOf(skill), screen.getBackCharacter(x + 9, y).getForegroundColor(), "tier dots dark");
         assertEquals(SkillStyle.getColorForSkill(skill), screen.getBackCharacter(x + 11, y).getForegroundColor(), "S0-0 bright");
         assertEquals(TextColor.ANSI.BLACK_BRIGHT, screen.getBackCharacter(x + 16, y).getForegroundColor(), "x grey");
-        assertEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x + 17, y).getForegroundColor(), "count white");
+        assertEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x + 17, y).getForegroundColor(), "count white");        player.inventory.put(item, 1113);
+        new EquipmentView(Layout.EQUIPMENT).draw(screen, player, new Board(player.content));
+        assertEquals(" Weapon [.:]S0-0 x1.1k\u2502", row(screen, y).substring(1), "a thousand and more, shortened");
+        player.inventory.put(item, 10_250);
+        new EquipmentView(Layout.EQUIPMENT).draw(screen, player, new Board(player.content));
+        assertEquals(" Weapon [.:]S0-0x10.2k\u2502", row(screen, y).substring(1), "the space goes before the label is cut");
+
     }
 }
