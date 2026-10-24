@@ -116,7 +116,7 @@ class SkillsMenuTest {
         assertTrue(skills.skillOpen());
         String shown = box(drawn());
         assertTrue(shown.contains(first.type.name()), shown);
-        assertTrue(shown.contains("xp across prestiges"));
+        assertTrue(shown.contains("total xp"));
         assertTrue(shown.contains("Recipes"));
         assertTrue(shown.contains("[Esc] back to skills"));
         press(new KeyStroke(KeyType.ArrowRight));
@@ -146,7 +146,7 @@ class SkillsMenuTest {
         assertEquals(1, player.getLevel(first));
         String shown = box(drawn());
         assertTrue(shown.contains(first.name + " +1"), "the row shows the prestige:\n" + shown);
-        assertTrue(shown.contains(String.format("%,d xp across prestiges", xp)), shown);
+        assertTrue(shown.contains(String.format("%,d total xp", xp)), shown);
     }
 
     @Test
