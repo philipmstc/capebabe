@@ -40,11 +40,14 @@ public class Player {
     // Settings
     public boolean running;
     public boolean autoInvestigate;
+    // ...and the display ones, kept on this computer, not the server (DisplaySettings)
     public boolean showProductTiers;
     public boolean showTimeEstimate;
     /** Hide routine messages ("Made x") in the chat. */
     public boolean compactChat;
     public boolean lightMode;
+    /** Called when a display setting changes (the game saves them). */
+    public Runnable onDisplaySettingsChanged = () -> {};
     /** Your lifetime counts in this world. */
     public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
 
@@ -64,6 +67,11 @@ public class Player {
     public boolean bankOpen;
     /** The station menu is up (q at a station). */
     public boolean stationMenuOpen;
+    /** q at a church: its window (heal, or pray for a node) is up. */
+    public boolean churchMenuOpen;
+    /** Your church blessing (null: none) and the steps / actions it has left ({@link net.shchoo.scafe.scafe.model.Prayer}). */
+    public Recipe blessing;
+    public int blessingLeft;
     private long bankSentAt = -1;
     /** Render frames so far, for things that flicker. */
     private long frames;
@@ -206,6 +214,9 @@ public class Player {
             xp.put(skill, gained.totalXp());
             xpTracker.record(skill, gained.amount());
             popups.add(new Popup(gained.at(), "+" + gained.amount() + "xp", SkillStyle.getColorForSkill(skill)));
+        } else if (event instanceof Event.BlessingChanged changed) {
+            blessing = changed.recipeId() < 0 ? null : content.recipe(changed.recipeId());
+            blessingLeft = changed.left();
         } else if (event instanceof Event.Prestiged prestiged) {
             Skill skill = content.skill(prestiged.skillId());
             xp.put(skill, 0L);
@@ -249,10 +260,6 @@ public class Player {
             running = changed.running();
         } else if (event instanceof Event.AutoInvestigateChanged changed) {
             autoInvestigate = changed.on();
-        } else if (event instanceof Event.ShowProductTiersChanged changed) {
-            showProductTiers = changed.on();
-        } else if (event instanceof Event.ShowTimeEstimateChanged changed) {
-            showTimeEstimate = changed.on();
         } else if (event instanceof Event.HpChanged changed) {
             hp = changed.hp();
             maxHp = changed.maxHp();
@@ -268,10 +275,6 @@ public class Player {
             GameLog.chat(chat.from(), chat.colorIndex(), chat.text());
         } else if (event instanceof Event.StatsChanged changed) {
             setStats(changed.stats());
-        } else if (event instanceof Event.CompactChatChanged changed) {
-            compactChat = changed.on();
-        } else if (event instanceof Event.LightModeChanged changed) {
-            lightMode = changed.on();
         }
     }
 
@@ -287,13 +290,11 @@ public class Player {
         colorIndex = you.colorIndex();
         running = you.running();
         autoInvestigate = you.autoInvestigate();
-        showProductTiers = you.showProductTiers();
-        showTimeEstimate = you.showTimeEstimate();
-        compactChat = you.compactChat();
-        lightMode = you.lightMode();
         bank.clear();
         you.bank().forEach((productId, count) -> bank.put(content.product(productId), count));
         weapon = you.weaponId() < 0 ? null : content.product(you.weaponId());
+        blessing = you.blessingRecipeId() < 0 ? null : content.recipe(you.blessingRecipeId());
+        blessingLeft = you.blessingLeft();
         armor = you.armorId() < 0 ? null : content.product(you.armorId());
         setStats(you.stats());
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
@@ -342,6 +343,13 @@ public class Player {
     /** One render frame. */
     public void frame() {
         frames++;
+        if (pendingBuilding != null && ahead().equals(pendingBuilding)) {
+            pendingBuilding = null;
+            walkTarget = null;
+            perform();
+        } else if (pendingBuilding != null && walkTarget == null) {
+            pendingBuilding = null;
+        }
         popups.removeIf(Popup::advanceFrame);
         waypoints.update(ahead());
         if (walkTarget != null && (walkTarget.equals(new Position(x, y)) || walkTarget.equals(ahead())
@@ -419,6 +427,7 @@ public class Player {
      */
     public void moveBy(int dx, int dy) {
         walkTarget = null;
+        pendingBuilding = null;
         Direction direction = Direction.of(dx, dy);
         if (direction == null || predicted.size() >= Intent.MAX_QUEUED_STEPS) {
             return;
@@ -453,6 +462,37 @@ public class Player {
     }
 
     /** Use an inventory item on the node at {@code target} (the server walks you over if needed). */
+    /** Fight this monster: you walk up to it first (following it a while) if need be. */
+    public void fight(int monsterId) {
+        pendingBuilding = null;
+        send(new Intent.Fight(monsterId));
+    }
+
+    /**
+     * Walk up to the building at {@code tile} and use it as q would (the bank, station or church window opens) once you're facing it: the nearest of its tiles you can stand beside.
+     */
+    public void useBuilding(Building building) {
+        Position best = null;
+        int bestSteps = Integer.MAX_VALUE;
+        for (Position tile : building.solidTiles()) {
+            for (Direction d : Direction.values()) {
+                Position beside = tile.step(d);
+                if (!content.blocked(beside) && stepsTo(beside) < bestSteps) {
+                    best = tile;
+                    bestSteps = stepsTo(beside);
+                }
+            }
+        }
+        if (best == null) {
+            return;
+        }
+        walkTo(best);
+        pendingBuilding = best;
+    }
+
+    /** Walking up to use this building tile ({@link #useBuilding}), or null. */
+    private Position pendingBuilding;
+
     /** Craft at the node at {@code target}, walking over if need be; {@code afk}: half the xp, waits out respawns. */
     public void craft(Position target, boolean afk) {
         send(new Intent.Craft(target, afk));
@@ -541,8 +581,20 @@ public class Player {
             bankOpen = true;
         } else if (building != null && building.kind() == Building.Kind.STATION) {
             stationMenuOpen = true;
+        } else if (building != null && building.kind() == Building.Kind.CHURCH) {
+            churchMenuOpen = true;
         }
         send(new Intent.Perform());
+    }
+
+    /** At a church: all your hp back. */
+    public void heal() {
+        send(new Intent.Heal());
+    }
+
+    /** At a church: a blessing on {@code recipe}, paid with {@code payment} (the server takes it). */
+    public void pray(Recipe recipe, Product payment) {
+        send(new Intent.Pray(recipe.id, payment.id));
     }
 
     /** Off to the station with this id (the server takes the fare). */
@@ -572,12 +624,12 @@ public class Player {
 
     public void toggleLightMode() {
         lightMode = !lightMode;
-        send(new Intent.SetLightMode(lightMode));
+        onDisplaySettingsChanged.run();
     }
 
     public void toggleCompactChat() {
         compactChat = !compactChat;
-        send(new Intent.SetCompactChat(compactChat));
+        onDisplaySettingsChanged.run();
     }
 
     public void toggleRunning() {
@@ -591,13 +643,13 @@ public class Player {
     }
 
     public void toggleShowProductTiers() {
-        showProductTiers = ! showProductTiers;
-        send(new Intent.SetShowProductTiers(showProductTiers));
+        showProductTiers = !showProductTiers;
+        onDisplaySettingsChanged.run();
     }
 
     public void toggleShowTimeEstimate() {
         showTimeEstimate = !showTimeEstimate;
-        send(new Intent.SetShowTimeEstimate(showTimeEstimate));
+        onDisplaySettingsChanged.run();
     }
 
     public int getLevel(Skill skill) {

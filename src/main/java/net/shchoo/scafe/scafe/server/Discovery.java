@@ -46,6 +46,8 @@ public class Discovery {
     }
 
     public static final double SKILL_BACKOFF = 0.6;
+    /** A church blessing ({@link net.shchoo.scafe.scafe.model.Prayer}) makes a new node this much likelier. */
+    public static final double BLESSED_NODE_FACTOR = 2;
     public static final double NODE_BACKOFF = 0.5;
     /** Nodes within this many tiles count towards the node backoff. */
     public static final int NODE_CROWD_RADIUS = 8;
@@ -95,16 +97,24 @@ public class Discovery {
     }
 
     void roll(GameServer server, GameCharacter character, Trigger trigger) {
-        if (!enabled) {
-            return;
+        if (enabled) {
+            discover(server, character, trigger);
         }
+        // a church blessing counts steps / actions (a level up comes with an item made: that's one, not two)
+        if (trigger != Trigger.LEVELLED) {
+            character.blessingStep();
+        }
+    }
+
+    private void discover(GameServer server, GameCharacter character, Trigger trigger) {
         World world = server.world;
         if (random.nextDouble() < chance(trigger.skillChance, SKILL_BACKOFF, world.content.craftingSkills().size())) {
             discoverSkill(server, character);
         }
         boolean anySkills = !world.content.craftingSkills().isEmpty();
-        if (anySkills
-                && random.nextDouble() < chance(trigger.nodeChance, NODE_BACKOFF, nodesNear(world, character.position()))) {
+        double blessed = character.blessing != null ? BLESSED_NODE_FACTOR : 1;
+        if (anySkills && random.nextDouble()
+                < blessed * chance(trigger.nodeChance, NODE_BACKOFF, nodesNear(world, character.position()))) {
             discoverNode(server, character);
         }
         if (anySkills
@@ -203,11 +213,17 @@ public class Discovery {
         int capacity = 1 + random.nextInt(3);
         int charges = 5 + random.nextInt(16);
         int respawnTicks = 20 + random.nextInt(41);
-        ContentBatch batch = WorldGenerator.newNode(server.world, at, capacity, charges, respawnTicks,
-                recipe -> recipe.levelMet(character.getLevel(recipe.skill)) ? UNLOCKED_WEIGHT : 1);
+        Recipe prayedFor = character.blessing;
+        ContentBatch batch = WorldGenerator.newNode(server.world, at, capacity, charges, respawnTicks, prayedFor != null
+                ? recipe -> recipe.id == prayedFor.id ? 1 : 0
+                : recipe -> recipe.levelMet(character.getLevel(recipe.skill)) ? UNLOCKED_WEIGHT : 1);
         server.applyContent(batch, character);
         Node node = server.world.content.node(batch.nodes().get(0).id());
-        character.say(Event.MessageKind.NOTICE, "A " + node.skill().name + " node (" + node.label() + ") appeared nearby.");
+        character.say(Event.MessageKind.NOTICE, "A " + node.skill().name + " node (" + node.label() + ") appeared nearby."
+                + (prayedFor != null ? " Your prayer is answered." : ""));
+        if (prayedFor != null) {
+            character.setBlessing(null, 0);
+        }
     }
 
     static int nodesNear(World world, Position around) {

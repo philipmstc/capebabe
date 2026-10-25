@@ -3,6 +3,7 @@ package net.shchoo.scafe.scafe;
 import net.shchoo.scafe.scafe.persistence.Backups;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.ClientPrefs;
+import net.shchoo.scafe.scafe.client.DisplaySettings;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.LogEntry;
 import net.shchoo.scafe.scafe.client.Player;
@@ -19,6 +20,10 @@ import net.shchoo.scafe.scafe.protocol.GameConnection;
 import net.shchoo.scafe.scafe.server.GameServer;
 import net.shchoo.scafe.scafe.server.LocalConnection;
 
+import com.googlecode.lanterna.terminal.Terminal;
+import com.googlecode.lanterna.screen.TerminalScreen;
+import com.googlecode.lanterna.input.MouseActionType;
+import com.googlecode.lanterna.input.MouseAction;
 import com.googlecode.lanterna.*;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
@@ -125,7 +130,7 @@ public class Main {
                 server = login.server();
                 prefs.save(options.data(), server, name);
             }
-            play(screen, login);
+            play(screen, login, options.data());
         }
     }
 
@@ -197,6 +202,21 @@ public class Main {
         return server;
     }
 
+    /** A mouse press: left or right, to whatever's under it this frame ({@link Clicks}). */
+    private static void click(MouseAction mouse, Board board) {
+        if (mouse.getActionType() != MouseActionType.CLICK_DOWN) {
+            return;
+        }
+        Clicks.Button button = switch (mouse.getButton()) {
+            case 1 -> Clicks.Button.LEFT;
+            case 3 -> Clicks.Button.RIGHT;
+            default -> null;
+        };
+        if (button != null) {
+            board.clicks.click(button, mouse.getPosition().getColumn(), mouse.getPosition().getRow());
+        }
+    }
+
     private static Screen openWindow(String font) throws IOException {
         SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
                 true, AWTTerminalFontConfiguration.BoldMode.EVERYTHING_BUT_SYMBOLS,
@@ -209,16 +229,23 @@ public class Main {
         // and broken keys) or refuses (Windows Terminal: "use javaw"), depending on how it was launched
         factory.setPreferTerminalEmulator(true);
 
-        Screen screen = factory.createScreen();
+        Terminal terminal = factory.createTerminalEmulator();
+        // lanterna's own window doesn't report the mouse: listen to it ourselves (clicks, and moves for hover)
+        if (terminal instanceof Container window) {
+            WindowMouse.listen(window);
+        }
+        Screen screen = new TerminalScreen(terminal);
         screen.startScreen();
         screen.setCursorPosition(null);
         return screen;
     }
 
     /** Plays until you log out (closing the window quits the whole game). */
-    private static void play(Screen screen, LoginScreen login) throws Exception {
+    private static void play(Screen screen, LoginScreen login, Path data) throws Exception {
         GameConnection connection = login.connection().connection();
         Player player = login.connection().player();
+        DisplaySettings.load(data).applyTo(player);
+        player.onDisplaySettingsChanged = () -> DisplaySettings.of(player).save(data);
         Board board = new Board(player.content);
         login.heard().forEach(line -> board.log.add(line));
         Consumer<LogEntry> toLog = entry -> board.log.add(entry);
@@ -237,13 +264,15 @@ public class Main {
         List<Widget> widgets = List.of(
                 new BankView(),
                 new StationView(),
+                new ChurchView(),
                 commandLine,
                 new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut[0] = true),
-                new MapView(Layout.MAP),
+                new MapView(Layout.MAP, map),
                 new ProgressBarView(Layout.PROGRESS),
                 new EquipmentView(Layout.EQUIPMENT),
                 tabs,
-                new MapDetailView(Layout.DETAIL, map::hovered),
+                // the v cursor's tile while it's out, else the one under the mouse
+                new MapDetailView(Layout.DETAIL, p -> map.hovered(p) != null ? map.hovered(p) : MapView.hoveredTile(board, p)),
                 new XpTrackerView(Layout.XP),
                 new MessageLogView(Layout.LOG, commandLine),
                 new KeyCommands(quit),
@@ -254,12 +283,15 @@ public class Main {
             player.receive();
             player.frame();
             screen.clear();
+            board.clicks.clear();
             for (Widget widget : widgets) {
                 widget.draw(screen, player, board);
             }
             for (Widget widget : widgets) {
                 widget.drawOnTop(screen, player, board);
             }
+            board.clicks.highlight(screen, board.mouseX, board.mouseY);
+            board.mouseSettled();
             if (player.lightMode) {
                 LightMode.invert(screen);
             }
@@ -269,6 +301,16 @@ public class Main {
                 // closing the window only disposes it; without this the game (and its autosaves) kept running unseen
                 if (key.getKeyType() == KeyType.EOF) {
                     quit.run();
+                }
+                if (key instanceof MouseAction mouse) {
+                    if (mouse.isMouseMove()) {
+                        board.mouseX = mouse.getPosition().getColumn();
+                        board.mouseY = mouse.getPosition().getRow();
+                        board.mouseSettled();
+                    } else {
+                        click(mouse, board);
+                    }
+                    continue;
                 }
                 for (Widget widget : widgets) {
                     if (widget.onKey(key, player, board)) {

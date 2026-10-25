@@ -16,6 +16,7 @@ import com.googlecode.lanterna.screen.Screen;
  * Weapon [.:]S0-0 x123
  * Armor  [  ]S1-1 x321
  * </pre>
+ * Clicking a piece takes it off.
  */
 public class EquipmentView extends Widget {
     private static final String[] TIER_MARKS = {"  ", " .", "..", ".:", "::"};
@@ -34,6 +35,12 @@ public class EquipmentView extends Widget {
         drawFrame(screen);
         row(screen.newTextGraphics(), firstRow(), "Weapon", player.weapon, "fists", player);
         row(screen.newTextGraphics(), firstRow() + 1, "Armor", player.armor, "none", player);
+        if (player.weapon != null) {
+            board.clicks.option(Clicks.BASE, textX(), firstRow(), textWidth(), 1, (button, cx, cy) -> player.unequip(EquipSlot.WEAPON));
+        }
+        if (player.armor != null) {
+            board.clicks.option(Clicks.BASE, textX(), firstRow() + 1, textWidth(), 1, (button, cx, cy) -> player.unequip(EquipSlot.ARMOR));
+        }
     }
 
     private void row(TextGraphics g, int y, String name, Product item, String nothing, Player player) {

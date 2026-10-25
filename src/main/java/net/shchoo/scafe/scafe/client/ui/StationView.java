@@ -116,6 +116,7 @@ public class StationView extends Widget {
         Building here = here(player);
         selected = Math.max(0, Math.min(selected, Math.max(0, line.size() - 1)));
         Rect box = bounds();
+        board.clicks.addEverywhere(Clicks.MODAL, (button, cx, cy) -> {});
         int rows = Math.min(box.height(), line.size() + 4 + (line.size() < 2 ? 2 : 0));
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
@@ -142,6 +143,14 @@ public class StationView extends Widget {
                 g.enableModifiers(SGR.BOLD);
             }
             g.putString(box.x() + 2, y, fit(name, 24));
+            if (reachable(player, station)) {
+                int pick = i;
+                board.clicks.option(Clicks.MODAL, box.x() + 1, y, box.width() - 2, 1, (button, cx, cy) -> {
+                    selected = pick;
+                    player.rideTo(station.id());
+                    player.stationMenuOpen = false;
+                });
+            }
             g.disableModifiers(SGR.BOLD);
             int x = box.x() + 27;
             if (isHere) {

@@ -467,6 +467,7 @@ public class GameServer {
         }
         combat.regenerate(tick);
         combat.wakeUp(tick);
+        combat.chase(tick);
         // time played: counted quietly (the client counts along between updates, see Player.timePlayedTicks)
         online.values().forEach(c -> c.stats.merge(Stat.TIME_PLAYED, 1L, Long::sum));
         arrive();
@@ -546,6 +547,12 @@ public class GameServer {
             }
             return;
         }
+        if (intent instanceof Intent.Move || intent instanceof Intent.WalkTo || intent instanceof Intent.Perform
+                || intent instanceof Intent.Craft || intent instanceof Intent.UseItem || intent instanceof Intent.Attack
+                || intent instanceof Intent.Ride) {
+            // doing something else: not walking over to a fight any more
+            character.pendingFight = null;
+        }
         if (intent instanceof Intent.Move move) {
             Direction direction = Direction.of(move.dx(), move.dy());
             if (direction != null) {
@@ -559,34 +566,27 @@ public class GameServer {
             character.autoInvestigate = set.on();
             character.saveSoon = true;
             character.emit(new Event.AutoInvestigateChanged(character.autoInvestigate));
-        } else if (intent instanceof Intent.SetShowProductTiers set) {
-            character.showProductTiers = set.on();
-            character.saveSoon = true;
-            character.emit(new Event.ShowProductTiersChanged(character.showProductTiers));
-        } else if (intent instanceof Intent.SetCompactChat set) {
-            character.compactChat = set.on();
-            character.saveSoon = true;
-            character.emit(new Event.CompactChatChanged(character.compactChat));
-        } else if (intent instanceof Intent.SetLightMode set) {
-            character.lightMode = set.on();
-            character.saveSoon = true;
-            character.emit(new Event.LightModeChanged(character.lightMode));
         } else if (intent instanceof Intent.Chat chat) {
             String text = chat.text() == null ? "" : chat.text().replaceAll("\\p{Cntrl}", "").strip();
             if (!text.isEmpty()) {
                 broadcast(new Event.Chat(character.name, character.colorIndex,
                         text.length() > MAX_CHAT ? text.substring(0, MAX_CHAT) : text));
             }
-        } else if (intent instanceof Intent.SetShowTimeEstimate set) {
-            character.showTimeEstimate = set.on();
-            character.saveSoon = true;
-            character.emit(new Event.ShowTimeEstimateChanged(character.showTimeEstimate));
-        }else if (intent instanceof Intent.SetColor setColor) {
+        } else if (intent instanceof Intent.SetColor setColor) {
             if (setColor.colorIndex() >= 0 && setColor.colorIndex() < Intent.PLAYER_COLORS) {
                 character.colorIndex = setColor.colorIndex();
                 character.infoChanged = true;
                 character.saveSoon = true;
                 character.emit(new Event.ColorChanged(character.colorIndex));
+            }
+        } else if (intent instanceof Intent.Heal || intent instanceof Intent.Pray) {
+            Building building = world.content.solidBuildingAt(character.ahead());
+            if (building == null || building.kind() != Building.Kind.CHURCH) {
+                character.say("You need to be at a church.");
+            } else if (intent instanceof Intent.Pray pray) {
+                character.pray(world.content.recipe(pray.recipeId()), world.content.product(pray.paymentProductId()));
+            } else {
+                character.heal();
             }
         } else if (intent instanceof Intent.WalkTo walkTo) {
             character.walkTo(walkTo.target());
@@ -598,8 +598,8 @@ public class GameServer {
                 // the client opened its bank window already (it has the contents); just stop what you were doing
                 character.stopAction(null);
             } else if (building != null && building.kind() == Building.Kind.CHURCH) {
+                // the client opened its church window already; just stop what you were doing
                 character.stopAction(null);
-                character.pray();
             } else if (building != null && building.kind() == Building.Kind.STATION) {
                 // the client opened its station menu already; just stop what you were doing
                 character.stopAction(null);
@@ -626,6 +626,8 @@ public class GameServer {
             if (equip.slot() != null) {
                 character.equip(equip.slot(), world.content.product(equip.productId()));
             }
+        } else if (intent instanceof Intent.Fight fight) {
+            combat.fightAt(character, fight.monsterId(), tick);
         } else if (intent instanceof Intent.Prestige prestige) {
             character.prestige(world.content.skill(prestige.skillId()));
         } else if (intent instanceof Intent.Ride ride) {

@@ -8,6 +8,8 @@ import net.shchoo.scafe.scafe.protocol.GameConnection;
 import com.googlecode.lanterna.SGR;
 import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.graphics.TextGraphics;
+import com.googlecode.lanterna.input.MouseAction;
+import com.googlecode.lanterna.input.MouseActionType;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
@@ -58,7 +60,7 @@ public class LoginScreen {
 
     private enum Page { ACCOUNT, CHOOSE, SERVER }
 
-    private enum Item {
+    enum Item {
         NAME("Name"), PASSWORD("Password"), LOGIN("Login"), EXIT("Exit"),
         LOCAL("Play locally"), SERVER("Connect to server"), SWITCH_USER("Switch User"),
         HOST("Host"), WORLD_PASSWORD("World Password"), CONTINUE("Continue"), BACK("Back");
@@ -155,6 +157,21 @@ public class LoginScreen {
                 screen.refresh();
                 KeyStroke key;
                 while ((key = screen.pollInput()) != null) {
+                    if (key instanceof MouseAction mouse) {
+                        if (mouse.getActionType() != MouseActionType.CLICK_DOWN || mouse.getButton() != 1) {
+                            continue;
+                        }
+                        // a click picks a field, or presses a button (as Enter would)
+                        Item item = itemAt(mouse.getPosition().getColumn(), mouse.getPosition().getRow());
+                        if (item == null) {
+                            continue;
+                        }
+                        selected = item;
+                        if (!item.button()) {
+                            continue;
+                        }
+                        key = new KeyStroke(KeyType.Enter);
+                    }
                     if (key.getKeyType() == KeyType.Enter && submits()) {
                         // connecting can take a moment: show that before it starts
                         status = "Connecting...";
@@ -383,7 +400,22 @@ public class LoginScreen {
         return text.length() > max ? text.substring(0, max) : text;
     }
 
+    /** Where each field and button was last drawn: what a click there picks. */
+    private final java.util.Map<Item, Rect> drawnAt = new java.util.EnumMap<>(Item.class);
+
+    /** The field or button at screen cell {@code x}, {@code y} on this page, or null. */
+    Item itemAt(int x, int y) {
+        for (Item item : items()) {
+            Rect r = drawnAt.get(item);
+            if (r != null && x >= r.x() && y >= r.y() && x < r.x() + r.width() && y < r.y() + r.height()) {
+                return item;
+            }
+        }
+        return null;
+    }
+
     void draw(Screen screen) {
+        drawnAt.clear();
         int columns = screen.getTerminalSize().getColumns();
         int rows = screen.getTerminalSize().getRows();
         int top = Math.max(1, rows / 3 - 4);
@@ -428,7 +460,9 @@ public class LoginScreen {
                 default -> worldPassword;
             };
             boolean secret = item == Item.PASSWORD || item == Item.WORLD_PASSWORD;
-            field(g, fieldX, y, item.label, value, secret, item == Item.HOST ? HOST_WIDTH : FIELD_WIDTH, isSelected);
+            int width = item == Item.HOST ? HOST_WIDTH : FIELD_WIDTH;
+            field(g, fieldX, y, item.label, value, secret, width, isSelected);
+            drawnAt.put(item, new Rect(fieldX - 2 - item.label.length(), y, item.label.length() + 2 + width, 1));
             y += 2;
         }
         y++;
@@ -444,6 +478,7 @@ public class LoginScreen {
                 g.enableModifiers(SGR.BOLD);
             }
             g.putString(x, y, (isSelected ? "> " : "  ") + button.label);
+            drawnAt.put(button, new Rect(x, y, 2 + button.label.length(), 1));
             g.disableModifiers(SGR.BOLD);
             x += 2 + button.label.length() + 4;
         }

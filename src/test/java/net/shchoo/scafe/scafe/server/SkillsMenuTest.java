@@ -147,6 +147,7 @@ class SkillsMenuTest {
         String shown = box(drawn());
         assertTrue(shown.contains(first.name + " +1"), "the row shows the prestige:\n" + shown);
         assertTrue(shown.contains(String.format("%,d total xp", xp)), shown);
+        assertTrue(shown.contains("virtual Lv. " + Levels.virtualLevelFor(xp)), "what the total xp would be with no cap: " + shown);
     }
 
     @Test

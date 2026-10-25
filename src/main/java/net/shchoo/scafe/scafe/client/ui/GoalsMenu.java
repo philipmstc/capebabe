@@ -73,6 +73,11 @@ public class GoalsMenu extends Menu {
             Goal goal = player.goals.get(i);
             int y = firstRow() + (i - start);
             boolean selected = isFocused() && i == index;
+            int pick = i;
+            board.clicks.option(Clicks.BASE, textX(), y, textWidth(), 1, (button, cx, cy) -> {
+                claim(player, board);
+                index = pick;
+            });
             boolean met = goal.isMet(player.getLevel(goal.skill()));
             if (selected) {
                 textGraphics.setForegroundColor(TextColor.ANSI.WHITE_BRIGHT);

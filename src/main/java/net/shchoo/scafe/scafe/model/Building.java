@@ -22,7 +22,7 @@ public record Building(int id, Kind kind, Position corner) {
                 "\u2554\u2500\u2550\u2500\u2550\u2500\u2557",
                 "\u2502 B A \u2502",
                 "\u2502 N K \u2502"),
-        CHURCH("Church", "[q] pray: restores all your hp",
+        CHURCH("Church", "[q] heal, or pray for a node",
                 ". \u253c .",
                 "\u2554\u2500\u2567\u2500\u2557",
                 "\u2502CHU\u2502",

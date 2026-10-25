@@ -28,6 +28,7 @@ public class SettingsMenu extends Menu {
     private static final int VALUE_X = 19;
 
     private static final List<String[]> CONTROLS = List.of(
+            new String[]{"Mouse", "left: do it  right: its options"},
             new String[]{"w a s d", "move / turn (nodes block you)"},
             new String[]{"r", "run on / off (2 tiles a tick)"},
             new String[]{"q", "use the node / building ahead"},
@@ -88,6 +89,8 @@ public class SettingsMenu extends Menu {
 
     @Override
     public void draw(Screen screen, Player player, Board board) {
+        this.board = board;
+        this.player = player;
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         int y = firstRow();
@@ -120,7 +123,33 @@ public class SettingsMenu extends Menu {
         g.putString(textX(), hintRow(), isFocused() ? "[Up/Down] pick [Left/Right] change [Esc] close" : "[Down] change settings");
     }
 
+    /** This frame's board, for making the rows clickable. */
+    private Board board;
+    private Player player;
+
+    /** A setting changed by a click (left: on / next, right: back), as Left/Right would. */
+    private void change(int setting, int delta) {
+        switch (setting) {
+            case COLOR_ROW -> player.setColor(player.colorIndex + delta);
+            case RUN_ROW -> player.toggleRunning();
+            case INVESTIGATE_ROW -> player.toggleAutoInvestigate();
+            case SHOW_PRODUCT_TIER_ROW -> player.toggleShowProductTiers();
+            case SHOW_TIME_ESTIMATE_ROW -> player.toggleShowTimeEstimate();
+            case COMPACT_CHAT_ROW -> player.toggleCompactChat();
+            case LIGHT_MODE_ROW -> player.toggleLightMode();
+        }
+    }
+
     private void settingRow(TextGraphics g, int y, boolean selected, String label, String value) {
+        int setting = y - firstRow();
+        Player who = player;
+        Board on = board;
+        int left = textX() + VALUE_X, right = left + value.length() + 3;
+        board.clicks.option(Clicks.BASE, textX() - 1, y, textWidth(), 1, (button, cx, cy) -> {
+            claim(who, on);
+            row = setting;
+            change(setting, cx == left ? -1 : cx == right ? 1 : button == Clicks.Button.LEFT ? 1 : -1);
+        });
         g.setForegroundColor(selected ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.DEFAULT);
         g.setCharacter(textX() - 1, y, selected ? '>' : ' ');
         g.putString(textX() + 1, y, label);

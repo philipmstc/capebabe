@@ -29,6 +29,7 @@ public class MessageLogView extends Widget {
     @Override
     public void draw(Screen screen, Player player, Board board) {
         drawFrame(screen);
+        board.clicks.add(Clicks.BASE, bounds(), (button, cx, cy) -> commandLine.startTyping());
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         int x = bounds().x() + 1;

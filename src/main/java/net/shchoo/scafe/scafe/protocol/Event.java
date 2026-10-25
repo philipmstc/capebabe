@@ -16,10 +16,9 @@ public sealed interface Event {
     record CharacterSnapshot(int id, String name, Position position, Map<Integer, Long> xp,
                              Map<Integer, Integer> inventory, List<GoalDef> goals, Set<Integer> triedNodes,
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
-                             boolean running, boolean autoInvestigate, boolean showProductTiers, boolean showTimeEstimate,
-                             boolean compactChat, Map<String, Long> stats, int weaponId, int armorId,
-                             boolean lightMode, Map<Integer, Integer> bank, Map<Integer, Integer> prestige,
-                             Map<Integer, Long> bankedXp) {}
+                             boolean running, boolean autoInvestigate, Map<String, Long> stats, int weaponId, int armorId,
+                             Map<Integer, Integer> bank, Map<Integer, Integer> prestige,
+                             Map<Integer, Long> bankedXp, int blessingRecipeId, int blessingLeft) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -38,15 +37,17 @@ public sealed interface Event {
      * For players, total level = (number of skills in the world) + levelsGained, so it stays right when new
      * skills appear without the server re-sending everyone. For monsters, monsterTypeId says which kind.
      */
+    /** {@code combatLevel}: a player's (for "shchoo (Lv 12)"); 0 for monsters, whose level is their type's. */
     record EntityInfo(int id, EntityKind kind, String name, Position position, Direction facing, int levelsGained,
-                      int monsterTypeId, int hp, int maxHp, int colorIndex) {
+                      int monsterTypeId, int hp, int maxHp, int colorIndex, int combatLevel) {
         public static EntityInfo player(int id, String name, Position position, Direction facing, int levelsGained,
-                                        int hp, int maxHp, int colorIndex) {
-            return new EntityInfo(id, EntityKind.PLAYER, name, position, facing, levelsGained, 0, hp, maxHp, colorIndex);
+                                        int hp, int maxHp, int colorIndex, int combatLevel) {
+            return new EntityInfo(id, EntityKind.PLAYER, name, position, facing, levelsGained, 0, hp, maxHp, colorIndex,
+                    combatLevel);
         }
 
         public static EntityInfo monster(int id, String name, Position position, int monsterTypeId, int hp, int maxHp) {
-            return new EntityInfo(id, EntityKind.MONSTER, name, position, Direction.DOWN, 0, monsterTypeId, hp, maxHp, 0);
+            return new EntityInfo(id, EntityKind.MONSTER, name, position, Direction.DOWN, 0, monsterTypeId, hp, maxHp, 0, 0);
         }
 
         public boolean isMonster() {
@@ -58,7 +59,7 @@ public sealed interface Event {
         }
 
         public EntityInfo at(Position newPosition, Direction newFacing) {
-            return new EntityInfo(id, kind, name, newPosition, newFacing, levelsGained, monsterTypeId, hp, maxHp, colorIndex);
+            return new EntityInfo(id, kind, name, newPosition, newFacing, levelsGained, monsterTypeId, hp, maxHp, colorIndex, combatLevel);
         }
     }
 
@@ -91,6 +92,8 @@ public sealed interface Event {
 
     /** The skill starts over (its xp back to 0), {@code prestige} times now, with {@code bankedXp} banked in all. */
     record Prestiged(int skillId, int prestige, long bankedXp) implements Event {}
+    /** Your church blessing ({@link net.shchoo.scafe.scafe.model.Prayer}): -1 = none. */
+    record BlessingChanged(int recipeId, int left) implements Event {}
     record InventoryChanged(int productId, int count) implements Event {}
     record GoalAdded(GoalDef goal) implements Event {}
 
@@ -111,8 +114,6 @@ public sealed interface Event {
     record ColorChanged(int colorIndex) implements Event {}
     record RunningChanged(boolean running) implements Event {}
     record AutoInvestigateChanged(boolean on) implements Event {}
-    record ShowProductTiersChanged(boolean on) implements Event {}
-    record ShowTimeEstimateChanged(boolean on) implements Event {}
     /** Your name and password are fine; next send EnterWorld (with the world's password if it needs one). */
     record LoginAccepted(boolean worldPasswordNeeded, boolean newAccount) implements Event {}
     record LoginRefused(String reason) implements Event {}
@@ -135,10 +136,6 @@ public sealed interface Event {
 
     /** Your lifetime counts ({@link net.shchoo.scafe.scafe.model.Stat} names), sent when they change. */
     record StatsChanged(Map<String, Long> stats) implements Event {}
-
-    record CompactChatChanged(boolean on) implements Event {}
-
-    record LightModeChanged(boolean on) implements Event {}
 
     record BankChanged(int productId, int count) implements Event {}
 }

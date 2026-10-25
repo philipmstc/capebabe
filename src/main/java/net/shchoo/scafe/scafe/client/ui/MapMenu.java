@@ -3,6 +3,9 @@ package net.shchoo.scafe.scafe.client.ui;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.SkillStyle;
+import net.shchoo.scafe.scafe.model.Building;
+import net.shchoo.scafe.scafe.model.MonsterType;
+import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
@@ -35,12 +38,12 @@ public class MapMenu extends Menu {
     private int offsetY;
     /** Picked in the inventory to use on a node; while set, Enter uses it on the hovered node. */
     private Product using;
-    /** Enter on a node: its menu (Craft / Craft AFK / Cancel) while it's open, else null. */
-    private Node menuNode;
-    private int menuIndex;
-
-    /** The node menu's choices, top to bottom. */
-    enum Choice { CRAFT, AFK, CANCEL }
+    /** A node / monster / player's menu (Enter on a node, or right-click) while it's open, else null. */
+    private PopupMenu popup;
+    /** Where the popup's about. */
+    private Position popupAt;
+    /** The popup came from a right-click: closing it puts the map back down too. */
+    private boolean popupByMouse;
 
     public MapMenu() {
         super("Map");
@@ -57,7 +60,7 @@ public class MapMenu extends Menu {
     public void unfocus() {
         super.unfocus();
         using = null;
-        menuNode = null;
+        popup = null;
     }
 
     /** Focus with {@code item} in hand: the cursor starts on the nearest node on screen that takes it. */
@@ -90,32 +93,121 @@ public class MapMenu extends Menu {
     }
 
     public boolean nodeMenuOpen() {
-        return menuNode != null;
+        return popup != null && popup.isOpen();
     }
 
-    private Result menuKey(KeyStroke key, Player player) {
-        switch (key.getKeyType()) {
-            case ArrowUp -> menuIndex = Math.max(0, menuIndex - 1);
-            case ArrowDown -> menuIndex = Math.min(Choice.values().length - 1, menuIndex + 1);
-            case Escape -> menuNode = null;
-            case Enter -> {
-                Choice choice = Choice.values()[menuIndex];
-                Position at = menuNode.position;
-                menuNode = null;
-                if (choice != Choice.CANCEL) {
-                    player.craft(at, choice == Choice.AFK);
-                    return Result.RELEASE;
-                }
+    /** The open popup (for tests), or null. */
+    public PopupMenu popup() {
+        return nodeMenuOpen() ? popup : null;
+    }
+
+    /** What doing an option puts the map down after: anything but Cancel (and Cancel too, from a right-click). */
+    private boolean acted;
+
+    private Runnable then(Runnable action) {
+        return () -> {
+            acted = true;
+            action.run();
+        };
+    }
+
+    /**
+     * A node's menu: Craft (with what it uses under it) / Craft AFK / Walk here / Cancel, titled with what it
+     * makes.
+     */
+    private PopupMenu nodeMenu(Node node, Player player) {
+        String name = node.recipe.product.name;
+        String cost = node.recipe.components.isEmpty() ? null : node.recipe.components.entrySet().stream()
+                .map(e -> e.getValue() + " x " + e.getKey().name).collect(java.util.stream.Collectors.joining(", "));
+        Position at = node.position;
+        return new PopupMenu(name, MapView.nodeColor(node, player), java.util.List.of(
+                new PopupMenu.Option("Craft " + name, cost, then(() -> player.craft(at, false))),
+                PopupMenu.Option.of("AFK " + name, then(() -> player.craft(at, true))),
+                PopupMenu.Option.of("Walk here", then(() -> player.walkTo(at)))));
+    }
+
+    /** A monster's menu: "monster3 (Lv 12)", Fight / Walk here / Cancel. */
+    private PopupMenu monsterMenu(Event.EntityInfo monster, MonsterType type, Player player) {
+        Position at = monster.position();
+        return new PopupMenu(monster.name() + " (Lv " + type.level + ")", SkillStyle.getColorForMonster(type), java.util.List.of(
+                PopupMenu.Option.of("Fight", then(() -> player.fight(monster.id()))),
+                PopupMenu.Option.of("Walk here", then(() -> player.walkTo(at)))));
+    }
+
+    /** Another player's menu: "shchoo (Lv 12)" (combat), Trade / Fight / Friend (coming) / Walk here / Cancel. */
+    private PopupMenu playerMenu(Event.EntityInfo other, Player player) {
+        Position at = other.position();
+        return new PopupMenu(other.name() + " (Lv " + Math.max(1, other.combatLevel()) + ")",
+                SkillStyle.playerColor(other.colorIndex()), java.util.List.of(
+                new PopupMenu.Option("Trade", null, null),
+                new PopupMenu.Option("Fight", null, null),
+                new PopupMenu.Option("Friend", null, null),
+                PopupMenu.Option.of("Walk here", then(() -> player.walkTo(at)))));
+    }
+
+    /** Opens a popup; when it closes the map goes back down if something was done, or it was a right-click's. */
+    private void open(PopupMenu menu, Position at, boolean byMouse) {
+        popup = menu;
+        popupAt = at;
+        popupByMouse = byMouse;
+        acted = false;
+        menu.onClose(() -> {
+            popup = null;
+            if (acted || popupByMouse) {
+                unfocus();
             }
-            default -> {}
+        });
+    }
+
+    /**
+     * A click on the map's tile {@code tile}. Aiming an item: left uses it there, right cancels. Otherwise left:
+     * a monster -- walk up and fight it; a node -- walk up and craft; a building -- walk up and use it (q); anywhere
+     * else -- walk there. Right: the monster's / player's / node's menu; nothing elsewhere.
+     */
+    public void clickTile(Position tile, Clicks.Button button, Player player, Board board) {
+        if (using != null && isFocused()) {
+            if (button == Clicks.Button.LEFT) {
+                player.useItem(using, tile);
+            }
+            unfocus();
+            return;
         }
-        return Result.HANDLED;
+        java.util.List<Event.EntityInfo> here = player.othersAt(tile);
+        Event.EntityInfo monster = here.stream().filter(Event.EntityInfo::isMonster).findFirst().orElse(null);
+        Event.EntityInfo other = here.stream().filter(e -> !e.isMonster()).findFirst().orElse(null);
+        MonsterType type = monster == null ? null : player.content.monster(monster.monsterTypeId());
+        Node node = board.nodeAt(tile.x(), tile.y());
+        Building building = player.content.solidBuildingAt(tile);
+        if (button == Clicks.Button.LEFT) {
+            unfocus();
+            if (monster != null) {
+                player.fight(monster.id());
+            } else if (node != null) {
+                player.craft(tile, false);
+            } else if (building != null) {
+                player.useBuilding(building);
+            } else {
+                player.walkTo(tile);
+            }
+            return;
+        }
+        PopupMenu menu = monster != null && type != null ? monsterMenu(monster, type, player)
+                : other != null ? playerMenu(other, player)
+                : node != null ? nodeMenu(node, player) : null;
+        if (menu == null) {
+            return;
+        }
+        claim(player, board);
+        offsetX = tile.x() - player.x;
+        offsetY = tile.y() - player.y;
+        open(menu, tile, true);
     }
 
     @Override
     public Result handleKey(KeyStroke key, Player player, Board board) {
-        if (menuNode != null) {
-            return menuKey(key, player);
+        if (nodeMenuOpen()) {
+            popup.key(key);
+            return Result.HANDLED;
         }
         int dx = 0, dy = 0;
         switch (key.getKeyType()) {
@@ -130,8 +222,7 @@ public class MapMenu extends Menu {
                 }
                 Node node = board.nodeAt(cursor(player).x(), cursor(player).y());
                 if (node != null) {
-                    menuNode = node;
-                    menuIndex = 0;
+                    open(nodeMenu(node, player), node.position, false);
                     return Result.HANDLED;
                 }
                 player.walkTo(cursor(player));
@@ -190,62 +281,12 @@ public class MapMenu extends Menu {
                 : using != null ? "[arrows] aim  [Enter] use it  [Esc] cancel" : "[arrows] hover  [Enter] walk / node menu  [Esc] back");
     }
 
-    /**
-     * The node menu, just right of the node on the map:
-     * <pre>
-     * skillN{L}-T
-     *   Craft skillN{L}-T
-     *     2 x skill0{0}-1        (what it uses, if anything)
-     *   Craft skillN{L}-T AFK    (half the xp; waits out respawns)
-     *   Cancel
-     * </pre>
-     */
+    /** The popup, just right of what it's about on the map (a click that closes it puts the map down if it should). */
     @Override
     public void drawOnTop(Screen screen, Player player, Board board) {
-        if (menuNode == null) {
+        if (popup == null || !popup.isOpen()) {
             return;
         }
-        String name = menuNode.recipe.product.name;
-        String cost = menuNode.recipe.components.isEmpty() ? null : menuNode.recipe.components.entrySet().stream()
-                .map(e -> e.getValue() + " x " + e.getKey().name).collect(java.util.stream.Collectors.joining(", "));
-        java.util.List<String> lines = new java.util.ArrayList<>(java.util.List.of(name, "Craft " + name));
-        if (cost != null) {
-            lines.add(cost);
-        }
-        lines.add("Craft " + name + " AFK");
-        lines.add("Cancel");
-        int width = lines.stream().mapToInt(String::length).max().orElse(0) + 6;
-        int x = Math.min(tileScreenX(menuNode.position.x(), player.x) + 3, TERMINAL_SIZE.getColumns() - width - 2);
-        int y = Math.max(0, Math.min(tileScreenY(menuNode.position.y(), player.y) - 1, TERMINAL_SIZE.getRows() - lines.size() - 2));
-        Rect box = new Rect(x, y, width + 2, lines.size() + 2);
-        TextGraphics g = screen.newTextGraphics();
-        g.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        g.fillRectangle(new com.googlecode.lanterna.TerminalPosition(box.x(), box.y()),
-                new com.googlecode.lanterna.TerminalSize(box.width(), box.height()), ' ');
-        drawFrame(screen, box);
-        int row = box.y() + 1;
-        g.setForegroundColor(MapView.nodeColor(menuNode, player));
-        g.enableModifiers(SGR.BOLD);
-        g.putString(box.x() + 1, row++, name);
-        g.disableModifiers(SGR.BOLD);
-        for (Choice choice : Choice.values()) {
-            boolean selected = choice.ordinal() == menuIndex;
-            String text = switch (choice) {
-                case CRAFT -> "Craft " + name;
-                case AFK -> "Craft " + name + " AFK";
-                case CANCEL -> "Cancel";
-            };
-            g.setForegroundColor(choice == Choice.CANCEL ? TextColor.ANSI.BLACK_BRIGHT
-                    : selected ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.DEFAULT);
-            if (selected) {
-                g.enableModifiers(SGR.BOLD);
-            }
-            g.putString(box.x() + 1, row++, (selected ? "> " : "  ") + text);
-            g.disableModifiers(SGR.BOLD);
-            if (choice == Choice.CRAFT && cost != null) {
-                g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-                g.putString(box.x() + 5, row++, cost);
-            }
-        }
+        popup.draw(screen, tileScreenX(popupAt.x(), player.x) + 3, tileScreenY(popupAt.y(), player.y) - 1, board.clicks);
     }
 }

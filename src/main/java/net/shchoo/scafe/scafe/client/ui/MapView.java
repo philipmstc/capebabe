@@ -33,11 +33,21 @@ public class MapView extends Widget {
 
     @Override
     public void draw(Screen screen, Player player, Board board) {
+        if (clicksTo != null) {
+            board.clicks.add(Clicks.BASE, Layout.MAP.x() + 1, Layout.MAP.y() + 1, Layout.MAP.width() - 2, Layout.MAP.height() - 2,
+                    (button, x, y) -> {
+                        Position tile = tileAt(x, y, player);
+                        if (tile != null) {
+                            clicksTo.clickTile(tile, button, player, board);
+                        }
+                    });
+        }
         Rect map = bounds();
         drawFrame(screen);
         TextGraphics coords = screen.newTextGraphics();
         coords.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        coords.putString(map.x() + 2, map.y(), "(" + player.x + "," + player.y + ")" + (player.running ? " run" : ""));
+        coords.putString(map.x() + 2, map.y(), "(" + player.x + "," + player.y + ")" + (player.running ? " run" : "")
+                + (player.blessing != null ? " blessed " + player.blessingLeft : ""));
         if (player.content.combatSkill() != null) {
             String hp = "hp " + player.hp + "/" + player.maxHp;
             coords.setForegroundColor(player.hp * 3 <= player.maxHp ? TextColor.ANSI.RED_BRIGHT : TextColor.ANSI.GREEN);
@@ -47,6 +57,11 @@ public class MapView extends Widget {
             for (int j = 0; j < BOARD_WIDTH; j++) {
                 drawTile(player, board, screen, viewToWorldX(j, player.x), viewToWorldY(i, player.y), false);
             }
+        }
+        // the tile under the mouse, highlighted like the v cursor's (which takes over while it's out)
+        Position hovered = clicksTo == null || clicksTo.isFocused() ? null : hoveredTile(board, player);
+        if (hovered != null) {
+            drawTile(player, board, screen, hovered.x(), hovered.y(), true);
         }
         drawHomeIndicator(map, player, screen);
         drawWaypoint(map, player, screen);
@@ -175,6 +190,28 @@ public class MapView extends Widget {
         }
         return new Edge(Math.max(map.x() + 1, Math.min(map.right() - 1, x)), dy > 0 ? map.bottom() : map.y(),
                 dy > 0 ? Direction.DOWN : Direction.UP);
+    }
+
+    /** Takes the map's clicks (see {@link MapMenu#clickTile}); null: the map isn't clickable (tests). */
+    private MapMenu clicksTo;
+
+    public MapView(Rect bounds, MapMenu clicksTo) {
+        this(bounds);
+        this.clicksTo = clicksTo;
+    }
+
+    /** The tile under the mouse, unless something (a popup, the bank) is drawn over the map there; else null. */
+    public static Position hoveredTile(Board board, Player player) {
+        return board.mouseUncovered ? tileAt(board.mouseX, board.mouseY, player) : null;
+    }
+
+    /** The world tile under screen cell {@code x}, {@code y} (a gap counts as the tile right of it), or null. */
+    public static Position tileAt(int x, int y, Player player) {
+        int column = x - (Layout.MAP.x() + 1), row = y - (Layout.MAP.y() + 1);
+        if (column < 0 || row < 0 || row >= Layout.BOARD_HEIGHT || column > 2 * (Layout.BOARD_WIDTH - 1)) {
+            return null;
+        }
+        return new Position(Layout.viewToWorldX((column + 1) / 2, player.x), Layout.viewToWorldY(row, player.y));
     }
 
     public static void drawTile(Player player, Board board, Screen screen, int worldX, int worldY, boolean highlighted) {

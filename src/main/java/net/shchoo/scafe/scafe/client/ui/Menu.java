@@ -49,6 +49,18 @@ public abstract class Menu extends Widget {
 
     protected void onFocus(Player player, Board board) {}
 
+    /** How a click takes the keys for this menu; the tab bar sets it (so it can select the tab, unfocus the rest). */
+    private java.util.function.BiConsumer<Player, Board> claimer = this::focus;
+
+    public void setClaimer(java.util.function.BiConsumer<Player, Board> claimer) {
+        this.claimer = claimer;
+    }
+
+    /** Clicked on: this menu's tab is shown and focused (if it can be). */
+    protected void claim(Player player, Board board) {
+        claimer.accept(player, board);
+    }
+
     /** Only called while focused. IGNORED keys fall through to the global commands (wasd, q, /...). */
     public abstract Result handleKey(KeyStroke key, Player player, Board board);
 }

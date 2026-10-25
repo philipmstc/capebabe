@@ -183,16 +183,41 @@ public class BankView extends Widget {
             case ArrowUp -> optionIndex = Math.max(0, optionIndex - 1);
             case ArrowDown -> optionIndex = Math.min(options.size() - 1, optionIndex + 1);
             case Escape -> options = null;
-            case Enter -> {
-                Option option = options.get(optionIndex);
-                options = null;
-                if (option.count() == 0) {
-                    typing = "";
-                } else if (option.count() > 0) {
-                    move(player, option.count());
-                }
-            }
+            case Enter -> chooseOption(player);
             default -> {}
+        }
+    }
+
+    /** Does the selected "how many" option. */
+    private void chooseOption(Player player) {
+        Option option = options.get(optionIndex);
+        options = null;
+        if (option.count() == 0) {
+            typing = "";
+        } else if (option.count() > 0) {
+            move(player, option.count());
+        }
+    }
+
+    /**
+     * A click on a cell: left -- your inventory's deposits all of that item, the bank's withdraws a stack's worth;
+     * right -- "how many?" for it.
+     */
+    private void clickCell(Side of, int index, Clicks.Button button, Player player) {
+        side = of;
+        selected[of.ordinal()] = index;
+        options = null;
+        typing = null;
+        InventoryPanel.Slot slot = selectedSlot(player);
+        if (slot == null) {
+            return;
+        }
+        if (button == Clicks.Button.RIGHT) {
+            openOptions(player);
+        } else if (of == Side.INVENTORY) {
+            player.deposit(slot.product(), player.inventory.getOrDefault(slot.product(), 0));
+        } else {
+            player.withdraw(slot.product(), Math.min(slot.count(), player.stackSize(slot.product())));
         }
     }
 
@@ -241,11 +266,13 @@ public class BankView extends Widget {
         }
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
+        // while it's open, clicks are the bank's (anywhere else, they do nothing)
+        board.clicks.addEverywhere(Clicks.MODAL, (button, cx, cy) -> {});
         for (Side of : Side.values()) {
             Rect area = area(of);
             g.fillRectangle(new TerminalPosition(area.x() + 1, area.y() + 1), new TerminalSize(area.width() - 2, area.height() - 2), ' ');
             drawFrame(screen, area);
-            drawSide(screen, g, player, of);
+            drawSide(screen, g, player, board, of);
         }
         g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
         g.enableModifiers(SGR.BOLD);
@@ -264,7 +291,7 @@ public class BankView extends Widget {
         for (int k = 0; k < hint.length; k++) {
             g.putString(BOX.x() + 2, BOX.bottom() - hint.length + k, fit(hint[k], BOX.width() - 4));
         }
-        drawOptions(screen, g, player);
+        drawOptions(screen, g, player, board);
     }
 
     private static int cellX(Side of, int column) {
@@ -275,7 +302,7 @@ public class BankView extends Widget {
         return area(of).y() + 2 + row * Layout.CELL_STEP_Y;
     }
 
-    private void drawSide(Screen screen, TextGraphics g, Player player, Side of) {
+    private void drawSide(Screen screen, TextGraphics g, Player player, Board board, Side of) {
         int s = of.ordinal();
         boolean current = side == of;
         List<InventoryPanel.Slot> slots = slots(player, of);
@@ -304,6 +331,9 @@ public class BankView extends Widget {
                     InventoryPanel.Slot slot = slots.get(index);
                     String count = of == Side.INVENTORY ? String.valueOf(slot.count()) : ShortNumbers.of(slot.count());
                     InventoryPanel.drawCell(g, x, y, slot.product(), count, cellWidth(of), player, isSelected);
+                    if (options == null && typing == null) {
+                        board.clicks.option(Clicks.MODAL, x, y, cellWidth(of), 2, (button, cx, cy) -> clickCell(of, index, button, player));
+                    }
                 } else {
                     InventoryPanel.drawEmptyCell(g, x, y, cellWidth(of));
                 }
@@ -315,7 +345,7 @@ public class BankView extends Widget {
     }
 
     /** "How many?" next to the selected stack. */
-    private void drawOptions(Screen screen, TextGraphics g, Player player) {
+    private void drawOptions(Screen screen, TextGraphics g, Player player, Board board) {
         if (options == null && typing == null) {
             return;
         }
@@ -333,6 +363,11 @@ public class BankView extends Widget {
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         g.fillRectangle(new TerminalPosition(box.x(), box.y()), new TerminalSize(box.width(), box.height()), ' ');
         drawFrame(screen, box);
+        board.clicks.add(Clicks.MODAL, 0, 0, Layout.TERMINAL_SIZE.getColumns(), Layout.TERMINAL_SIZE.getRows(), (button, cx, cy) -> {
+            options = null;
+            typing = null;
+        });
+        board.clicks.add(Clicks.MODAL, box, (button, cx, cy) -> {});
         for (int i = 0; i < lines.size(); i++) {
             boolean isSelected = typing != null || i == optionIndex;
             boolean cancel = typing == null && options.get(i).count() < 0;
@@ -341,6 +376,13 @@ public class BankView extends Widget {
                 g.enableModifiers(SGR.BOLD);
             }
             g.putString(box.x() + 1, box.y() + 1 + i, (isSelected && typing == null ? "> " : "  ") + lines.get(i));
+            if (typing == null) {
+                int chosen = i;
+                board.clicks.option(Clicks.MODAL, box.x() + 1, box.y() + 1 + i, box.width() - 2, 1, (button, cx, cy) -> {
+                    optionIndex = chosen;
+                    chooseOption(player);
+                });
+            }
             g.disableModifiers(SGR.BOLD);
         }
     }

@@ -51,6 +51,12 @@ public class SkillsMenu extends Menu {
     private boolean confirmingPrestige;
     /** Tab: which of the selected recipe's components is picked (-1: none, the tiers are). */
     private int componentIndex = -1;
+    /** A tier's right-click menu (Set / clear waypoint, Mark / unmark nodes), or null. */
+    private PopupMenu tierPopup;
+    private int tierPopupX;
+    private int tierPopupY;
+    /** This frame's board, for making what's drawn clickable. */
+    private Board board;
     /** The pages you came through by opening components (skill, line, tier), for Esc to go back along. */
     private final java.util.Deque<int[]> trail = new java.util.ArrayDeque<>();
 
@@ -80,6 +86,10 @@ public class SkillsMenu extends Menu {
     @Override
     public Result handleKey(KeyStroke key, Player player, Board board) {
         Skill skill = board.skills.get(index);
+        if (tierPopup != null && tierPopup.isOpen()) {
+            tierPopup.key(key);
+            return Result.HANDLED;
+        }
         if (open) {
             return pageKey(key, player, board, skill);
         }
@@ -202,6 +212,7 @@ public class SkillsMenu extends Menu {
 
     @Override
     public void draw(Screen screen, Player player, Board board) {
+        this.board = board;
         if (board.skills.isEmpty()) {
             return;
         }
@@ -234,6 +245,17 @@ public class SkillsMenu extends Menu {
                 g.setCharacter(textX() - 1, y, '>');
             }
             drawRow(screen, player, board.skills.get(i), y, nameWidth, selected);
+            int pick = i;
+            board.clicks.option(Clicks.BASE, textX(), y, textWidth(), 1, (button, cx, cy) -> {
+                claim(player, board);
+                index = pick;
+                open = true;
+                lineIndex = 0;
+                tierIndex = 0;
+                componentIndex = -1;
+                confirmingPrestige = false;
+                trail.clear();
+            });
         }
         TextGraphics g = screen.newTextGraphics();
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
@@ -324,19 +346,35 @@ public class SkillsMenu extends Menu {
         g.putString(textX() + skill.type.name().length() + 2, y++, fit(origin == null ? "found by ? (before this was kept)"
                 : "found by " + origin.by() + " on " + date(origin.at()), textWidth() - skill.type.name().length() - 2));
         int prestige = player.getPrestige(skill);
+        long lifetime = player.lifetimeExperience(skill);
+        int virtual = Levels.virtualLevelFor(lifetime);
         g.setForegroundColor(prestige > 0 ? TextColor.ANSI.YELLOW_BRIGHT : TextColor.ANSI.BLACK_BRIGHT);
-        g.putString(textX(), y++, fit(String.format(Locale.ROOT, "%,d total xp", player.lifetimeExperience(skill))
-                + (prestige > 0 ? "  [prestige " + prestige + "]"
-                : ""), textWidth()));
+        // the virtual level: what the total xp would make it with no cap (shown once it's past what the row says)
+        g.putString(textX(), y++, fit(String.format(Locale.ROOT, "%,d total xp", lifetime)
+                + (prestige > 0 ? "  [prestige " + prestige + "]" : "")
+                + (virtual > player.getLevel(skill) ? "  virtual Lv. " + virtual : ""), textWidth()));
         if (confirmingPrestige) {
             g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
             g.enableModifiers(SGR.BOLD);
-            g.putString(textX(), y, fit("Prestige " + skill.name + "? Back to Lv. 1, items get more valuable [y/n]", textWidth()));
+            String ask = fit("Prestige " + skill.name + "? Back to Lv. 1, items get more valuable [y/n]", textWidth());
+            g.putString(textX(), y, ask);
             g.disableModifiers(SGR.BOLD);
+            int yn = ask.indexOf("[y/n]");
+            if (yn >= 0) {
+                board.clicks.option(Clicks.BASE, textX() + yn + 1, y, 1, 1, (button, cx, cy) -> {
+                    confirmingPrestige = false;
+                    player.prestige(skill);
+                });
+                board.clicks.option(Clicks.BASE, textX() + yn + 3, y, 1, 1, (button, cx, cy) -> confirmingPrestige = false);
+            }
         } else if (canPrestige(player, skill)) {
             g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
             g.putString(textX(), y, fit("[p] prestige: revert to Lv. 1?",
                     textWidth()));
+            board.clicks.option(Clicks.BASE, textX(), y, 30, 1, (button, cx, cy) -> {
+                claim(player, board);
+                confirmingPrestige = true;
+            });
         }
         y++;
         g.setForegroundColor(TextColor.ANSI.DEFAULT);
@@ -395,6 +433,9 @@ public class SkillsMenu extends Menu {
                         : unlocked ? TextColor.ANSI.GREEN_BRIGHT : here ? TextColor.ANSI.WHITE : TextColor.ANSI.BLACK_BRIGHT);
                 g.setBackgroundColor(here ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT);
                 g.putString(x, y + 1, String.valueOf(recipe.levelNeeded));
+                int line = i, tier = t, tx = x, ty = y + 1;
+                board.clicks.option(Clicks.BASE, x, y + 1, String.valueOf(recipe.levelNeeded).length(), 1,
+                        (button, cx, cy) -> clickTier(skill, line, tier, button, tx, ty, player));
                 g.setBackgroundColor(TextColor.ANSI.DEFAULT);
                 x += 3;
             }
@@ -402,8 +443,13 @@ public class SkillsMenu extends Menu {
                 g.setForegroundColor(SkillStyle.getColorForSkill(skill));
                 g.putString(x + 1, y + 1, fit(selectedRecipe(skill).product.name, Math.max(0, textX() + width - x - 1)));
             }
-            drawComponents(g, player, selected ? selectedRecipe(skill) : base, textX() + 2, y + 2, textX() + width,
-                    selected ? componentIndex : -1);
+            int componentsY = y + 2;
+            drawComponents(g, player, selected ? selectedRecipe(skill) : base, textX() + 2, componentsY, textX() + width,
+                    selected ? componentIndex : -1, (component, at, length) -> board.clicks.option(Clicks.BASE, at, componentsY,
+                            length, 1, (button, cx, cy) -> {
+                                claim(player, board);
+                                openComponent(player, board, component);
+                            }));
             y += PRODUCT_LINE_HEIGHT;
         }
     }
@@ -413,7 +459,13 @@ public class SkillsMenu extends Menu {
      * picked}, -1 none) on grey. The selected line names the selected tier's own components, so Tab + Enter goes
      * to exactly what it uses.
      */
-    private static void drawComponents(TextGraphics g, Player player, Recipe recipe, int x, int y, int right, int picked) {
+    /** Where a component's name was drawn (so it can be clicked). */
+    interface Drawn {
+        void at(Product component, int x, int length);
+    }
+
+    private static void drawComponents(TextGraphics g, Player player, Recipe recipe, int x, int y, int right, int picked,
+                                       Drawn drawn) {
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         g.putString(x, y, "from ");
         x += 5;
@@ -441,9 +493,42 @@ public class SkillsMenu extends Menu {
             }
             g.putString(x, y, name);
             g.disableModifiers(SGR.BOLD);
+            drawn.at(c.getKey(), x, name.length());
             g.setBackgroundColor(TextColor.ANSI.DEFAULT);
             x += name.length();
             i++;
+        }
+    }
+
+    /**
+     * A tier's level clicked: it's selected; left toggles its waypoint, right opens Set / clear waypoint, Mark /
+     * unmark all nodes, Cancel just under it.
+     */
+    private void clickTier(Skill skill, int line, int tier, Clicks.Button button, int x, int y, Player player) {
+        claim(player, board);
+        lineIndex = line;
+        tierIndex = tier;
+        componentIndex = -1;
+        Recipe recipe = selectedRecipe(skill);
+        if (button == Clicks.Button.LEFT) {
+            player.waypoints.toggle(recipe, player);
+            return;
+        }
+        tierPopup = new PopupMenu(recipe.product.name, SkillStyle.getColorForSkill(skill), List.of(
+                PopupMenu.Option.of(player.waypoints.has(recipe) ? "Clear waypoint" : "Set waypoint",
+                        () -> player.waypoints.toggle(recipe, player)),
+                PopupMenu.Option.of(player.highlightedRecipes.contains(recipe) ? "Unmark nodes" : "Mark all nodes",
+                        () -> player.toggleHighlighting(recipe))));
+        tierPopupX = x;
+        tierPopupY = y + 1;
+    }
+
+    @Override
+    public void drawOnTop(Screen screen, Player player, Board board) {
+        if (tierPopup != null && tierPopup.isOpen()) {
+            tierPopup.draw(screen, tierPopupX, tierPopupY, board.clicks);
+        } else {
+            tierPopup = null;
         }
     }
 

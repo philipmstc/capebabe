@@ -65,6 +65,62 @@ class Combat {
             character.say("Nothing to fight here.");
             return;
         }
+        start(character, monster, tick);
+    }
+
+    /** How long you'll keep after a monster you clicked before giving up (it may keep wandering off). */
+    static final int CHASE_TICKS = 30;
+
+    /**
+     * Fight this monster: next to it, the fight starts now; otherwise you walk over (re-routing as it moves, see
+     * {@link #chase}) and it starts when you get there.
+     */
+    void fightAt(GameCharacter character, int monsterId, long tick) {
+        Monster monster = server.monsters().get(monsterId);
+        if (monster == null) {
+            character.say("It's gone.");
+            return;
+        }
+        if (character.currentFight != null) {
+            endFight(character, null);
+        }
+        if (Monsters.distance(monster.position(), character.position()) <= 1) {
+            start(character, monster, tick);
+            return;
+        }
+        character.stopAction(null);
+        character.pendingFight = monster.id;
+        character.pendingFightUntil = tick + CHASE_TICKS;
+        character.walkTo(monster.position());
+    }
+
+    /** Everyone walking over to a fight: start it once there, keep after the monster, or give up. */
+    void chase(long tick) {
+        for (GameCharacter character : server.onlineCharacters()) {
+            if (character.pendingFight == null) {
+                continue;
+            }
+            Monster monster = server.monsters().get(character.pendingFight);
+            if (monster == null) {
+                character.pendingFight = null;
+                character.stopWalking();
+                character.say("It's gone.");
+            } else if (Monsters.distance(monster.position(), character.position()) <= 1) {
+                character.pendingFight = null;
+                start(character, monster, tick);
+            } else if (tick >= character.pendingFightUntil) {
+                character.pendingFight = null;
+                character.stopWalking();
+                character.say("Couldn't reach it.");
+            } else if (!character.walker.isWalking() || tick % 3 == 0) {
+                // it moves: head for where it is now
+                character.walkTo(monster.position());
+            }
+        }
+    }
+
+    /** The fight starts: you turn to face it and both stop where they are. */
+    private void start(GameCharacter character, Monster monster, long tick) {
         Direction toward = Direction.toward(character.position(), monster.position());
         if (toward != null && toward != character.facing) {
             character.face(toward);

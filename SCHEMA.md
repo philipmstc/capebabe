@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v2, worlds v17). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v19). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -73,7 +73,7 @@ CREATE TABLE node (id integer primary key, content_version integer not null, ord
                    capacity integer not null, max_charges integer not null, respawn_ticks integer not null);
 CREATE TABLE game_character (id integer primary key autoincrement, account_id integer not null unique,
                              name text not null, x integer not null, y integer not null,
-                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, show_product_tiers integer not null default 0, show_time_estimate integer not null default 0, compact_chat integer not null default 0, weapon_product_id integer references product(id), armor_product_id integer references product(id), light_mode integer not null default 0, hp integer);
+                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, weapon_product_id integer references product(id), armor_product_id integer references product(id), hp integer, blessing_recipe_id integer references recipe(id), blessing_left integer not null default 0);
 CREATE TABLE character_skill_xp (character_id integer not null references game_character(id),
                                  skill_id integer not null references skill(id), xp integer not null,
                                  primary key (character_id, skill_id));

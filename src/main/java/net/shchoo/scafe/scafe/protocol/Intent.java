@@ -18,7 +18,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 21;
+    int PROTOCOL_VERSION = 24;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -46,6 +46,9 @@ public sealed interface Intent {
     /** Craft at the node at {@code target} (walking over first if need be); {@code afk}: half the xp, waits out respawns. */
     record Craft(Position target, boolean afk) implements Intent {}
 
+    /** Fight this monster: walk up to it first if need be (following it, for a while), then the fight starts. */
+    record Fight(int monsterId) implements Intent {}
+
     /** At Lv. 100: start the skill over from Lv. 1, banking its xp; what you make with it hits harder. */
     record Prestige(int skillId) implements Intent {}
 
@@ -67,12 +70,10 @@ public sealed interface Intent {
     record SetRunning(boolean running) implements Intent {}
     /** Auto-investigate: while you're moving, a node appearing nearby turns you towards it. */
     record SetAutoInvestigate(boolean on) implements Intent {}
-    record SetShowProductTiers(boolean on) implements Intent {}
-    record SetShowTimeEstimate(boolean on) implements Intent {}
-    /** Hide routine messages ("Made x", "Interrupted.") from the chat. */
-    record SetCompactChat(boolean on) implements Intent {}
-
-    record SetLightMode(boolean on) implements Intent {}
+    /** At a church: all your hp back. */
+    record Heal() implements Intent {}
+    /** At a church: a blessing on this recipe, paid for with that item ({@link net.shchoo.scafe.scafe.model.Prayer}). */
+    record Pray(int recipeId, int paymentProductId) implements Intent {}
     /** Say something to everyone in the world. */
     record Chat(String text) implements Intent {}
     /** Debug / world-building commands (the 1 / 2 / 3 keys). */

@@ -281,4 +281,20 @@ class LoginScreenTest {
         assertEquals(LoginScreen.Outcome.EXIT, press(KeyType.Enter), "Down to the buttons, Right to Exit");
         assertEquals(LoginScreen.Outcome.EXIT, press(KeyType.Escape));
     }
+
+    @Test
+    void clicksPickFieldsAndButtons() throws IOException {
+        String[] lines = screenText().split("\n");
+        int y = 0;
+        while (!lines[y].contains("Exit")) {
+            y++;
+        }
+        assertEquals(LoginScreen.Item.EXIT, login.itemAt(lines[y].indexOf("Exit"), y));
+        int passwordRow = 0;
+        while (!lines[passwordRow].contains("Password")) {
+            passwordRow++;
+        }
+        assertEquals(LoginScreen.Item.PASSWORD, login.itemAt(lines[passwordRow].indexOf("Password"), passwordRow));
+        assertNull(login.itemAt(0, 0), "nothing there");
+    }
 }

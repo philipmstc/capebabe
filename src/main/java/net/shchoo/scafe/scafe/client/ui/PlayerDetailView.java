@@ -39,7 +39,7 @@ public class PlayerDetailView extends Widget {
         drawFrame(screen, bounds());
         TextGraphics g = screen.newTextGraphics();
         g.setForegroundColor(SkillStyle.playerColor(player.colorIndex));
-        g.putString(Layout.TERMINAL_SIZE.getColumns() - 40, 0, String.format("%24s", player.name));
+        g.putString(Layout.NAME_X, 0, String.format("%24s", player.name));
         g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
         g.putString(Layout.TERMINAL_SIZE.getColumns() - 16, 0, String.format("%-16s", " [Total Lv. " + player.totalLevel() + "]"));
         if (state == State.IDLE) {
@@ -50,6 +50,10 @@ public class PlayerDetailView extends Widget {
             g.enableModifiers(SGR.BOLD);
         }
         g.putString(Layout.TERMINAL_SIZE.getColumns() - 9, 1, LOG_OUT);
+        board.clicks.option(Clicks.BASE, Layout.TERMINAL_SIZE.getColumns() - 9, 1, LOG_OUT.length(), 1, (button, cx, cy) -> {
+            state = State.ASKING;
+            yes = false;
+        });
     }
 
     /** The "Log out?" popup, over everything else. */
@@ -74,6 +78,9 @@ public class PlayerDetailView extends Widget {
         int x = left + (width - (yesText.length() + 4 + noText.length())) / 2;
         button(g, x, top + 3, yesText, yes);
         button(g, x + yesText.length() + 4, top + 3, noText, !yes);
+        board.clicks.addEverywhere(Clicks.MODAL, (button, cx, cy) -> {});
+        board.clicks.option(Clicks.MODAL, x, top + 3, yesText.length(), 1, (button, cx, cy) -> answer(true));
+        board.clicks.option(Clicks.MODAL, x + yesText.length() + 4, top + 3, noText.length(), 1, (button, cx, cy) -> answer(false));
     }
 
     private static void button(TextGraphics g, int x, int y, String text, boolean selected) {

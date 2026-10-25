@@ -9,6 +9,7 @@ import net.shchoo.scafe.scafe.model.Goal;
 import net.shchoo.scafe.scafe.model.Levels;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
+import net.shchoo.scafe.scafe.model.Prayer;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
@@ -32,11 +33,6 @@ public class GameCharacter implements Walker.Mobile {
     public boolean running;
     /** While moving, head for nodes that appear nearby. */
     public boolean autoInvestigate;
-    public boolean showProductTiers;
-    public boolean showTimeEstimate;
-    public boolean compactChat;
-    /** Every colour on screen inverted (drawn by the client). */
-    public boolean lightMode;
     /** Lifetime counts (see {@link Stat}); sent to the client at the end of a tick in which they changed. */
     public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
     boolean statsChanged;
@@ -50,6 +46,9 @@ public class GameCharacter implements Walker.Mobile {
     /** Times each skill's been prestiged (absent = 0), and the xp it had each time, all added up. */
     public final Map<Skill, Integer> prestige = new HashMap<>();
     public final Map<Skill, Long> bankedXp = new HashMap<>();
+    /** Prayed for at a church ({@link Prayer}): this recipe's node is coming, for this many more steps / actions. Saved. */
+    public Recipe blessing;
+    public int blessingLeft;
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     /** What's in your bank (unlimited), in the order you first put things in. */
     public final LinkedHashMap<Product, Integer> bank = new LinkedHashMap<>();
@@ -72,6 +71,10 @@ public class GameCharacter implements Walker.Mobile {
     boolean isRiding() {
         return ridingUntil >= 0;
     }
+
+    /** Walking over to fight this monster (null: not -- monster ids are negative), until this tick; see {@link Combat#fightAt}. */
+    Integer pendingFight;
+    long pendingFightUntil;
 
     /** Knocked out until this tick (-1: up and about); see {@link Combat#knockOut}. */
     long downUntil = -1;
@@ -246,7 +249,7 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     /** At a church: all your hp back. */
-    void pray() {
+    void heal() {
         if (hp >= maxHp()) {
             say("You're already at full health.");
             return;
@@ -256,6 +259,42 @@ public class GameCharacter implements Walker.Mobile {
         saveSoon = true;
         emit(new Event.HpChanged(hp, maxHp()));
         say(Event.MessageKind.NOTICE, "You pray, and feel restored (" + hp + "/" + hp + " hp).");
+    }
+
+    /** At a church: pay for a blessing on {@code recipe} ({@link Prayer}); it replaces any you had. */
+    void pray(Recipe recipe, Product payment) {
+        if (recipe == null || payment == null) {
+            return;
+        }
+        int cost = Prayer.cost(recipe, payment);
+        if (inventory.getOrDefault(payment, 0) < cost) {
+            say("Praying for that takes " + cost + " x " + payment.name + ".");
+            return;
+        }
+        changeInventory(payment, -cost);
+        setBlessing(recipe, Prayer.STEPS);
+        saveSoon = true;
+        say(Event.MessageKind.NOTICE, "You pray for " + recipe.product.name + " (" + cost + " x " + payment.name
+                + "). Nodes are likelier near you, and the next is " + recipe.product.name + " -- for " + Prayer.STEPS + " steps.");
+    }
+
+    /** One step / item made / kill used up; the blessing fades when there are none left. */
+    void blessingStep() {
+        if (blessing == null) {
+            return;
+        }
+        if (blessingLeft <= 1) {
+            setBlessing(null, 0);
+            say("Your blessing fades.");
+        } else {
+            setBlessing(blessing, blessingLeft - 1);
+        }
+    }
+
+    void setBlessing(Recipe recipe, int left) {
+        blessing = recipe;
+        blessingLeft = recipe == null ? 0 : left;
+        emit(new Event.BlessingChanged(recipe == null ? -1 : recipe.id, blessingLeft));
     }
 
     /** Up to {@code count} from the inventory into the bank. */
@@ -636,8 +675,9 @@ public class GameCharacter implements Walker.Mobile {
         inventory.forEach((product, count) -> inventoryById.put(product.id, count));
         return new Event.CharacterSnapshot(id, name, position(), xpById, inventoryById,
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
-                facing, colorIndex, running, autoInvestigate, showProductTiers, showTimeEstimate, compactChat, statsByName(),
-                weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id, lightMode, bankById(), byId(prestige), byId(bankedXp));
+                facing, colorIndex, running, autoInvestigate, statsByName(),
+                weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id, bankById(), byId(prestige), byId(bankedXp),
+                blessing == null ? -1 : blessing.id, blessingLeft);
     }
 
     private static <V> Map<Integer, V> byId(Map<Skill, V> bySkill) {
@@ -656,6 +696,6 @@ public class GameCharacter implements Walker.Mobile {
         // a prestige keeps the 99 levels it took: the total never goes down
         int levelsGained = xp.keySet().stream().mapToInt(skill -> getLevel(skill) - 1).sum()
                 + prestige.values().stream().mapToInt(times -> times * (Levels.MAX_LEVEL - 1)).sum();
-        return Event.EntityInfo.player(id, name, position(), facing, levelsGained, hp, maxHp(), colorIndex);
+        return Event.EntityInfo.player(id, name, position(), facing, levelsGained, hp, maxHp(), colorIndex, combatLevel());
     }
 }

@@ -158,6 +158,18 @@ public class WorldStore extends SqliteStore implements Storage {
                                              skill_id integer not null references skill(id),
                                              prestige integer not null, banked_xp integer not null,
                                              primary key (character_id, skill_id));
+            """,
+            // v18: the display settings moved to the client's own settings.properties (DisplaySettings)
+            """
+            alter table game_character drop column show_product_tiers;
+            alter table game_character drop column show_time_estimate;
+            alter table game_character drop column compact_chat;
+            alter table game_character drop column light_mode;
+            """,
+            // v19: a church blessing (Prayer): the recipe prayed for, and steps / actions left
+            """
+            alter table game_character add column blessing_recipe_id integer references recipe(id);
+            alter table game_character add column blessing_left integer not null default 0;
             """
     );
 
@@ -458,16 +470,17 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.colorIndex = rs.getInt("color_index");
                 character.running = rs.getInt("running") != 0;
                 character.autoInvestigate = rs.getInt("auto_investigate") != 0;
-                character.showProductTiers = rs.getInt("show_product_tiers") != 0;
-                character.showTimeEstimate = rs.getInt("show_time_estimate") != 0;
-                character.compactChat = rs.getInt("compact_chat") != 0;
-                character.lightMode = rs.getInt("light_mode") != 0;
                 int hp = rs.getInt("hp");
                 if (!rs.wasNull()) {
                     character.savedHp = hp;
                 }
                 character.weapon = product(rs, "weapon_product_id");
                 character.armor = product(rs, "armor_product_id");
+                int blessing = rs.getInt("blessing_recipe_id");
+                if (!rs.wasNull()) {
+                    character.blessing = world.content.recipe(blessing);
+                    character.blessingLeft = rs.getInt("blessing_left");
+                }
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
                     character.lastActionAt = new Position(lastX, rs.getInt("last_action_y"));
@@ -518,15 +531,14 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ? , show_product_tiers = ?, show_time_estimate = ?, compact_chat = ?, weapon_product_id = ?, armor_product_id = ?, light_mode = ?, hp = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ?, weapon_product_id = ?, armor_product_id = ?, hp = ?, blessing_recipe_id = ?, blessing_left = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
-                        character.autoInvestigate ? 1 : 0, character.showProductTiers ? 1 : 0,
-                        character.showTimeEstimate ? 1 : 0, character.compactChat ? 1 : 0,
-                        character.weapon == null ? null : character.weapon.id,
-                        character.armor == null ? null : character.armor.id, character.lightMode ? 1 : 0,
-                        character.currentHp(), character.id);
+                        character.autoInvestigate ? 1 : 0, character.weapon == null ? null : character.weapon.id,
+                        character.armor == null ? null : character.armor.id,
+                        character.currentHp(), character.blessing == null ? null : character.blessing.id,
+                        character.blessingLeft, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "character_prestige", "inventory", "bank_item", "goal", "character_tried_node", "character_stat")) {

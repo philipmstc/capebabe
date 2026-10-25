@@ -44,6 +44,18 @@ public class TabBar extends Widget {
         tabs.add(settings);
         tabs.forEach(tab -> tab.setBounds(bounds));
         map.setBounds(bounds);
+        // a click on a tab's contents takes the keys for it, like its hotkey
+        for (Menu tab : tabs) {
+            tab.setClaimer((player, board) -> pick(tabs.indexOf(tab), player, board));
+        }
+        map.setClaimer((player, board) -> {
+            unfocusAll();
+            map.focus(player, board);
+        });
+        inventory.setItemUser((item, player, board) -> {
+            unfocusAll();
+            map.startUsing(item, player, board);
+        });
         selection = menus.isEmpty() ? 0 : 1;
         beforeSettings = selection;
     }
@@ -74,14 +86,38 @@ public class TabBar extends Widget {
     @Override
     public void draw(Screen screen, Player player, Board board) {
         header(screen, INVENTORY.x() + 1, hotkey(0), inventory.title(), selection == 0 && !map.isFocused());
+        board.clicks.option(Clicks.BASE, INVENTORY.x() + 1, HEADER_ROW, 2 + inventory.title().length(), 1,
+                (button, cx, cy) -> pick(0, player, board));
         header(screen, MAP.x() + 1, "v", "Map", map.isFocused());
+        board.clicks.option(Clicks.BASE, MAP.x() + 1, HEADER_ROW, 5, 1, (button, cx, cy) -> {
+            unfocusAll();
+            map.focus(player, board);
+        });
         int x = MAP.right() + 2;
         for (int i = 1; i < tabs.size(); i++) {
             String title = tabs.get(i).title();
             header(screen, x, hotkey(i), title, i == selection && !map.isFocused());
+            int tab = i;
+            board.clicks.option(Clicks.BASE, x, HEADER_ROW, hotkey(i).length() + 1 + title.length(), 1,
+                    (button, cx, cy) -> pick(tab, player, board));
             x += hotkey(i).length() + 1 + title.length() + HEADER_GAP;
         }
         inventory.drawGrid(screen, player);
+        Clicks.Handler onItem = (button, cx, cy) -> {
+            int index = inventory.indexAt(cx, cy, player);
+            if (index < 0) {
+                return;
+            }
+            pick(0, player, board);
+            inventory.select(index);
+            if (button == Clicks.Button.LEFT) {
+                inventory.useSelected(player, board);
+            } else {
+                inventory.openPopup(player);
+            }
+        };
+        board.clicks.add(Clicks.BASE, INVENTORY, onItem);
+        inventory.addCells(board.clicks, player, onItem);
         drawFrame(screen);
         Menu shown = map.isFocused() ? map : selected();
         TextGraphics title = screen.newTextGraphics();
@@ -90,10 +126,20 @@ public class TabBar extends Widget {
         shown.draw(screen, player, board);
     }
 
+    /** A tab clicked: shown and focused, like its hotkey. */
+    private void pick(int index, Player player, Board board) {
+        unfocusAll();
+        selection = index;
+        tabs.get(index).focus(player, board);
+    }
+
     @Override
     public void drawOnTop(Screen screen, Player player, Board board) {
         inventory.drawOnTop(screen, player, board);
         map.drawOnTop(screen, player, board);
+        if (selected() != inventory) {
+            selected().drawOnTop(screen, player, board);
+        }
     }
 
     private static void header(Screen screen, int x, String key, String title, boolean selected) {

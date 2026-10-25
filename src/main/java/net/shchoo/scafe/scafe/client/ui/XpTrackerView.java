@@ -44,7 +44,7 @@ public class XpTrackerView extends Widget {
         String barText = target.maxed() ? "MAX"
                 : (target.xp() - target.fromXp()) + "/" + (target.toXp() - target.fromXp());
         String rateText = " " + (rate == null ? "--" : compact(rate)) + "/h";
-        String etaText = rate == null || rate == 0 || target.maxed() ? ""
+        String etaText = !player.showTimeEstimate || rate == null || rate == 0 || target.maxed() ? ""
                 : " ~" + duration(target.remaining() * MILLIS_PER_HOUR / rate);
         int fixed = 2 + levelText.length() + BAR_WIDTH + rateText.length();
         if (width - fixed - etaText.length() < MIN_NAME) {

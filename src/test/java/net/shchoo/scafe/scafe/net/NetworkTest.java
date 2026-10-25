@@ -75,8 +75,8 @@ class NetworkTest {
     void everyIntentRoundTrips() {
         List<Intent> intents = List.of(
                 new Intent.Join("alice"), new Intent.Login(Intent.PROTOCOL_VERSION, "alice", "s3cret!"),
-                new Intent.EnterWorld("open sesame"), new Intent.SetShowProductTiers(true), new Intent.Leave(), new Intent.Move(1, -1),
-                new Intent.WalkTo(new Position(-4, 7)), new Intent.Perform(), new Intent.AddGoal(), new Intent.SetGoalLevel(2, 50), new Intent.Equip(EquipSlot.ARMOR, 7), new Intent.Unequip(EquipSlot.WEAPON), new Intent.Deposit(5, 40), new Intent.Prestige(3), new Intent.Withdraw(5, 3), new Intent.Attack(), new Intent.SetColor(3), new Intent.SetRunning(true),
+                new Intent.EnterWorld("open sesame"), new Intent.SetAutoInvestigate(true), new Intent.Heal(), new Intent.Pray(4, 5), new Intent.Leave(), new Intent.Move(1, -1),
+                new Intent.WalkTo(new Position(-4, 7)), new Intent.Perform(), new Intent.AddGoal(), new Intent.SetGoalLevel(2, 50), new Intent.Equip(EquipSlot.ARMOR, 7), new Intent.Unequip(EquipSlot.WEAPON), new Intent.Deposit(5, 40), new Intent.Prestige(3), new Intent.Fight(-3), new Intent.Withdraw(5, 3), new Intent.Attack(), new Intent.SetColor(3), new Intent.SetRunning(true),
                 new Intent.Admin("3", List.of("1", "5", "10")));
         for (Intent intent : intents) {
             assertEquals(intent, Wire.decodeIntent(Wire.encode(intent)));
@@ -91,11 +91,11 @@ class NetworkTest {
         world.content.apply(WorldGenerator.newMonsterType(world));
         world.content.apply(WorldGenerator.newDrop(world, world.content.monsters.get(0).id));
         Event.CharacterSnapshot you = new Event.CharacterSnapshot(7, "alice", new Position(1, 2),
-                Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10, Direction.LEFT, 3, true, true, true, true, true,
-                Map.of("STEPS", 12L, "MONSTERS_KILLED", 3L), 7, 12, true, Map.of(5, 40), Map.of(3, 2), Map.of(3, 15_000_000L));
+                Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10, Direction.LEFT, 3, true, true,
+                Map.of("STEPS", 12L, "MONSTERS_KILLED", 3L), 7, 12, Map.of(5, 40), Map.of(3, 2), Map.of(3, 15_000_000L), 4, 87);
         List<Event> events = List.of(
                 new Event.Welcome("w", 12, List.copyOf(world.content.history()), you,
-                        List.of(Event.EntityInfo.player(8, "bob", new Position(0, 0), Direction.UP, 4, 10, 10, 5),
+                        List.of(Event.EntityInfo.player(8, "bob", new Position(0, 0), Direction.UP, 4, 10, 10, 5, 7),
                                 Event.EntityInfo.monster(-3, "monster0", new Position(2, 2), 77, 3, 9)),
                         List.of(new Event.NodeStatus(9, 0, true, 1))),
                 new Event.Tick(13), new Event.ActionStopped(), new Event.Message("hi \"there\"\n"),
@@ -107,7 +107,7 @@ class NetworkTest {
                 new Event.EntityMoved(8, new Position(1, 0), Direction.RIGHT), new Event.StepsCleared(new Position(0, 0), Direction.DOWN),
                 new Event.ColorChanged(2), new Event.RunningChanged(true),
                 new Event.LoginAccepted(true, false), new Event.LoginRefused("Wrong world password."),
-                new Event.ShowProductTiersChanged(true));
+                new Event.AutoInvestigateChanged(true), new Event.BlessingChanged(4, 87));
         for (Event event : events) {
             assertEquals(event, Wire.decodeEvent(Wire.encode(event)));
         }

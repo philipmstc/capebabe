@@ -43,8 +43,10 @@ public final class Layout {
 
     private static final int RIGHT_X = MAP.right() + 2;
     private static final int RIGHT_WIDTH = TERMINAL_SIZE.getColumns() - RIGHT_X;
-    /** One unframed line on the very top row, over the map; the tab headers are on the row below. */
-    public static final Rect XP = new Rect(MAP.x(), 0, MAP.width() - 1, 1);
+    /** Where the player's name (right-aligned in 24) starts on the top row, before the total level. */
+    public static final int NAME_X = TERMINAL_SIZE.getColumns() - 40;
+    /** One unframed line on the very top row, from over the map up to the player's name; the tab headers are on the row below. */
+    public static final Rect XP = new Rect(MAP.x(), 0, NAME_X - MAP.x(), 1);
     public static final Rect TABS = new Rect(RIGHT_X, MAP.y(), RIGHT_WIDTH, MAP.height());
     public static final Rect PLAYER_DETAILS = new Rect(RIGHT_X + RIGHT_WIDTH + 1, MAP.y(), 6, 1);
 

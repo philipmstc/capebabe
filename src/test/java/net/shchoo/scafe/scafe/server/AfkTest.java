@@ -161,7 +161,7 @@ class AfkTest {
         String shown = text.toString();
         String name = raw.product.name;
         assertTrue(shown.contains("> Craft " + name + " "), shown);
-        assertTrue(shown.contains("Craft " + name + " AFK"));
+        assertTrue(shown.contains("AFK " + name));
         assertTrue(shown.contains("Cancel"));
 
         tabs.onKey(new KeyStroke(KeyType.ArrowDown), player, board);

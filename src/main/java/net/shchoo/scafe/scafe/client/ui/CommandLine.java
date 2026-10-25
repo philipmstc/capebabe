@@ -23,6 +23,13 @@ public class CommandLine extends Widget {
         return typed;
     }
 
+    /** As "/" does (clicking the log): start typing, unless already. */
+    public void startTyping() {
+        if (typed == null) {
+            typed = "";
+        }
+    }
+
     @Override
     public void draw(Screen screen, Player player, Board board) {}
 

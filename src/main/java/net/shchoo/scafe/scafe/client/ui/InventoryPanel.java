@@ -52,6 +52,17 @@ public class InventoryPanel extends Menu {
     private int topRow = 0;
     /** Enter on an item: picked to be used on a node; the tab bar hands it to the map. */
     private Product toUse;
+
+    /** Using an item: off to the map to aim it (the tab bar sets this). */
+    public interface ItemUser {
+        void use(Product item, Player player, Board board);
+    }
+
+    private ItemUser itemUser;
+
+    public void setItemUser(ItemUser itemUser) {
+        this.itemUser = itemUser;
+    }
     /** The Enter popup's options while it's open, else null. */
     private List<Option> popup;
     private int popupIndex;
@@ -163,15 +174,7 @@ public class InventoryPanel extends Menu {
             }
             case ArrowDown -> selected += INVENTORY_COLUMNS;
             case Enter -> {
-                Slot slot = selectedSlot(player);
-                if (slot != null) {
-                    popup = new ArrayList<>(List.of(Option.WEAPON, Option.ARMOR, Option.BOTH, Option.USE));
-                    if (slot.product().equals(player.weapon) || slot.product().equals(player.armor)) {
-                        popup.add(Option.UNEQUIP);
-                    }
-                    popup.add(Option.CANCEL);
-                    popupIndex = 0;
-                }
+                openPopup(player);
                 return Result.HANDLED;
             }
             case Escape -> {
@@ -185,40 +188,60 @@ public class InventoryPanel extends Menu {
         return Result.HANDLED;
     }
 
+    /** Enter / right-click on the selected item: Equip weapon / armor / both, Use, Unequip (if equipped), Cancel. */
+    public void openPopup(Player player) {
+        Slot slot = selectedSlot(player);
+        if (slot == null) {
+            return;
+        }
+        popup = new ArrayList<>(List.of(Option.WEAPON, Option.ARMOR, Option.BOTH, Option.USE));
+        if (slot.product().equals(player.weapon) || slot.product().equals(player.armor)) {
+            popup.add(Option.UNEQUIP);
+        }
+        popup.add(Option.CANCEL);
+        popupIndex = 0;
+    }
+
     private Result popupKey(KeyStroke key, Player player) {
         switch (key.getKeyType()) {
             case ArrowUp -> popupIndex = Math.max(0, popupIndex - 1);
             case ArrowDown -> popupIndex = Math.min(popup.size() - 1, popupIndex + 1);
             case Escape -> popup = null;
             case Enter -> {
-                Option option = popup.get(popupIndex);
-                popup = null;
-                Slot slot = selectedSlot(player);
-                switch (option) {
-                    case WEAPON -> player.equip(EquipSlot.WEAPON, slot.product());
-                    case ARMOR -> player.equip(EquipSlot.ARMOR, slot.product());
-                    case BOTH -> {
-                        player.equip(EquipSlot.WEAPON, slot.product());
-                        player.equip(EquipSlot.ARMOR, slot.product());
-                    }
-                    case USE -> {
-                        toUse = slot.product();
-                        return Result.RELEASE;
-                    }
-                    case UNEQUIP -> {
-                        for (EquipSlot equipSlot : EquipSlot.values()) {
-                            if (slot.product().equals(player.equipped(equipSlot))) {
-                                player.unequip(equipSlot);
-                            }
-                        }
-                    }
-                    case CANCEL -> {}
-                }
+                return choose(player);
             }
             case Character -> {
                 // global keys (wasd...) stay off while the popup is up
             }
             default -> {}
+        }
+        return Result.HANDLED;
+    }
+
+    /** Does the popup's selected option (Use: the item goes to {@link #takeItemToUse}). */
+    private Result choose(Player player) {
+        Option option = popup.get(popupIndex);
+        popup = null;
+        Slot slot = selectedSlot(player);
+        switch (option) {
+            case WEAPON -> player.equip(EquipSlot.WEAPON, slot.product());
+            case ARMOR -> player.equip(EquipSlot.ARMOR, slot.product());
+            case BOTH -> {
+                player.equip(EquipSlot.WEAPON, slot.product());
+                player.equip(EquipSlot.ARMOR, slot.product());
+            }
+            case USE -> {
+                toUse = slot.product();
+                return Result.RELEASE;
+            }
+            case UNEQUIP -> {
+                for (EquipSlot equipSlot : EquipSlot.values()) {
+                    if (slot.product().equals(player.equipped(equipSlot))) {
+                        player.unequip(equipSlot);
+                    }
+                }
+            }
+            case CANCEL -> {}
         }
         return Result.HANDLED;
     }
@@ -261,6 +284,44 @@ public class InventoryPanel extends Menu {
         drawScrollbar(screen, right, top, bottom, topRow, INVENTORY_ROWS, totalRows);
     }
 
+    /** The slot index of the cell drawn at screen cell {@code x}, {@code y} (as last drawn), or -1. */
+    public int indexAt(int x, int y, Player player) {
+        int column = x - grid.x() - 2, row = y - grid.y() - 2;
+        if (column < 0 || row < 0 || column % CELL_STEP_X >= CELL_WIDTH || row % CELL_STEP_Y >= 2) {
+            return -1;
+        }
+        int c = column / CELL_STEP_X, r = row / CELL_STEP_Y;
+        if (c >= INVENTORY_COLUMNS || r >= INVENTORY_ROWS) {
+            return -1;
+        }
+        int index = (topRow + r) * INVENTORY_COLUMNS + c;
+        return index < slots(player).size() ? index : -1;
+    }
+
+    /** Each item cell on screen as an option (so it lights up under the mouse), clicked with {@code handler}. */
+    public void addCells(Clicks clicks, Player player, Clicks.Handler handler) {
+        for (int r = 0; r < INVENTORY_ROWS; r++) {
+            for (int c = 0; c < INVENTORY_COLUMNS; c++) {
+                if ((topRow + r) * INVENTORY_COLUMNS + c < slots(player).size()) {
+                    clicks.option(Clicks.BASE, cellX(c), cellY(r), CELL_WIDTH, 2, handler);
+                }
+            }
+        }
+    }
+
+    public void select(int index) {
+        selected = index;
+        popup = null;
+    }
+
+    /** Left-click: use the selected item (off to the map to aim it). */
+    public void useSelected(Player player, Board board) {
+        Product item = selectedItem(player);
+        if (item != null && itemUser != null) {
+            itemUser.use(item, player, board);
+        }
+    }
+
     private int cellX(int column) {
         return grid.x() + 2 + column * CELL_STEP_X;
     }
@@ -296,6 +357,21 @@ public class InventoryPanel extends Menu {
             }
             g.putString(box.x() + 1, box.y() + 1 + i, (isSelected ? "> " : "  ") + option.label);
             g.disableModifiers(SGR.BOLD);
+        }
+        board.clicks.addClickOff(Clicks.POPUP, () -> popup = null);
+        board.clicks.add(Clicks.POPUP, box, (button, cx, cy) -> {});
+        for (int i = 0; i < popup.size(); i++) {
+            int chosen = i;
+            board.clicks.option(Clicks.POPUP, box.x() + 1, box.y() + 1 + i, box.width() - 2, 1, (button, cx, cy) -> {
+                popupIndex = chosen;
+                if (choose(player) == Result.RELEASE) {
+                    unfocus();
+                }
+                Product item = takeItemToUse();
+                if (item != null && itemUser != null) {
+                    itemUser.use(item, player, board);
+                }
+            });
         }
     }
 
