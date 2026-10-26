@@ -74,6 +74,12 @@ public abstract class Widget {
         drawFrame(screen, bounds);
     }
 
+    /** w/a/s/d: a window over the map (bank, station, church) closes and lets you walk off. */
+    public static boolean isMoveKey(KeyStroke key) {
+        return key.getKeyType() == com.googlecode.lanterna.input.KeyType.Character && !key.isCtrlDown() && !key.isAltDown()
+                && "wasdWASD".indexOf(key.getCharacter()) >= 0;
+    }
+
     public static void drawFrame(Screen screen, Rect r) {
         drawFrame(screen, r.x(), r.y(), r.right(), r.bottom());
     }

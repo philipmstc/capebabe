@@ -21,8 +21,8 @@ import java.util.*;
 public class Player {
     public static final int LEVEL_UP_POPUP_FRAMES = 45;
 
-    /** What the progress bar shows. */
-    public record ActionView(String label, long startTick, int durationTicks) {}
+    /** What the progress bar shows; {@code nodeId} -1 for something that isn't crafting (the train). */
+    public record ActionView(int nodeId, String label, long startTick, int durationTicks) {}
 
     private final GameConnection connection;
     public final WorldContent content = new WorldContent();
@@ -69,9 +69,16 @@ public class Player {
     public boolean stationMenuOpen;
     /** q at a church: its window (heal, or pray for a node) is up. */
     public boolean churchMenuOpen;
+    /** The Merch Ant trades with you (you've prestiged); its window is up; its "wants to speak with you" is showing. */
+    public boolean metMerchant;
+    public boolean merchantMenuOpen;
+    public boolean merchantCalling;
     /** Your church blessing (null: none) and the steps / actions it has left ({@link net.shchoo.scafe.scafe.model.Prayer}). */
     public Recipe blessing;
     public int blessingLeft;
+    /** The church oracle's last word on the next new skill (null: none yet), and when it came. */
+    private Event.OracleSaid oracle;
+    private long oracleAt;
     private long bankSentAt = -1;
     /** Render frames so far, for things that flicker. */
     private long frames;
@@ -204,7 +211,7 @@ public class Player {
                 others.computeIfPresent(moved.id(), (k, info) -> info.at(moved.position(), moved.facing()));
             }
         } else if (event instanceof Event.ActionStarted started) {
-            currentAction = new ActionView(started.label(), started.startTick(), started.durationTicks());
+            currentAction = new ActionView(started.nodeId(), started.label(), started.startTick(), started.durationTicks());
             xpTracker.setActive(true);
         } else if (event instanceof Event.ActionStopped) {
             currentAction = null;
@@ -214,6 +221,12 @@ public class Player {
             xp.put(skill, gained.totalXp());
             xpTracker.record(skill, gained.amount());
             popups.add(new Popup(gained.at(), "+" + gained.amount() + "xp", SkillStyle.getColorForSkill(skill)));
+        } else if (event instanceof Event.OracleSaid said) {
+            oracle = said;
+            oracleAt = System.currentTimeMillis();
+        } else if (event instanceof Event.MerchantCalls) {
+            metMerchant = true;
+            merchantCalling = true;
         } else if (event instanceof Event.BlessingChanged changed) {
             blessing = changed.recipeId() < 0 ? null : content.recipe(changed.recipeId());
             blessingLeft = changed.left();
@@ -295,6 +308,7 @@ public class Player {
         weapon = you.weaponId() < 0 ? null : content.product(you.weaponId());
         blessing = you.blessingRecipeId() < 0 ? null : content.recipe(you.blessingRecipeId());
         blessingLeft = you.blessingLeft();
+        metMerchant = you.metMerchant();
         armor = you.armorId() < 0 ? null : content.product(you.armorId());
         setStats(you.stats());
         you.xp().forEach((skillId, amount) -> xp.put(content.skill(skillId), amount));
@@ -568,7 +582,7 @@ public class Player {
 
     /** How many of {@code item} make a stack for you ({@link Stacks}). */
     public int stackSize(Product item) {
-        return Stacks.size(content, item, this::getLevel);
+        return Stacks.size(content, item, this::stackLevel);
     }
 
     /**
@@ -583,8 +597,49 @@ public class Player {
             stationMenuOpen = true;
         } else if (building != null && building.kind() == Building.Kind.CHURCH) {
             churchMenuOpen = true;
+        } else if (building != null && building.kind() == Building.Kind.MERCHANT && metMerchant) {
+            merchantMenuOpen = true;
         }
         send(new Intent.Perform());
+    }
+
+    /** The church oracle's word, its minutes counted on since it came (down to the skill, then up past it); null: none. */
+    public Event.OracleSaid oracle() {
+        if (oracle == null || !oracle.known()) {
+            return oracle;
+        }
+        return new Event.OracleSaid(true, oracle.minutes() - (System.currentTimeMillis() - oracleAt) / 60_000, oracle.fold());
+    }
+
+    /** At a church: give it {@code count} of {@code item} (a tiny new-skill roll). */
+    public void tithe(Product item, int count) {
+        send(new Intent.Tithe(item.id, count));
+    }
+
+    /** How many one craft of {@code recipe} makes at your level ({@link Tiers}): 1, 2 or 3. */
+    public int madePerCraft(Recipe recipe) {
+        return Tiers.yield(Tiers.of(recipe), getLevel(recipe.skill));
+    }
+
+    /**
+     * The progress bar's words: what you're doing, with how many a craft makes now in front when it's more than one
+     * ("2 x skill0{0}-0 (AFK)"; not while waiting for the node to come back).
+     */
+    public String actionLabel() {
+        if (currentAction == null) {
+            return null;
+        }
+        Node node = content.node(currentAction.nodeId());
+        if (node == null || !currentAction.label().startsWith(node.label())) {
+            return currentAction.label();
+        }
+        int made = madePerCraft(node.recipe);
+        return (made > 1 ? made + " x " : "") + currentAction.label();
+    }
+
+    /** At the Merch Ant: {@code count} of a prestige item for 1 + its prestige of the plain one each. */
+    public void trade(Product item, int count) {
+        send(new Intent.Trade(item.id, count));
     }
 
     /** At a church: all your hp back. */
@@ -619,7 +674,7 @@ public class Player {
 
     /** Inventory slots in use, out of {@link Stacks#INVENTORY_SLOTS}. */
     public int slotsUsed() {
-        return Stacks.slots(content, inventory, this::getLevel);
+        return Stacks.slots(content, inventory, this::stackLevel);
     }
 
     public void toggleLightMode() {
@@ -693,6 +748,11 @@ public class Player {
 
     public int getPrestige(Skill skill) {
         return prestige.getOrDefault(skill, 0);
+    }
+
+    /** What a skill's items stack to: its virtual level, from all its xp across prestiges ({@link Stacks}). */
+    public int stackLevel(Skill skill) {
+        return Levels.virtualLevelFor(lifetimeExperience(skill));
     }
 
     /** A skill's xp across all its prestiges: what's banked plus what it has now. */

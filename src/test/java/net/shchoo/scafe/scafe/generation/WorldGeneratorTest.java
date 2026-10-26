@@ -26,7 +26,7 @@ class WorldGeneratorTest {
     private static World grow(long seed) {
         World world = new World(1, "w", seed);
         world.content.apply(WorldGenerator.newSkills(world, 8));
-        world.content.apply(WorldGenerator.newProductLines(world, 3));
+        world.content.apply(WorldGenerator.newSkills(world, 3));
         world.content.apply(WorldGenerator.newNode(world, new Position(2, 3), 1, 5, 10));
         return world;
     }
@@ -160,9 +160,6 @@ class WorldGeneratorTest {
         world.content.apply(WorldGenerator.newSkills(world, 2));
         world.content.apply(WorldGenerator.newMonsterType(world));
         world.content.apply(WorldGenerator.newSkills(world, 1));
-        for (int i = 0; i < 10; i++) {
-            world.content.apply(WorldGenerator.newProductLines(world, 3));
-        }
         assertTrue(world.content.combatSkill().productLines.isEmpty());
         assertEquals(List.of("skill0", "skill1", "skill2"), world.content.craftingSkills().stream().map(s -> s.name).toList());
     }
@@ -189,7 +186,7 @@ class WorldGeneratorTest {
         for (long seed = 1; seed <= 20; seed++) {
             World world = new World(1, "w", seed);
             world.content.apply(WorldGenerator.newSkills(world, 10));
-            world.content.apply(WorldGenerator.newProductLines(world, 6));
+            world.content.apply(WorldGenerator.newSkills(world, 6));
             Map<Product, Skill> skillOf = new HashMap<>();
             world.content.skills.forEach(skill -> skill.productLines.forEach(line -> line.recipes.forEach(recipe -> {
                 assertEquals(line.recipes.indexOf(recipe), recipe.product.tier, "a product's tier is its place in its line");

@@ -30,7 +30,7 @@ public class ProgressBarView extends Widget {
             fill = TextColor.ANSI.RED;
         } else if (player.currentAction != null) {
             fraction = player.actionFraction();
-            label = player.currentAction.label();
+            label = player.actionLabel();
             fill = TextColor.ANSI.GREEN;
         } else {
             return;

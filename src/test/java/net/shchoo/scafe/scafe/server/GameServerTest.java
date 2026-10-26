@@ -317,37 +317,39 @@ class GameServerTest {
 
         alice.stepGoalLevel(0, 1);
         tick(alice);
-        assertEquals(Levels.MAX_LEVEL, alice.goals.get(0).level(), "70 -> the max");
-        alice.stepGoalLevel(0, 1);
-        tick(alice);
-        assertEquals(Levels.MAX_LEVEL, alice.goals.get(0).level(), "nowhere past it");
+        assertEquals(85, alice.goals.get(0).level(), "80 -> 85 (tier 2 makes x3)");
+        for (int i = 0; i < 3; i++) {
+            alice.stepGoalLevel(0, 1);
+            tick(alice);
+        }
+        assertEquals(Levels.MAX_LEVEL, alice.goals.get(0).level(), "90, 95, the max");
         alice.stepGoalLevel(0, -1);
         alice.stepGoalLevel(0, -1);
         tick(alice);
-        assertEquals(70, alice.goals.get(0).level(), "both steps were worked out from 100 before the server answered");
+        assertEquals(95, alice.goals.get(0).level(), "both steps were worked out from 100 before the server answered");
 
         alice.send(new Intent.SetGoalLevel(0, 42));
         alice.send(new Intent.SetGoalLevel(3, 20));
         tick(alice);
-        assertEquals(70, alice.goals.get(0).level(), "only the goal levels, only your goals");
+        assertEquals(95, alice.goals.get(0).level(), "only the goal levels, only your goals");
 
         Skill skill = alice.goals.get(0).skill();
-        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[49]))));
+        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[89]))));
         tick(alice);
-        assertEquals(50, alice.getLevel(skill));
+        assertEquals(90, alice.getLevel(skill));
         alice.stepGoalLevel(0, -1);
         tick(alice);
-        assertEquals(70, alice.goals.get(0).level(), "50 is your level already: Left does nothing");
-        alice.send(new Intent.SetGoalLevel(0, 35));
+        assertEquals(95, alice.goals.get(0).level(), "90 is your level already: Left does nothing");
+        alice.send(new Intent.SetGoalLevel(0, 85));
         tick(alice);
-        assertEquals(70, alice.goals.get(0).level(), "and the server won't take it either");
-        assertTrue(log.contains("You're already past Lv. 35."));
+        assertEquals(95, alice.goals.get(0).level(), "and the server won't take it either");
+        assertTrue(log.contains("You're already past Lv. 85."));
     }
 
     @Test
     void badAdminCommandsAreReportedNotThrown() {
         Player alice = join("alice");
-        alice.send(new Intent.Admin("2", List.of()));
+        alice.send(new Intent.Admin("2", List.of("lots")));
         alice.send(new Intent.Admin("1", List.of("abc")));
         tick(alice);
         assertTrue(log.stream().anyMatch(m -> m.startsWith("Couldn't run 2")));

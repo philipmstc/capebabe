@@ -44,7 +44,7 @@ class WaypointTest {
     void setUp() {
         World world = new World(1, "w", 1);
         world.content.apply(WorldGenerator.newSkills(world, 2));
-        world.content.apply(WorldGenerator.newProductLines(world, 2));
+        world.content.apply(WorldGenerator.newSkills(world, 2));
         List<Recipe> recipes = world.content.skills.stream().flatMap(s -> s.productLines.stream())
                 .flatMap(l -> l.recipes.stream()).toList();
         target = recipes.get(1);
@@ -87,14 +87,8 @@ class WaypointTest {
             press(KeyType.ArrowDown);
         }
         press(KeyType.Enter);
-        for (ProductLine line : skill.productLines) {
-            int tier = line.recipes.indexOf(recipe);
-            if (tier >= 0) {
-                for (int i = 0; i < tier; i++) {
-                    press(KeyType.ArrowRight);
-                }
-                break;
-            }
+        // one product line a skill: Down to the tier
+        for (int i = 0; i < skill.productLines.get(0).recipes.indexOf(recipe); i++) {
             press(KeyType.ArrowDown);
         }
         assertEquals(recipe, skills.selectedRecipe(skill));

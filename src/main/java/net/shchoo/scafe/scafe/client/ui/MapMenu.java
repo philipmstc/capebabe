@@ -117,11 +117,12 @@ public class MapMenu extends Menu {
      */
     private PopupMenu nodeMenu(Node node, Player player) {
         String name = node.recipe.product.name;
+        int made = player.madePerCraft(node.recipe);
         String cost = node.recipe.components.isEmpty() ? null : node.recipe.components.entrySet().stream()
                 .map(e -> e.getValue() + " x " + e.getKey().name).collect(java.util.stream.Collectors.joining(", "));
         Position at = node.position;
         return new PopupMenu(name, MapView.nodeColor(node, player), java.util.List.of(
-                new PopupMenu.Option("Craft " + name, cost, then(() -> player.craft(at, false))),
+                new PopupMenu.Option("Craft " + name + (made > 1 ? " (x" + made + ")" : ""), cost, then(() -> player.craft(at, false))),
                 PopupMenu.Option.of("AFK " + name, then(() -> player.craft(at, true))),
                 PopupMenu.Option.of("Walk here", then(() -> player.walkTo(at)))));
     }

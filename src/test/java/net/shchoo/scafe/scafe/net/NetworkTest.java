@@ -75,7 +75,7 @@ class NetworkTest {
     void everyIntentRoundTrips() {
         List<Intent> intents = List.of(
                 new Intent.Join("alice"), new Intent.Login(Intent.PROTOCOL_VERSION, "alice", "s3cret!"),
-                new Intent.EnterWorld("open sesame"), new Intent.SetAutoInvestigate(true), new Intent.Heal(), new Intent.Pray(4, 5), new Intent.Leave(), new Intent.Move(1, -1),
+                new Intent.EnterWorld("open sesame"), new Intent.SetAutoInvestigate(true), new Intent.Heal(), new Intent.Pray(4, 5), new Intent.Tithe(3, 100), new Intent.Trade(3, 2), new Intent.Leave(), new Intent.Move(1, -1),
                 new Intent.WalkTo(new Position(-4, 7)), new Intent.Perform(), new Intent.AddGoal(), new Intent.SetGoalLevel(2, 50), new Intent.Equip(EquipSlot.ARMOR, 7), new Intent.Unequip(EquipSlot.WEAPON), new Intent.Deposit(5, 40), new Intent.Prestige(3), new Intent.Fight(-3), new Intent.Withdraw(5, 3), new Intent.Attack(), new Intent.SetColor(3), new Intent.SetRunning(true),
                 new Intent.Admin("3", List.of("1", "5", "10")));
         for (Intent intent : intents) {
@@ -92,7 +92,7 @@ class NetworkTest {
         world.content.apply(WorldGenerator.newDrop(world, world.content.monsters.get(0).id));
         Event.CharacterSnapshot you = new Event.CharacterSnapshot(7, "alice", new Position(1, 2),
                 Map.of(1, 5000L), Map.of(3, 2), List.of(new Event.GoalDef(1, 20, 3)), Set.of(9), null, 8, 10, Direction.LEFT, 3, true, true,
-                Map.of("STEPS", 12L, "MONSTERS_KILLED", 3L), 7, 12, Map.of(5, 40), Map.of(3, 2), Map.of(3, 15_000_000L), 4, 87);
+                Map.of("STEPS", 12L, "MONSTERS_KILLED", 3L), 7, 12, Map.of(5, 40), Map.of(3, 2), Map.of(3, 15_000_000L), 4, 87, true);
         List<Event> events = List.of(
                 new Event.Welcome("w", 12, List.copyOf(world.content.history()), you,
                         List.of(Event.EntityInfo.player(8, "bob", new Position(0, 0), Direction.UP, 4, 10, 10, 5, 7),
@@ -107,7 +107,7 @@ class NetworkTest {
                 new Event.EntityMoved(8, new Position(1, 0), Direction.RIGHT), new Event.StepsCleared(new Position(0, 0), Direction.DOWN),
                 new Event.ColorChanged(2), new Event.RunningChanged(true),
                 new Event.LoginAccepted(true, false), new Event.LoginRefused("Wrong world password."),
-                new Event.AutoInvestigateChanged(true), new Event.BlessingChanged(4, 87));
+                new Event.AutoInvestigateChanged(true), new Event.BlessingChanged(4, 87), new Event.OracleSaid(true, -4321, 2), new Event.MerchantCalls());
         for (Event event : events) {
             assertEquals(event, Wire.decodeEvent(Wire.encode(event)));
         }

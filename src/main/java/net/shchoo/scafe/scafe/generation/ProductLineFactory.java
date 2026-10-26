@@ -4,6 +4,7 @@ import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.ProductLine;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
+import net.shchoo.scafe.scafe.model.Tiers;
 import net.shchoo.scafe.scafe.model.WorldContent;
 
 import java.util.*;
@@ -15,7 +16,7 @@ import java.util.*;
  * tier of a line, so a line reads as "2 ore + 1 coal -> bar".
  */
 public class ProductLineFactory {
-    private static final int[] DEFAULT_LEVEL_NEEDED_BY_TIER = {0, 20, 35, 50, 70};
+    private static final int[] DEFAULT_LEVEL_NEEDED_BY_TIER = Tiers.LEVEL_NEEDED;
     private static final int[] DEFAULT_XP_GAINED_BY_TIER = {200, 300, 400, 500, 750};
     /** Chances of a crafted line having 1, 2 or 3 different inputs. */
     private static final double[] INPUT_COUNT_WEIGHTS = {0.45, 0.40, 0.15};

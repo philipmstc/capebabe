@@ -46,7 +46,14 @@ public class TabBar extends Widget {
         map.setBounds(bounds);
         // a click on a tab's contents takes the keys for it, like its hotkey
         for (Menu tab : tabs) {
-            tab.setClaimer((player, board) -> pick(tabs.indexOf(tab), player, board));
+            // a click inside a tab: it takes the keys where it is (a hotkey or its header starts it over: pick)
+            tab.setClaimer((player, board) -> {
+                if (!tab.isFocused()) {
+                    unfocusAll();
+                    selection = tabs.indexOf(tab);
+                    tab.takeFocus(player, board);
+                }
+            });
         }
         map.setClaimer((player, board) -> {
             unfocusAll();

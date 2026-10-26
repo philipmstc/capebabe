@@ -18,7 +18,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 24;
+    int PROTOCOL_VERSION = 25;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -74,6 +74,10 @@ public sealed interface Intent {
     record Heal() implements Intent {}
     /** At a church: a blessing on this recipe, paid for with that item ({@link net.shchoo.scafe.scafe.model.Prayer}). */
     record Pray(int recipeId, int paymentProductId) implements Intent {}
+    /** At a church: give it this many of an item (a tiny new-skill roll). */
+    record Tithe(int productId, int count) implements Intent {}
+    /** At the Merch Ant: this many of a prestige item for 1 + its prestige of the plain one each. */
+    record Trade(int productId, int count) implements Intent {}
     /** Say something to everyone in the world. */
     record Chat(String text) implements Intent {}
     /** Debug / world-building commands (the 1 / 2 / 3 keys). */

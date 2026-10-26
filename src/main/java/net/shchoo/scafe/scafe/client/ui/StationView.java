@@ -53,6 +53,11 @@ public class StationView extends Widget {
             return false;
         }
         opened(player);
+        if (isMoveKey(key)) {
+            // walking off closes it (the key goes on to move you)
+            player.stationMenuOpen = false;
+            return false;
+        }
         List<Building> line = Stations.all(player.content);
         switch (key.getKeyType()) {
             case ArrowUp -> selected = step(player, line, -1);
@@ -116,8 +121,12 @@ public class StationView extends Widget {
         Building here = here(player);
         selected = Math.max(0, Math.min(selected, Math.max(0, line.size() - 1)));
         Rect box = bounds();
-        board.clicks.addEverywhere(Clicks.MODAL, (button, cx, cy) -> {});
+        // a click off it closes it and goes on to what's there (the map: walk off)
+        board.clicks.addClickOff(Clicks.MODAL, () -> player.stationMenuOpen = false);
         int rows = Math.min(box.height(), line.size() + 4 + (line.size() < 2 ? 2 : 0));
+        board.clicks.add(Clicks.MODAL, box.x(), box.y(), box.width(), rows, (button, cx, cy) -> {});
+        // the line map, over the tabs
+        board.clicks.add(Clicks.MODAL, TABS, (button, cx, cy) -> {});
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         g.fillRectangle(new TerminalPosition(box.x(), box.y()), new TerminalSize(box.width(), rows), ' ');

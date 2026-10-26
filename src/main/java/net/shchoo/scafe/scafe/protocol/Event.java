@@ -18,7 +18,7 @@ public sealed interface Event {
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
                              boolean running, boolean autoInvestigate, Map<String, Long> stats, int weaponId, int armorId,
                              Map<Integer, Integer> bank, Map<Integer, Integer> prestige,
-                             Map<Integer, Long> bankedXp, int blessingRecipeId, int blessingLeft) {}
+                             Map<Integer, Long> bankedXp, int blessingRecipeId, int blessingLeft, boolean metMerchant) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -94,6 +94,13 @@ public sealed interface Event {
     record Prestiged(int skillId, int prestige, long bankedXp) implements Event {}
     /** Your church blessing ({@link net.shchoo.scafe.scafe.model.Prayer}): -1 = none. */
     record BlessingChanged(int recipeId, int left) implements Event {}
+    /** Your first prestige: "The Merch Ant wants to speak with you..." -- it trades with you from now on. */
+    record MerchantCalls() implements Event {}
+    /**
+     * The church's guess at the next new skill: in {@code minutes} (negative: it's late by that much), {@code fold}
+     * times over what it should have taken so far; not {@code known}: no idea.
+     */
+    record OracleSaid(boolean known, long minutes, int fold) implements Event {}
     record InventoryChanged(int productId, int count) implements Event {}
     record GoalAdded(GoalDef goal) implements Event {}
 

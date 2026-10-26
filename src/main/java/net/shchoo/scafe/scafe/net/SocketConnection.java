@@ -56,16 +56,26 @@ public class SocketConnection implements GameConnection {
         reader.start();
     }
 
-    /** "host" or "host:port", as "host:port" (the key the client remembers a server's fingerprint under). */
+    /**
+     * "host" or "host:port", as "host:port" (the key the client remembers a server's fingerprint under). Spaces are
+     * dropped (easy to pick up copying an address out of a chat).
+     */
     public static String normalize(String address) {
-        return address.lastIndexOf(':') < 0 ? address + ":" + NetworkServer.DEFAULT_PORT : address;
+        String trimmed = address.replaceAll("\\s+", "");
+        return trimmed.lastIndexOf(':') < 0 ? trimmed + ":" + NetworkServer.DEFAULT_PORT : trimmed;
     }
 
     /** "host" or "host:port". */
     public static SocketConnection connect(String address, Tls.Client tls) throws IOException {
         String hostPort = normalize(address);
         int colon = hostPort.lastIndexOf(':');
-        return new SocketConnection(hostPort.substring(0, colon), Integer.parseInt(hostPort.substring(colon + 1)), tls);
+        int port;
+        try {
+            port = Integer.parseInt(hostPort.substring(colon + 1));
+        } catch (NumberFormatException e) {
+            throw new IOException("\"" + hostPort.substring(colon + 1) + "\" isn't a port (try just the address)");
+        }
+        return new SocketConnection(hostPort.substring(0, colon), port, tls);
     }
 
     private void closeQuietly() {

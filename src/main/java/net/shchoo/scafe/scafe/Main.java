@@ -265,6 +265,7 @@ public class Main {
                 new BankView(),
                 new StationView(),
                 new ChurchView(),
+                new MerchantView(),
                 commandLine,
                 new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut[0] = true),
                 new MapView(Layout.MAP, map),

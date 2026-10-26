@@ -110,6 +110,10 @@ public class BankView extends Widget {
             typeKey(key, player);
         } else if (options != null) {
             optionKey(key, player);
+        } else if (isMoveKey(key)) {
+            // walking off closes it (the key goes on to move you)
+            close(player);
+            return false;
         } else {
             gridKey(key, player);
         }
@@ -142,13 +146,17 @@ public class BankView extends Widget {
             case Tab, ReverseTab -> switchTo(side == Side.INVENTORY ? Side.BANK : Side.INVENTORY, player,
                     selected[1 - s]);
             case Enter -> openOptions(player);
-            case Escape -> {
-                player.bankOpen = false;
-                side = Side.INVENTORY;
-            }
+            case Escape -> close(player);
             default -> {}
         }
         selected[s] = Math.max(0, Math.min(Math.max(0, count - 1), selected[s]));
+    }
+
+    private void close(Player player) {
+        player.bankOpen = false;
+        side = Side.INVENTORY;
+        options = null;
+        typing = null;
     }
 
     private void switchTo(Side to, Player player, int index) {
@@ -266,10 +274,11 @@ public class BankView extends Widget {
         }
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
-        // while it's open, clicks are the bank's (anywhere else, they do nothing)
-        board.clicks.addEverywhere(Clicks.MODAL, (button, cx, cy) -> {});
+        // a click off it closes it and goes on to what's there (the map: walk off); on it, it's the bank's
+        board.clicks.addClickOff(Clicks.MODAL, () -> close(player));
         for (Side of : Side.values()) {
             Rect area = area(of);
+            board.clicks.add(Clicks.MODAL, area, (button, cx, cy) -> {});
             g.fillRectangle(new TerminalPosition(area.x() + 1, area.y() + 1), new TerminalSize(area.width() - 2, area.height() - 2), ' ');
             drawFrame(screen, area);
             drawSide(screen, g, player, board, of);

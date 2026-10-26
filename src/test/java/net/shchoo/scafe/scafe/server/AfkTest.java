@@ -14,6 +14,7 @@ import net.shchoo.scafe.scafe.client.ui.TabBar;
 import net.shchoo.scafe.scafe.generation.WorldGenerator;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
+import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.SkillType;
 import net.shchoo.scafe.scafe.model.Stat;
@@ -106,6 +107,29 @@ class AfkTest {
         }
         assertEquals(3, made(), "picked back up when it came back");
         assertFalse(log.contains("The " + raw.product.name + " ran out."), "never stopped for it");
+        ticks(1);
+        assertEquals(3L, player.stats.get(Stat.ITEMS_CRAFTED_AFK), "counted as AFK");
+        assertEquals(3L, player.stats.get(Stat.ITEMS_CRAFTED), "and as crafted");
+    }
+
+    @Test
+    void atLevel30ATier0CraftMakesTwo() {
+        player.send(new Intent.Admin("5", List.of(raw.skill.name, String.valueOf(Skill.XP_PER_LEVEL[29]))));
+        ticks(1);
+        assertEquals(2, player.madePerCraft(player.content.recipe(raw.id)));
+        long before = xp();
+        Node node = node(new Position(0, 1), 1, 600);
+        player.craft(node.position, false);
+        ticks(1);
+        assertEquals("2 x " + raw.product.name, player.actionLabel(), "the progress bar says so");
+        for (int i = 0; i < 3 * Node.DEFAULT_DURATION_TICKS && made() < 2; i++) {
+            ticks(1);
+        }
+        ticks(1);
+        assertEquals(2, made(), "two from one charge");
+        assertEquals(2L, player.stats.get(Stat.ITEMS_CRAFTED));
+        assertTrue(log.contains("Made 2 x " + raw.product.name));
+        assertEquals(before + raw.expGained, xp(), "one craft's xp, not one per item");
     }
 
     @Test
@@ -117,6 +141,8 @@ class AfkTest {
         }
         assertEquals(1, made());
         assertEquals((long) raw.expGained, xp(), "full xp");
+        assertEquals(1L, player.stats.get(Stat.ITEMS_CRAFTED));
+        assertNull(player.stats.get(Stat.ITEMS_CRAFTED_AFK), "not AFK");
         assertNull(player.currentAction);
         assertTrue(log.contains("The " + raw.product.name + " ran out."));
     }

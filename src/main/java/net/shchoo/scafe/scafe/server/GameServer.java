@@ -119,6 +119,27 @@ public class GameServer {
     public GameServer(World world, Storage store) {
         this.world = world;
         this.store = store;
+        Oracle.Saved saved = null;
+        try {
+            saved = store == null ? null : store.loadOracle();
+        } catch (Exception e) {
+            // start it over
+            e.printStackTrace();
+        }
+        oracle = new Oracle(saved);
+    }
+
+    private final Oracle oracle;
+
+    /** The church's guess at the next skill. */
+    Oracle oracle() {
+        return oracle;
+    }
+
+    /** Tells {@code character} the oracle's guess (the church window shows it). */
+    private void tellOracle(GameCharacter character) {
+        Oracle.Prophecy said = oracle.prophecy(world.content.craftingSkills().size());
+        character.emit(new Event.OracleSaid(said.known(), said.minutes(), said.fold()));
     }
 
     /** Account names (lower case) allowed admin commands from anywhere, on top of local / {@code --admin} sessions. */
@@ -389,6 +410,7 @@ public class GameServer {
      */
     public void tick() {
         tick++;
+        oracle.advance(tick);
         broadcast(new Event.Tick(tick));
         List<Map.Entry<Session, Intent>> afterMovement = new ArrayList<>();
         for (Session session : sessions) {
@@ -439,6 +461,7 @@ public class GameServer {
             }
         }
         combat.tick(tick);
+        combat.training(tick);
         for (GameCharacter character : online.values()) {
             if (character.pendingUse != null) {
                 character.arrive(world.content.nodeAt(character.pendingUse), tick);
@@ -490,6 +513,20 @@ public class GameServer {
                 save(character);
             }
         }
+        if (autosave) {
+            saveOracle();
+        }
+    }
+
+    private void saveOracle() {
+        if (store == null) {
+            return;
+        }
+        try {
+            store.saveOracle(oracle.saved());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void save(GameCharacter character) {
@@ -507,6 +544,7 @@ public class GameServer {
 
     private void saveAll() {
         online.values().forEach(this::save);
+        saveOracle();
     }
 
     private void handle(Session session, Intent intent) {
@@ -579,14 +617,24 @@ public class GameServer {
                 character.saveSoon = true;
                 character.emit(new Event.ColorChanged(character.colorIndex));
             }
-        } else if (intent instanceof Intent.Heal || intent instanceof Intent.Pray) {
+        } else if (intent instanceof Intent.Heal || intent instanceof Intent.Pray || intent instanceof Intent.Tithe) {
             Building building = world.content.solidBuildingAt(character.ahead());
             if (building == null || building.kind() != Building.Kind.CHURCH) {
                 character.say("You need to be at a church.");
+            } else if (intent instanceof Intent.Tithe tithe) {
+                discovery.tithe(this, character, character.tithe(world.content.product(tithe.productId()), tithe.count()));
+                tellOracle(character);
             } else if (intent instanceof Intent.Pray pray) {
                 character.pray(world.content.recipe(pray.recipeId()), world.content.product(pray.paymentProductId()));
             } else {
                 character.heal();
+            }
+        } else if (intent instanceof Intent.Trade trade) {
+            Building building = world.content.solidBuildingAt(character.ahead());
+            if (building == null || building.kind() != Building.Kind.MERCHANT) {
+                character.say("You need to be at the Merch Ant.");
+            } else {
+                character.trade(world.content.product(trade.productId()), trade.count());
             }
         } else if (intent instanceof Intent.WalkTo walkTo) {
             character.walkTo(walkTo.target());
@@ -600,11 +648,19 @@ public class GameServer {
             } else if (building != null && building.kind() == Building.Kind.CHURCH) {
                 // the client opened its church window already; just stop what you were doing
                 character.stopAction(null);
+                tellOracle(character);
             } else if (building != null && building.kind() == Building.Kind.STATION) {
                 // the client opened its station menu already; just stop what you were doing
                 character.stopAction(null);
+            } else if (building != null && building.kind() == Building.Kind.GYM) {
+                combat.train(character, tick);
             } else if (building != null && building.kind() == Building.Kind.MERCHANT) {
-                character.say("The ant waves its antennae: not open for business yet.");
+                if (character.metMerchant) {
+                    // the client opened its trading window already; just stop what you were doing
+                    character.stopAction(null);
+                } else {
+                    character.say("The ant waves its antennae: not open for business yet.");
+                }
             } else {
                 character.performOrStop(nodeAhead(character), tick);
             }
@@ -806,6 +862,8 @@ public class GameServer {
             character.say(Event.MessageKind.NOTICE, "Also here: " + String.join(", ", alsoHere) + ".");
         }
         tellOthers(character, Event.MessageKind.NOTICE, name + " logged in.");
+        // prestiged before the Merch Ant traded: it asks for you now
+        character.meetMerchantIfDue();
         for (GameCharacter other : nearby) {
             other.seen.add(character.id);
             other.emit(new Event.EntityEntered(character.info()));
@@ -854,7 +912,8 @@ public class GameServer {
             }
             ContentBatch batch = switch (command) {
                 case "1" -> WorldGenerator.newSkills(world, intArg(args, 0, 1));
-                case "2" -> WorldGenerator.newProductLines(world, intArg(args, 0, 1));
+                // a skill has one product line now: a new line is a new skill
+                case "2" -> WorldGenerator.newSkills(world, intArg(args, 0, 1));
                 case "3" -> WorldGenerator.newNode(world, character.ahead(),
                         intArg(args, 0, Node.UNLIMITED), intArg(args, 1, Node.UNLIMITED), intArg(args, 2, 10));
                 default -> throw new IllegalArgumentException("Unknown admin command " + command);

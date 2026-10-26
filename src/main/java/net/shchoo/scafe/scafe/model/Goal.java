@@ -4,8 +4,8 @@ import java.util.Arrays;
 
 /** {@code product}: the locked node's product the goal was set from (g); the level can be moved off it since. */
 public record Goal(Skill skill, int level, Product product) {
-    /** The levels a goal can be moved between: the tier requirements past the first, and the max. */
-    public static final int[] LEVELS = {20, 35, 50, 70, Levels.MAX_LEVEL};
+    /** The levels a goal can be moved between: where a tier unlocks or makes more ({@link Tiers}), and the max. */
+    public static final int[] LEVELS = Tiers.milestones();
 
     public static boolean allowed(int level) {
         return Arrays.stream(LEVELS).anyMatch(l -> l == level);

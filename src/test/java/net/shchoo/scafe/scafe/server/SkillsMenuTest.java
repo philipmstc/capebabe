@@ -119,8 +119,8 @@ class SkillsMenuTest {
         assertTrue(shown.contains("total xp"));
         assertTrue(shown.contains("Recipes"));
         assertTrue(shown.contains("[Esc] back to skills"));
-        press(new KeyStroke(KeyType.ArrowRight));
-        assertEquals(first.productLines.get(0).recipes.get(1), skills.selectedRecipe(first), "Right picks the next tier");
+        press(new KeyStroke(KeyType.ArrowDown));
+        assertEquals(first.productLines.get(0).recipes.get(1), skills.selectedRecipe(first), "Down picks the next tier");
         press(new KeyStroke(KeyType.Escape));
         assertFalse(skills.skillOpen());
         assertTrue(skills.isFocused(), "back on the list");
@@ -167,17 +167,14 @@ class SkillsMenuTest {
         press(new KeyStroke(KeyType.Enter));
         Screen screen = drawn();
         String page = box(screen);
-        int lineRow = page.substring(0, page.indexOf(recipe.product.lineName())).split("\n", -1).length - 1;
-        int lineCol = page.split("\n")[lineRow].indexOf(recipe.product.lineName());
-        assertEquals(SkillStyle.getColorForSkill(crafted),
-                screen.getBackCharacter(Layout.TABS.x() + lineCol, Layout.TABS.y() + lineRow).getForegroundColor(),
-                "the product line in its skill's colour");
-        String from = page.split("\n")[lineRow + 2];
-        int at = from.indexOf(component.lineName());
-        assertTrue(at > 0, from);
+        int costsRow = page.substring(0, page.indexOf("- Each costs ")).split("\n", -1).length - 1;
+        String costs = page.split("\n")[costsRow];
+        int at = costs.indexOf(makesIt.skill.name, costs.indexOf("- Each costs "));
+        assertTrue(at > 0, costs);
+        assertTrue(costs.contains("of same tier"), costs);
         assertEquals(SkillStyle.getColorForSkill(makesIt.skill),
-                screen.getBackCharacter(Layout.TABS.x() + at, Layout.TABS.y() + lineRow + 2).getForegroundColor(),
-                "a component in the colour of the skill making it");
+                screen.getBackCharacter(Layout.TABS.x() + at, Layout.TABS.y() + costsRow).getForegroundColor(),
+                "a component named by the skill making it, in its colour");
 
         press(new KeyStroke(KeyType.Tab));
         assertTrue(box(drawn()).contains("[Enter] open its skill"));

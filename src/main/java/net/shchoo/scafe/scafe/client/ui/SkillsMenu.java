@@ -5,6 +5,7 @@ import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.SkillStyle;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Levels;
+import net.shchoo.scafe.scafe.model.Tiers;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.ProductLine;
 import net.shchoo.scafe.scafe.model.Recipe;
@@ -33,8 +34,8 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
  * </pre>
  * (its symbol, level, a bullet in its type's colour, its name -- "+N" when prestiged -- and a green bar filling up
  * to the next level). Up/Down pick, Enter opens the skill's page: the same row, its type and who found it, its xp
- * across prestiges, then its recipes, navigated as before (Up/Down a line, Left/Right a tier, Enter a waypoint,
- * m marks every node of it). Tab steps through the selected recipe's components; Enter on one opens the page of
+ * across prestiges, then its recipes: what a craft costs, and a row a tier with the levels it unlocks / makes x2 /
+ * makes x3 at ({@link #drawRecipes}; Up/Down a tier, Enter a waypoint, m marks every node of it). Tab steps through the selected recipe's components; Enter on one opens the page of
  * the skill that makes it, on that recipe -- Esc comes back the way you went. Products and components are in
  * the colour of the skill making them. At Lv. 100, p prestiges it (after a yes). Esc goes back.
  */
@@ -153,10 +154,9 @@ public class SkillsMenu extends Menu {
             componentIndex = -1;
         }
         switch (key.getKeyType()) {
-            case ArrowUp -> lineIndex = Math.max(0, lineIndex - 1);
-            case ArrowDown -> lineIndex = recipes ? Math.min(skill.productLines.size() - 1, lineIndex + 1) : 0;
-            case ArrowLeft -> tierIndex = Math.max(0, tierIndex - 1);
-            case ArrowRight -> tierIndex++;
+            // one product line a skill: Up/Down pick its tier
+            case ArrowUp -> tierIndex = Math.max(0, tierIndex - 1);
+            case ArrowDown -> tierIndex++;
             case Tab -> {
                 // through the components, then back to the tiers
                 int count = components(skill).size();
@@ -385,11 +385,25 @@ public class SkillsMenu extends Menu {
 
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         g.putString(textX(), hintRow() - 1, fit(componentIndex >= 0 ? "[Tab] next component  [Enter] open its skill"
-                : "[Up/Down] line  [Left/Right] tier  [Enter] waypoint  [Tab] components", textWidth()));
+                : "[Up/Down] tier  [Enter] waypoint  [Tab] components", textWidth()));
         g.putString(textX(), hintRow(), fit("[m] mark nodes  " + (canPrestige(player, skill) ? "[p] prestige  " : "")
                 + (trail.isEmpty() ? "[Esc] back to skills" : "[Esc] back"), textWidth()));
     }
 
+    /** The tier table's header: what a craft makes, from which level. */
+    static final String YIELD_HEADER = "         x1     x2    x3";
+
+    /**
+     * The skill's one product line as a table: what each craft costs (other skills' items of the same tier), then a
+     * row a tier -- its tier marks, the level it unlocks at and the levels it makes x2 / x3 from (reached ones green,
+     * a waypoint's level magenta) -- and under it, the picked tier's item and how many a craft makes now.
+     * <pre>
+     * - Each costs 2 x skill3, 1 x skill5 of same tier
+     *          x1     x2    x3
+     * [  ] T0   0     30    65
+     * [ .] T1  20     50    75
+     * </pre>
+     */
     private void drawRecipes(Screen screen, Player player, Skill skill, int top) {
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
@@ -398,85 +412,76 @@ public class SkillsMenu extends Menu {
             g.putString(textX(), top, "none (trained by fighting)");
             return;
         }
-        int width = textWidth();
-        int fits = Math.max(1, (hintRow() - 2 - top) / PRODUCT_LINE_HEIGHT);
-        int first = Math.max(0, lineIndex - (fits - 1));
+        List<Recipe> tiers = skill.productLines.get(0).recipes;
+        tierIndex = Math.max(0, Math.min(tiers.size() - 1, tierIndex));
         int y = top;
-        for (int i = first; i < Math.min(skill.productLines.size(), first + fits); i++) {
-            ProductLine productLine = skill.productLines.get(i);
-            Recipe base = productLine.recipes.get(0);
-            boolean selected = i == lineIndex;
-            if (selected) {
+        int costsY = y;
+        drawCosts(g, player, selectedRecipe(skill), textX(), y++, textX() + textWidth(), componentIndex,
+                (component, at, length) -> board.clicks.option(Clicks.BASE, at, costsY, length, 1, (button, cx, cy) -> {
+                    claim(player, board);
+                    openComponent(player, board, component);
+                }));
+        g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+        g.putString(textX(), y++, YIELD_HEADER);
+        int level = player.getLevel(skill);
+        TextColor color = SkillStyle.getColorForSkill(skill);
+        for (int t = 0; t < tiers.size() && y < hintRow() - 2; t++, y++) {
+            Recipe recipe = tiers.get(t);
+            boolean here = isFocused() && t == tierIndex;
+            if (here) {
                 g.setForegroundColor(TextColor.ANSI.WHITE_BRIGHT);
                 g.setCharacter(textX() - 1, y, '>');
                 g.enableModifiers(SGR.BOLD);
             }
-            g.setForegroundColor(SkillStyle.getColorForSkill(skill));
-            g.putString(textX(), y, fit(base.product.lineName(), width));
+            g.setForegroundColor(color instanceof TextColor.ANSI ansi ? SkillStyle.dim(ansi) : color);
+            g.putString(textX(), y, "[" + EquipmentView.tierMark(recipe.product) + "]");
+            g.setForegroundColor(here ? TextColor.ANSI.WHITE_BRIGHT : TextColor.ANSI.DEFAULT);
+            g.putString(textX() + 5, y, "T" + t);
+            int[] at = {recipe.levelNeeded, Tiers.yieldLevel(t, 2), Tiers.yieldLevel(t, 3)};
+            int[] right = {11, 18, 24};
+            for (int col = 0; col < at.length; col++) {
+                String text = at[col] < 0 ? "-" : String.valueOf(at[col]);
+                boolean reached = at[col] >= 0 && level >= at[col];
+                g.setForegroundColor(col == 0 && player.waypoints.has(recipe) ? TextColor.ANSI.MAGENTA_BRIGHT
+                        : reached ? TextColor.ANSI.GREEN_BRIGHT : here ? TextColor.ANSI.WHITE : TextColor.ANSI.BLACK_BRIGHT);
+                g.putString(textX() + right[col] - text.length(), y, text);
+            }
             g.disableModifiers(SGR.BOLD);
-
-            int x = textX() + 2;
-            g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-            g.putString(x, y + 1, "Lv");
-            x += 3;
-            for (int t = 0; t < productLine.recipes.size(); t++) {
-                Recipe recipe = productLine.recipes.get(t);
-                if (x + 3 > textX() + width) {
-                    g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-                    g.putString(x - 1, y + 1, "~");
-                    break;
-                }
-                boolean unlocked = player.getLevel(skill) >= recipe.levelNeeded;
-                boolean isWaypoint = player.waypoints.has(recipe);
-                boolean here = selected && t == tierIndex;
-                g.setForegroundColor(isWaypoint ? TextColor.ANSI.MAGENTA_BRIGHT
-                        : unlocked ? TextColor.ANSI.GREEN_BRIGHT : here ? TextColor.ANSI.WHITE : TextColor.ANSI.BLACK_BRIGHT);
-                g.setBackgroundColor(here ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT);
-                g.putString(x, y + 1, String.valueOf(recipe.levelNeeded));
-                int line = i, tier = t, tx = x, ty = y + 1;
-                board.clicks.option(Clicks.BASE, x, y + 1, String.valueOf(recipe.levelNeeded).length(), 1,
-                        (button, cx, cy) -> clickTier(skill, line, tier, button, tx, ty, player));
-                g.setBackgroundColor(TextColor.ANSI.DEFAULT);
-                x += 3;
-            }
-            if (selected) {
-                g.setForegroundColor(SkillStyle.getColorForSkill(skill));
-                g.putString(x + 1, y + 1, fit(selectedRecipe(skill).product.name, Math.max(0, textX() + width - x - 1)));
-            }
-            int componentsY = y + 2;
-            drawComponents(g, player, selected ? selectedRecipe(skill) : base, textX() + 2, componentsY, textX() + width,
-                    selected ? componentIndex : -1, (component, at, length) -> board.clicks.option(Clicks.BASE, at, componentsY,
-                            length, 1, (button, cx, cy) -> {
-                                claim(player, board);
-                                openComponent(player, board, component);
-                            }));
-            y += PRODUCT_LINE_HEIGHT;
+            int tier = t, rowY = y;
+            board.clicks.option(Clicks.BASE, textX(), y, Math.min(textWidth(), 26), 1,
+                    (button, cx, cy) -> clickTier(skill, 0, tier, button, textX() + 26, rowY, player));
         }
+        // the picked tier's item, and how many a craft makes now
+        Recipe picked = selectedRecipe(skill);
+        int made = player.madePerCraft(picked);
+        g.setForegroundColor(color);
+        g.putString(textX(), ++y, fit(picked.product.name + (made > 1 ? "  x" + made + " a craft" : ""), textWidth()));
     }
 
-    /**
-     * "from 2x skill0{0}, skill1{0}" -- each component in the colour of the skill making it; the picked one ({@code
-     * picked}, -1 none) on grey. The selected line names the selected tier's own components, so Tab + Enter goes
-     * to exactly what it uses.
-     */
     /** Where a component's name was drawn (so it can be clicked). */
     interface Drawn {
         void at(Product component, int x, int length);
     }
 
-    private static void drawComponents(TextGraphics g, Player player, Recipe recipe, int x, int y, int right, int picked,
-                                       Drawn drawn) {
+    /**
+     * "- Each costs 2 x skill3, 1 x skill5 of same tier" -- each named by the skill making it, in its colour; the
+     * picked one ({@code picked}, -1 none; Tab) on grey, by its item's own name (what Enter opens). A raw skill's
+     * costs nothing.
+     */
+    private static void drawCosts(TextGraphics g, Player player, Recipe recipe, int x, int y, int right, int picked,
+                                  Drawn drawn) {
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        g.putString(x, y, "from ");
-        x += 5;
         if (recipe.components.isEmpty()) {
-            g.putString(x, y, "raw");
+            g.putString(x, y, fit("- Raw: costs nothing", right - x));
             return;
         }
+        g.putString(x, y, "- Each costs ");
+        x += 13;
         int i = 0;
         for (var c : recipe.components.entrySet()) {
-            String text = (i > 0 ? ", " : "") + (c.getValue() > 1 ? c.getValue() + "x " : "");
-            String name = picked == -1 ? c.getKey().lineName() : c.getKey().name;
+            Recipe makes = player.content.madeBy(c.getKey().root());
+            String text = (i > 0 ? ", " : "") + c.getValue() + " x ";
+            String name = i == picked || makes == null ? c.getKey().name : makes.skill.name;
             if (x + text.length() + name.length() > right) {
                 g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
                 g.putString(Math.min(x, right - 1), y, "~");
@@ -485,7 +490,6 @@ public class SkillsMenu extends Menu {
             g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
             g.putString(x, y, text);
             x += text.length();
-            Recipe makes = player.content.madeBy(c.getKey());
             g.setForegroundColor(makes != null ? SkillStyle.getColorForSkill(makes.skill) : TextColor.ANSI.DEFAULT);
             g.setBackgroundColor(i == picked ? TextColor.ANSI.BLACK_BRIGHT : TextColor.ANSI.DEFAULT);
             if (i == picked) {
@@ -497,6 +501,10 @@ public class SkillsMenu extends Menu {
             g.setBackgroundColor(TextColor.ANSI.DEFAULT);
             x += name.length();
             i++;
+        }
+        g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+        if (x + 13 <= right) {
+            g.putString(x, y, " of same tier");
         }
     }
 

@@ -4,7 +4,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.ToIntFunction;
 
-/** How many of an item fit in one inventory slot (and get equipped at once): your level in the skill making it. */
+/**
+ * How many of an item fit in one inventory slot (and get equipped at once): your virtual level in the skill making it
+ * ({@link Levels#virtualLevelFor} of its xp across prestiges, so a prestige doesn't shrink your stacks, and past
+ * Lv. 100 they keep growing). Callers pass that level in.
+ */
 public final class Stacks {
     /** How many stacks your inventory holds. */
     public static final int INVENTORY_SLOTS = 100;
@@ -40,7 +44,7 @@ public final class Stacks {
         return free * stack + (have % stack == 0 ? 0 : stack - have % stack);
     }
 
-    /** Made by a recipe: that skill's level; anything else (monster drops): your combat level. At least 1. */
+    /** Made by a recipe: that skill's (virtual) level; anything else (monster drops): your combat level. At least 1. */
     public static int size(WorldContent content, Product product, ToIntFunction<Skill> levelOf) {
         Recipe recipe = content.madeBy(product);
         Skill skill = recipe != null ? recipe.skill : content.combatSkill();

@@ -50,8 +50,8 @@ class WorldStoreTest {
     @Test
     void eachWorldIsItsOwnFileAndRemembersItsSeed() throws Exception {
         try (WorldStore one = open(1); WorldStore two = open(2)) {
-            assertEquals(19, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
-                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats, v12 equipped stack, v13 weapon + armor, v14 light mode, v15 buildings + banks, v16 hp, v17 prestige, v18 display settings moved to the client, v19 church blessings");
+            assertEquals(21, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
+                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats, v12 equipped stack, v13 weapon + armor, v14 light mode, v15 buildings + banks, v16 hp, v17 prestige, v18 display settings moved to the client, v19 church blessings, v20 the oracle, v21 the Merch Ant");
             assertEquals(777, one.loadOrCreateWorld(1, "w1", 777).seed);
             assertEquals(888, two.loadOrCreateWorld(2, "w2", 888).seed);
         }
@@ -70,7 +70,7 @@ class WorldStoreTest {
         try (WorldStore store = open(1)) {
             World world = store.loadOrCreateWorld(1, "w", 42);
             save(store, world, WorldGenerator.newSkills(world, 6));
-            save(store, world, WorldGenerator.newProductLines(world, 2));
+            save(store, world, WorldGenerator.newSkills(world, 2));
             save(store, world, WorldGenerator.newNode(world, new Position(-3, 4), 2, 10, 5));
             history = List.copyOf(world.content.history());
         }
@@ -317,7 +317,7 @@ class WorldStoreTest {
             statement.execute("insert into world_meta (id, name, seed) values (1, 'old', 55)");
         }
         try (WorldStore store = open(7)) {
-            assertEquals(19, store.schemaVersion());
+            assertEquals(21, store.schemaVersion());
             World world = store.loadOrCreateWorld(7, "ignored", 0);
             assertEquals("old", world.name);
             save(store, world, WorldGenerator.newSkills(world, 1));

@@ -99,6 +99,20 @@ class PrestigeTest {
     }
 
     @Test
+    void stacksGoByTheVirtualLevel_soAPrestigeDoesntShrinkThem() {
+        long xp = toMax();
+        Product item = primary.productLines.get(0).recipes.get(0).product;
+        assertEquals(Levels.MAX_LEVEL, player.stackSize(player.content.product(item.id)));
+        player.prestige(mine(primary));
+        ticks(1);
+        assertEquals(1, player.getLevel(mine(primary)), "Lv. 1 again");
+        assertEquals(Levels.virtualLevelFor(xp), player.stackSize(player.content.product(item.id)), "but stacks as before");
+        assertEquals(Levels.virtualLevelFor(xp), server.online(player.id).stackLevel(primary), "on the server too");
+        toMax();
+        assertTrue(player.stackSize(player.content.product(item.id)) > Levels.MAX_LEVEL, "and past 100 with more");
+    }
+
+    @Test
     void onlyAtLevel100AndNotCombat() {
         player.prestige(mine(primary));
         ticks(1);

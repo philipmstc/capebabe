@@ -23,6 +23,23 @@ checks when you log in and tells you to update if not.
   Settings > Privacy & Security** and click **Open Anyway** (on older macOS, right-click the app > **Open**).
 - **Anything else** (Intel Macs, Linux): `capebabe-<version>-all.jar` with Java 17+: `java -jar capebabe-<version>-all.jar`.
 
+## Joining Phil's world
+
+Phil's world is reached over [Tailscale](https://tailscale.com), a free private network between your computer and
+his, so nothing is open to the internet.
+
+1. **Install Tailscale** from [tailscale.com/download](https://tailscale.com/download) and sign in (a free
+   personal account is fine). Tell Phil the email you signed in with.
+2. **Wait for Phil's invite** (an email saying a machine was shared with you). Open it and accept it **signed in
+   to the same account** as the Tailscale app. Then `workbench` shows up in the Tailscale tray menu's device list.
+3. **Ask Phil (privately) for the host address and the world password.** The address looks like `100.x.y.z`.
+4. **Download the game** (above), log in, pick **Connect to server**, and put **just the address** in **Host**
+   (no `:port` needed) and the world password in **World Password**.
+5. The first time, it says "first visit" with a fingerprint: check it with Phil before carrying on.
+
+No firewall changes are needed on your side. If you can't connect, this should get a reply (with Phil's address):
+`& "C:\Program Files\Tailscale\tailscale.exe" ping 100.x.y.z` in PowerShell.
+
 ## Logging in
 
 The game opens on a few short pages:
@@ -61,6 +78,11 @@ macOS, `capebabe/bin/capebabe` on Linux, or `java -jar capebabe-<version>-all.ja
 to host, by name or number; each one is its own save, and players are welcomed by its name. The default port is
 `43594` (`--port` to change it). Give the world password to friends privately. To be reachable from outside your
 home you'll need to forward that port; see [HOSTING.md](HOSTING.md) for the checklist and safer alternatives.
+
+Over Tailscale instead (what Phil does): share your machine with each friend (admin console > **Machines** > your
+machine > **Share**), and let the port in from Tailscale addresses only, in an admin PowerShell:
+`New-NetFirewallRule -DisplayName "capebabe (Tailscale)" -Direction Inbound -Protocol TCP -LocalPort 43594 -RemoteAddress 100.64.0.0/10 -Action Allow`.
+Friends then join with your Tailscale address (`tailscale ip -4`).
 
 A few more hosting options: `--admins name1,name2` lets just those players use admin commands, `--bind address`
 listens on one address only, and backups of the accounts and the world go to `<data>/backups` at start and every

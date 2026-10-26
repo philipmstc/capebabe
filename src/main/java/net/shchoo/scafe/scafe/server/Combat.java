@@ -25,6 +25,22 @@ class Combat {
     static final double PLAYER_ACCURACY = 0.8;
     static final double MONSTER_ACCURACY = 0.6;
     static final int XP_PER_DAMAGE = 4;
+    /** At the gym: a quarter of a real fight's. */
+    static final int GYM_XP_PER_DAMAGE = 1;
+    static final String TRAINING = "training at the gym (AFK)";
+
+    /** Training at a gym: where you stood and faced (moving stops it), and when the next swing is. */
+    static final class Training {
+        final Position at;
+        final Direction facing;
+        long nextSwing;
+
+        Training(Position at, Direction facing, long nextSwing) {
+            this.at = at;
+            this.facing = facing;
+            this.nextSwing = nextSwing;
+        }
+    }
     /** Out of a fight a monster gets 1 hp back every this many ticks (players don't: see churches). */
     static final int REGEN_TICKS = 10;
     static final Position RESPAWN = new Position(0, 0);
@@ -150,6 +166,80 @@ class Combat {
         character.emit(new Event.FightEnded());
     }
 
+    /**
+     * q at a gym: start training against its dummy -- AFK combat that never ends on its own and never hurts. Your
+     * armour comes off first; your weapon wears down as in a fight; xp is {@link #GYM_XP_PER_DAMAGE} a damage. q
+     * again, moving, crafting or a real fight stops it. Already training: stops it.
+     */
+    void train(GameCharacter character, long tick) {
+        if (character.training != null) {
+            stopTraining(character, "You stop training.");
+            return;
+        }
+        character.stopAction(null);
+        endFight(character, null);
+        if (character.armor != null) {
+            character.unequip(EquipSlot.ARMOR);
+        }
+        character.training = new Training(character.position(), character.facing, tick + 1);
+        character.emit(new Event.ActionStarted(-1, TRAINING, tick, SWING_TICKS));
+        character.say(Event.MessageKind.ROUTINE, "You start training at the gym (AFK): it never hits back, "
+                + GYM_XP_PER_DAMAGE + " xp a damage.");
+    }
+
+    void stopTraining(GameCharacter character, String reason) {
+        if (character.training == null) {
+            return;
+        }
+        character.training = null;
+        if (reason != null) {
+            character.say(Event.MessageKind.ROUTINE, reason);
+        }
+        character.emit(new Event.ActionStopped());
+    }
+
+    /** Everyone training: a swing at the dummy every {@link #SWING_TICKS}, unless they've moved or are busy. */
+    void training(long tick) {
+        for (GameCharacter character : List.copyOf(server.onlineCharacters())) {
+            Training training = character.training;
+            if (training == null) {
+                continue;
+            }
+            if (!character.position().equals(training.at) || character.facing != training.facing) {
+                stopTraining(character, "You stop training.");
+                continue;
+            }
+            if (character.currentFight != null || character.currentAction != null || character.isDown()) {
+                stopTraining(character, null);
+                continue;
+            }
+            if (character.armor != null) {
+                stopTraining(character, "You can't train in armour.");
+                continue;
+            }
+            // quietly, like time played: each swing's damage sends the stats along
+            character.stats.merge(Stat.TIME_TRAINED, 1L, Long::sum);
+            if (tick < training.nextSwing) {
+                continue;
+            }
+            training.nextSwing = tick + SWING_TICKS;
+            int damage = server.random().nextDouble() < PLAYER_ACCURACY
+                    ? round(weaponBase(character.weapon) + character.combatLevel() / 4.0) : 0;
+            character.useUp(EquipSlot.WEAPON);
+            Event hit = new Event.Hit(-1, damage, character.ahead(), character.position());
+            character.emit(hit);
+            server.toObservers(character.id, hit);
+            Skill combat = server.world.content.combatSkill();
+            if (damage > 0 && combat != null) {
+                character.gainExperience(combat, (long) damage * GYM_XP_PER_DAMAGE);
+            }
+            if (damage > 0) {
+                character.count(Stat.DAMAGE_DEALT, damage);
+            }
+            character.emit(new Event.ActionStarted(-1, TRAINING, tick, SWING_TICKS));
+        }
+    }
+
     void tick(long tick) {
         for (GameCharacter character : List.copyOf(server.onlineCharacters())) {
             Fight fight = character.currentFight;
@@ -183,6 +273,7 @@ class Combat {
         if (damage > 0) {
             Skill combat = server.world.content.combatSkill();
             character.gainExperience(combat, (long) damage * XP_PER_DAMAGE);
+            character.count(Stat.DAMAGE_DEALT, damage);
         }
         if (monster.hp <= 0) {
             kill(character, monster);

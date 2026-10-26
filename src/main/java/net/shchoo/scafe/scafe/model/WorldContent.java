@@ -45,10 +45,15 @@ public class WorldContent {
             batch.monsters().forEach(def -> origins.put(def.id(), batch.origin()));
         }
         for (ContentBatch.SkillDef def : batch.skills()) {
+            // an old world: a skill split off earlier (below) may have taken this name first -- it moves on
+            Skill clash = skills.stream().filter(s -> splitFrom.containsKey(s) && s.name.equals(def.name())).findFirst().orElse(null);
             Skill skill = new Skill(def.id(), def.name(), def.type(), def.colorIndex(), def.symbol());
             skills.add(skill);
             skillsById.put(def.id(), skill);
             seen(def.id());
+            if (clash != null) {
+                clash.name = nextSkillName();
+            }
         }
         for (ContentBatch.ProductDef def : batch.products()) {
             Product base = def.prestige() > 0 ? require(productsById, def.baseId(), "product") : null;
@@ -57,6 +62,10 @@ public class WorldContent {
         }
         for (ContentBatch.ProductLineDef def : batch.productLines()) {
             Skill skill = require(skillsById, def.skillId(), "skill");
+            if (!skill.productLines.isEmpty()) {
+                // one product line a skill: an old world's second (third...) line becomes a skill of its own
+                skill = splitOff(skill, def.id());
+            }
             ProductLine productLine = new ProductLine(def.id(), skill, new ArrayList<>());
             skill.productLines.add(productLine);
             productLinesById.put(def.id(), productLine);
@@ -66,8 +75,9 @@ public class WorldContent {
             ProductLine productLine = require(productLinesById, def.productLineId(), "product line");
             Map<Product, Integer> components = new LinkedHashMap<>();
             def.components().forEach((productId, count) -> components.put(require(productsById, productId, "product"), count));
+            // a world made before the tiers were spread out: its default levels move to the new ones (Tiers)
             Recipe recipe = new Recipe(def.id(), productLine.skill, require(productsById, def.productId(), "product"),
-                    def.levelNeeded(), def.expGained(), components);
+                    Tiers.levelNeeded(productLine.recipes.size(), def.levelNeeded()), def.expGained(), components);
             productLine.recipes.add(recipe);
             recipesById.put(def.id(), recipe);
             seen(def.id());
@@ -120,6 +130,43 @@ public class WorldContent {
         WorldContent copy = new WorldContent();
         history.forEach(copy::apply);
         return copy;
+    }
+
+    /**
+     * Skills that were another skill's extra product line in an old world (a skill has one now), and the skill they
+     * came from. Made the same way on the server and every client as the history is applied, so nothing saved changes.
+     */
+    private final Map<Skill, Skill> splitFrom = new HashMap<>();
+
+    /**
+     * A new skill for an old world's extra product line {@code lineId} of {@code from}: same type and symbol, the
+     * line's id (unique: every id comes from the one counter), the next free name, no xp for anyone yet.
+     */
+    private Skill splitOff(Skill from, int lineId) {
+        Skill split = new Skill(lineId, nextSkillName(), from.type, skills.size(), from.symbol);
+        skills.add(split);
+        skillsById.put(lineId, split);
+        splitFrom.put(split, from);
+        return split;
+    }
+
+    /** The skill {@code skill} was split off from (see {@link #splitFrom}), or null. */
+    public Skill splitFrom(Skill skill) {
+        return splitFrom.get(skill);
+    }
+
+    private static final java.util.regex.Pattern NUMBERED = java.util.regex.Pattern.compile("skill(\\d+)");
+
+    /** "skillN" with N one past the highest any skill has. */
+    public String nextSkillName() {
+        int next = 0;
+        for (Skill skill : skills) {
+            java.util.regex.Matcher m = NUMBERED.matcher(skill.name);
+            if (m.matches()) {
+                next = Math.max(next, Integer.parseInt(m.group(1)) + 1);
+            }
+        }
+        return "skill" + next;
     }
 
     /** Generators add skills and nodes through these; product lines/recipes/products hang off the skills. */

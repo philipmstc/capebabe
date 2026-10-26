@@ -202,7 +202,7 @@ class StationTest {
         player.perform();
         StationView view = new StationView();
         Board board = new Board(player.content);
-        assertTrue(view.onKey(new KeyStroke('w', false, false), player, board), "the menu takes every key");
+        assertTrue(view.onKey(new KeyStroke('k', false, false), player, board), "the menu takes every key but wasd");
         view.onKey(new KeyStroke(KeyType.Enter), player, board);
         assertFalse(player.stationMenuOpen);
         ticks(1);

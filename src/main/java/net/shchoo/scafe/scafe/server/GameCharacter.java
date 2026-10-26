@@ -14,6 +14,7 @@ import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.SkillType;
+import net.shchoo.scafe.scafe.model.Tiers;
 import net.shchoo.scafe.scafe.protocol.Event;
 import net.shchoo.scafe.scafe.model.Stat;
 
@@ -49,6 +50,10 @@ public class GameCharacter implements Walker.Mobile {
     /** Prayed for at a church ({@link Prayer}): this recipe's node is coming, for this many more steps / actions. Saved. */
     public Recipe blessing;
     public int blessingLeft;
+    /** Training at a gym ({@link Combat#train}), or null. */
+    Combat.Training training;
+    /** The Merch Ant has asked for you (your first prestige): from then on it trades with you. Saved. */
+    public boolean metMerchant;
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     /** What's in your bank (unlimited), in the order you first put things in. */
     public final LinkedHashMap<Product, Integer> bank = new LinkedHashMap<>();
@@ -151,6 +156,48 @@ public class GameCharacter implements Walker.Mobile {
         saveSoon = true;
         emit(new Event.Prestiged(skill.id, times, banked));
         say(Event.MessageKind.NOTICE, skill.name + " prestige " + times + "! Back to Lv. 1 -- what you make with it now hits harder.");
+        meetMerchantIfDue();
+    }
+
+    /** With a prestige to your name and the Merch Ant not met yet: it asks for you (once, ever). */
+    void meetMerchantIfDue() {
+        if (metMerchant || prestige.values().stream().noneMatch(times -> times > 0)) {
+            return;
+        }
+        metMerchant = true;
+        saveSoon = true;
+        emit(new Event.MerchantCalls());
+    }
+
+    /**
+     * At the Merch Ant: up to {@code count} of a prestige item for 1 + its prestige of the plain one each
+     * (skill0{1}-2+3: 4 x skill0{1}-2).
+     */
+    void trade(Product item, int count) {
+        if (!metMerchant) {
+            say("The ant waves its antennae: not open for business yet.");
+            return;
+        }
+        if (item == null || item.prestige <= 0) {
+            say("The Merch Ant only deals in prestige items.");
+            return;
+        }
+        int n = Math.min(count, inventory.getOrDefault(item, 0));
+        if (n <= 0) {
+            return;
+        }
+        int back = n * (1 + item.prestige);
+        Map<Product, Integer> changes = new HashMap<>();
+        changes.put(item, -n);
+        changes.merge(item.root(), back, Integer::sum);
+        if (!Stacks.fits(content, inventory, changes, this::stackLevel)) {
+            say("Your inventory is full.");
+            return;
+        }
+        changeInventory(item, -n);
+        changeInventory(item.root(), back);
+        saveSoon = true;
+        say("The Merch Ant takes " + n + " x " + item.name + " and gives you " + back + " x " + item.root().name + ".");
     }
 
     void disconnect() {
@@ -170,7 +217,11 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     void count(Stat stat) {
-        stats.merge(stat, 1L, Long::sum);
+        count(stat, 1);
+    }
+
+    void count(Stat stat, long n) {
+        stats.merge(stat, n, Long::sum);
         statsChanged = true;
     }
 
@@ -205,6 +256,11 @@ public class GameCharacter implements Walker.Mobile {
         return Levels.levelFor(getExperience(skill));
     }
 
+    /** What a skill's items stack to: its virtual level, from all its xp across prestiges ({@link Stacks}). */
+    int stackLevel(Skill skill) {
+        return Levels.virtualLevelFor(bankedXp.getOrDefault(skill, 0L) + getExperience(skill));
+    }
+
     public long getExperience(Skill skill) {
         return xp.getOrDefault(skill, 0L);
     }
@@ -234,13 +290,18 @@ public class GameCharacter implements Walker.Mobile {
     boolean roomToMake(Recipe recipe) {
         Map<Product, Integer> changes = new HashMap<>();
         recipe.components.forEach((part, count) -> changes.merge(part, -count, Integer::sum));
-        changes.merge(made(recipe), 1, Integer::sum);
-        return Stacks.fits(content, inventory, changes, this::getLevel);
+        changes.merge(made(recipe), madePerCraft(recipe), Integer::sum);
+        return Stacks.fits(content, inventory, changes, this::stackLevel);
     }
 
     /** Inventory slots in use (stacks: see {@link Stacks}). */
     public int slotsUsed() {
-        return Stacks.slots(content, inventory, this::getLevel);
+        return Stacks.slots(content, inventory, this::stackLevel);
+    }
+
+    /** How many one craft of {@code recipe} makes at your level ({@link Tiers}). */
+    int madePerCraft(Recipe recipe) {
+        return Tiers.yield(Tiers.of(recipe), getLevel(recipe.skill));
     }
 
     /** At least one slot free (for something new, like a drop). */
@@ -273,9 +334,23 @@ public class GameCharacter implements Walker.Mobile {
         }
         changeInventory(payment, -cost);
         setBlessing(recipe, Prayer.STEPS);
+        count(Stat.TIMES_PRAYED);
         saveSoon = true;
         say(Event.MessageKind.NOTICE, "You pray for " + recipe.product.name + " (" + cost + " x " + payment.name
                 + "). Nodes are likelier near you, and the next is " + recipe.product.name + " -- for " + Prayer.STEPS + " steps.");
+    }
+
+    /** At a church: gives up to {@code count} of {@code item}; returns how many went. */
+    int tithe(Product item, int count) {
+        int n = Math.min(count, item == null ? 0 : inventory.getOrDefault(item, 0));
+        if (n <= 0) {
+            return 0;
+        }
+        changeInventory(item, -n);
+        count(Stat.ITEMS_TITHED, n);
+        saveSoon = true;
+        say("You leave " + n + " x " + item.name + " at the altar.");
+        return n;
     }
 
     /** One step / item made / kill used up; the blessing fades when there are none left. */
@@ -315,7 +390,7 @@ public class GameCharacter implements Walker.Mobile {
             say("That's not in your bank.");
             return;
         }
-        int n = Math.min(Math.min(count, stored), Stacks.room(content, inventory, item, this::getLevel));
+        int n = Math.min(Math.min(count, stored), Stacks.room(content, inventory, item, this::stackLevel));
         if (n <= 0) {
             say("Your inventory is full.");
             return;
@@ -511,12 +586,16 @@ public class GameCharacter implements Walker.Mobile {
         if (!attemptToUseAll(recipe.components)) {
             return false;
         }
-        changeInventory(made(recipe), 1);
+        int made = madePerCraft(recipe);
+        changeInventory(made(recipe), made);
         lastActionAt = position();
         emit(new Event.HomeChanged(lastActionAt));
-        say(Event.MessageKind.ROUTINE, "Made " + recipe.product.name);
+        say(Event.MessageKind.ROUTINE, "Made " + (made > 1 ? made + " x " : "") + recipe.product.name);
         triggers.add(Discovery.Trigger.MADE);
-        count(Stat.ITEMS_CRAFTED);
+        count(Stat.ITEMS_CRAFTED, made);
+        if (afk) {
+            count(Stat.ITEMS_CRAFTED_AFK, made);
+        }
         gainExperience(recipe.skill, afk ? Math.max(1, recipe.expGained / 2) : recipe.expGained);
         return true;
     }
@@ -677,7 +756,7 @@ public class GameCharacter implements Walker.Mobile {
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
                 facing, colorIndex, running, autoInvestigate, statsByName(),
                 weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id, bankById(), byId(prestige), byId(bankedXp),
-                blessing == null ? -1 : blessing.id, blessingLeft);
+                blessing == null ? -1 : blessing.id, blessingLeft, metMerchant);
     }
 
     private static <V> Map<Integer, V> byId(Map<Skill, V> bySkill) {

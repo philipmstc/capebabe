@@ -29,4 +29,11 @@ public interface Storage {
 
     /** Sets the account's password, creating the account if needed. */
     void setPasswordHash(String accountName, String hash) throws Exception;
+
+    /** What the church's {@link Oracle} knew last time, or null. */
+    default Oracle.Saved loadOracle() throws Exception {
+        return null;
+    }
+
+    default void saveOracle(Oracle.Saved saved) throws Exception {}
 }

@@ -3,6 +3,8 @@ package net.shchoo.scafe.scafe.server;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
+import net.shchoo.scafe.scafe.client.SkillStyle;
+import net.shchoo.scafe.scafe.client.ui.PlayerDetailView;
 import net.shchoo.scafe.scafe.client.ui.ChurchView;
 import net.shchoo.scafe.scafe.client.ui.Layout;
 import net.shchoo.scafe.scafe.client.ui.MapView;
@@ -14,6 +16,8 @@ import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Prayer;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.Recipe;
+import net.shchoo.scafe.scafe.model.Skill;
+import net.shchoo.scafe.scafe.model.Stat;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.persistence.AccountStore;
 import net.shchoo.scafe.scafe.persistence.WorldStore;
@@ -186,6 +190,31 @@ class ChurchTest {
     }
 
     @Test
+    void aPrestigeVersionOfTheTierBelowPaysTheSame() {
+        withSkills();
+        Product plus = server.prestigeProduct(recipe(1).product, 2);
+        alice.changeInventory(plus, 230);
+        atTheChurch();
+        tick();
+        assertEquals(200, Prayer.cost(recipe(2), plus));
+        player.perform();
+        tick();
+        press(KeyType.ArrowDown);
+        press(KeyType.Enter);
+        press(KeyType.Enter);
+        press(KeyType.ArrowDown);
+        press(KeyType.ArrowDown);
+        press(KeyType.Enter);
+        assertEquals(ChurchView.Step.PAY, view.step());
+        // the plain tier 1 (none of it) is first, greyed; then the +2
+        press(KeyType.ArrowDown);
+        press(KeyType.Enter);
+        tick();
+        assertEquals(recipe(2), alice.blessing);
+        assertEquals(30, alice.inventory.get(plus));
+    }
+
+    @Test
     void anyOneItemAThousandOfIt_theOnlyWayForTierZero() {
         withSkills();
         Product any = recipe(3).product;
@@ -200,6 +229,76 @@ class ChurchTest {
         tick();
         assertEquals(recipe(0), alice.blessing);
         assertEquals(0, alice.inventory.get(any));
+    }
+
+    @Test
+    void blessingsCountAsPrayersButHealsDont() {
+        withSkills();
+        alice.hp = 3;
+        alice.changeInventory(recipe(0).product, 100);
+        atTheChurch();
+        player.heal();
+        player.pray(player.content.recipe(recipe(1).id), player.content.product(recipe(0).product.id));
+        tick();
+        tick();
+        assertEquals(1L, player.stats.get(Stat.TIMES_PRAYED), "the blessing, not the heal");
+    }
+
+    @Test
+    void tithingTakesWhatYouGiveAndTheOracleSpeaks() {
+        withSkills();
+        Product item = recipe(0).product;
+        alice.changeInventory(item, 250);
+        atTheChurch();
+        player.perform();
+        tick();
+        press(KeyType.ArrowDown);
+        press(KeyType.ArrowDown);
+        press(KeyType.Enter);
+        assertEquals(ChurchView.Step.TITHE, view.step());
+        press(KeyType.Enter);
+        assertEquals(ChurchView.Step.TITHE_AMOUNT, view.step());
+        press(KeyType.ArrowDown);
+        press(KeyType.ArrowDown);
+        press(KeyType.Enter);
+        tick();
+        tick();
+        assertEquals(150, alice.inventory.get(item), "100 of them given");
+        assertEquals(100L, player.stats.get(Stat.ITEMS_TITHED));
+        assertEquals(ChurchView.Step.MAIN, view.step(), "back to the first page");
+        assertTrue(log.contains("You leave 100 x " + item.name + " at the altar."));
+        assertNotNull(player.oracle(), "the oracle spoke");
+        assertFalse(player.oracle().known(), "with discovery off, no rolls: it has nothing to go on");
+    }
+
+    @Test
+    void aTitheCanTurnUpANewSkill() {
+        withSkills();
+        server.setDiscovery(new Discovery(new Random(1) {
+            @Override
+            public double nextDouble() {
+                return 0;
+            }
+        }));
+        int skills = server.world.content.craftingSkills().size();
+        alice.changeInventory(recipe(0).product, 1);
+        atTheChurch();
+        player.tithe(player.content.product(recipe(0).product.id), 1);
+        tick();
+        assertEquals(skills + 1, server.world.content.craftingSkills().size(), "one item, a tiny chance -- and it came up");
+        assertEquals(0, server.oracle().rollsSince(), 0.0, "the oracle starts counting again");
+    }
+
+    @Test
+    void theOraclesWords() {
+        assertEquals("Our oracles suggest that the dawn of a new craft is due in: 03 days 04 hours 05 minutes",
+                ChurchView.oracle(true, 3 * 24 * 60 + 4 * 60 + 5, 0));
+        assertEquals("The prophecy foretold that the new craft should have arrived 00 days 01 hours 30 minutes ago...",
+                ChurchView.oracle(true, -90, 1));
+        assertEquals("The prophecy should have been fulfilled twofold by now... the new craft is 01 days 00 hours 00 minutes late.",
+                ChurchView.oracle(true, -24 * 60, 2));
+        assertTrue(ChurchView.oracle(true, -24 * 60, 12).contains("12-fold"));
+        assertTrue(ChurchView.oracle(false, 0, 0).contains("silent"));
     }
 
     @Test
@@ -255,6 +354,38 @@ class ChurchTest {
     }
 
     @Test
+    void theBlessingShowsByYourNameAndOnTheMap() throws IOException {
+        withSkills();
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        Board board = new Board(player.content);
+        PlayerDetailView details = new PlayerDetailView(Layout.PLAYER_DETAILS, () -> true, () -> {});
+        details.draw(screen, player, board);
+        int nameAt = Layout.NAME_X + 24 - player.name.length();
+        assertEquals(" ", screen.getBackCharacter(nameAt - 6, 0).getCharacterString(), "nothing without one");
+
+        alice.setBlessing(recipe(3), 42);
+        tick();
+        details.draw(screen, player, board);
+        new MapView(Layout.MAP).draw(screen, player, board);
+        assertEquals("\u253c", screen.getBackCharacter(nameAt - 6, 0).getCharacterString(), "a cross");
+        Skill skill = player.content.skill(recipe(3).skill.id);
+        StringBuilder node = new StringBuilder();
+        for (int x = nameAt - 4; x < nameAt - 1; x++) {
+            node.append(screen.getBackCharacter(x, 0).getCharacterString());
+            assertEquals(SkillStyle.getColorForSkill(skill), screen.getBackCharacter(x, 0).getForegroundColor());
+        }
+        assertEquals(":" + SkillStyle.getSymbolForSkill(skill) + ".", node.toString(), "tier 3, as the map draws it, then the name");
+        StringBuilder border = new StringBuilder();
+        for (int x = Layout.MAP.x(); x < Layout.MAP.right(); x++) {
+            border.append(screen.getBackCharacter(x, Layout.MAP.y()).getCharacterString());
+        }
+        int blessed = border.indexOf("blessed 42");
+        assertTrue(blessed >= 0, border.toString());
+        assertEquals(TextColor.ANSI.WHITE_BRIGHT, screen.getBackCharacter(Layout.MAP.x() + blessed, Layout.MAP.y()).getForegroundColor(), "in white");
+    }
+
+    @Test
     void theBlessingIsSaved(@TempDir Path dir) throws Exception {
         try (AccountStore accounts = new AccountStore(dir.resolve("accounts.db"));
              WorldStore store = new WorldStore(dir.resolve("world.db"), accounts)) {
@@ -274,6 +405,11 @@ class ChurchTest {
             again.receive();
             assertEquals(prayed.id, again.blessing.id);
             assertEquals(42, again.blessingLeft);
+            saved.oracle().advance(1);
+            saved.oracle().rolled(0.03);
+            saved.oracle().rolled(0.03);
+            saved.stop();
+            assertEquals(2, new GameServer(saved.world, store).oracle().rollsSince(), 0.0, "the oracle's count is kept");
         }
     }
 

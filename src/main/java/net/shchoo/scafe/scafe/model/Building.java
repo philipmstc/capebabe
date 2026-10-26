@@ -38,8 +38,16 @@ public record Building(int id, Kind kind, Position corner) {
                 "\u2502TRAINS\u2502\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
                 "\u2502TATION\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502",
                 "\u2514\u2500\u2500[ ]\u2500\u2518\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"),
+        /** A barbell in a white frame. q trains combat AFK against a dummy that never falls or hits back. */
+        GYM("Gym", "[q] train combat AFK (no armour; 1 xp a damage)",
+                new String[]{"GG     GG",
+                        "G       G",
+                        "GGGGGGGGG"},
+                "\u250c\u2500G Y M\u2500\u2510",
+                "\u2502 o\u2550\u2550\u2550o \u2502",
+                "\u2514\u2500\u2500[ ]\u2500\u2500\u2518"),
         /** A sign saying MERCH ANT over a stall, and the ant minding it. */
-        MERCHANT("Merch Ant", "[q] the ant isn't open for business yet", '\u0436',
+        MERCHANT("Merch Ant", "[q] trade prestige items (once it knows you)", '\u0436',
                 "\u2502MERCH\u2502",
                 "\u2502A N T\u2502",
                 "\u2500\u2500\u2500\u2500\u2500\u2500\u2500",

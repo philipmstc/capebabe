@@ -46,6 +46,8 @@ public class Discovery {
     }
 
     public static final double SKILL_BACKOFF = 0.6;
+    /** A tithe's new-skill chance per item given, before the backoff (capped at a step's: 1500 items). */
+    public static final double TITHE_CHANCE_PER_ITEM = 0.00002;
     /** A church blessing ({@link net.shchoo.scafe.scafe.model.Prayer}) makes a new node this much likelier. */
     public static final double BLESSED_NODE_FACTOR = 2;
     public static final double NODE_BACKOFF = 0.5;
@@ -106,8 +108,22 @@ public class Discovery {
         }
     }
 
+    /** A tithe of this many items: one tiny new-skill roll, bigger the more you give (up to a step's). */
+    void tithe(GameServer server, GameCharacter character, int items) {
+        if (!enabled || items <= 0) {
+            return;
+        }
+        double base = Math.min(Trigger.MOVED.skillChance, items * TITHE_CHANCE_PER_ITEM);
+        // not one of the oracle's rolls (its tiny chance would drag the average down): it's weighed generously instead
+        server.oracle().tithed(items);
+        if (random.nextDouble() < chance(base, SKILL_BACKOFF, server.world.content.craftingSkills().size())) {
+            discoverSkill(server, character);
+        }
+    }
+
     private void discover(GameServer server, GameCharacter character, Trigger trigger) {
         World world = server.world;
+        server.oracle().rolled(trigger.skillChance);
         if (random.nextDouble() < chance(trigger.skillChance, SKILL_BACKOFF, world.content.craftingSkills().size())) {
             discoverSkill(server, character);
         }
@@ -175,6 +191,7 @@ public class Discovery {
     }
 
     private void discoverSkill(GameServer server, GameCharacter character) {
+        server.oracle().found();
         ContentBatch batch = WorldGenerator.newSkills(server.world, 1);
         server.applyContent(batch, character);
         ContentBatch.SkillDef skill = batch.skills().get(0);

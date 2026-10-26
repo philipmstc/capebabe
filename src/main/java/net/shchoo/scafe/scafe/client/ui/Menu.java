@@ -39,6 +39,11 @@ public abstract class Menu extends Widget {
         }
     }
 
+    /** Takes the keys without starting over ({@link #onFocus} isn't run): a click inside it keeps where it was. */
+    public void takeFocus(Player player, Board board) {
+        focused = canFocus(player, board);
+    }
+
     public void unfocus() {
         focused = false;
     }

@@ -35,17 +35,6 @@ public final class WorldGenerator {
         });
     }
 
-    public static ContentBatch newProductLines(World world, int count) {
-        requireSkills(world);
-        return generate(world, (content, rng) -> {
-            for (int i = 0; i < count; i++) {
-                List<Skill> crafting = content.craftingSkills();
-                Skill target = crafting.get(rng.nextInt(crafting.size()));
-                SkillFactory.addNewProductLineToSkill(target, content, rng);
-            }
-        });
-    }
-
     /** A node for a random recipe. Capacity / charges use {@link Node#UNLIMITED} for "no limit". */
     public static ContentBatch newNode(World world, Position at, int capacity, int maxCharges, int respawnTicks) {
         return newNode(world, at, capacity, maxCharges, respawnTicks, recipe -> 1);

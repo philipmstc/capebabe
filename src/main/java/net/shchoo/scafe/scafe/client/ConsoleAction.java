@@ -44,7 +44,7 @@ public enum ConsoleAction {
     DEBUG_CREATE_NEW_RANDOM_SKILL('1', "Create new random skill(s) [count]",
             (player, board, args) -> player.send(new Intent.Admin("1", args))),
 
-    DEBUG_CREATE_RANDOM_PRODUCT_LINE('2', "Create random product line(s) [count]",
+    DEBUG_CREATE_RANDOM_PRODUCT_LINE('2', "Create random skill(s), one product line each [count]",
             (player, board, args) -> player.send(new Intent.Admin("2", args))),
 
     ECHO('e', "Echo input", (player, board, additionalInputs) -> {

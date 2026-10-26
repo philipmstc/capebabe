@@ -127,6 +127,7 @@ class CombatTest {
 
         Skill combat = alice.content.combatSkill();
         assertEquals((long) type.maxHp * Combat.XP_PER_DAMAGE, alice.getExperience(combat), "1 damage per hit, every hit lands");
+        assertEquals((long) type.maxHp, alice.stats.get(net.shchoo.scafe.scafe.model.Stat.DAMAGE_DEALT), "damage dealt, all of it");
         assertEquals(alice.maxHp, alice.hp, "the monster never landed a hit");
         assertTrue(log.contains("You defeated monster0!"));
         assertFalse(alice.others.containsKey(monster.id()), "dead monsters leave the map");

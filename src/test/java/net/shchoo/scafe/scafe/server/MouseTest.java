@@ -3,6 +3,7 @@ package net.shchoo.scafe.scafe.server;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.ui.BankView;
+import net.shchoo.scafe.scafe.client.ui.ChurchView;
 import net.shchoo.scafe.scafe.client.ui.Clicks;
 import net.shchoo.scafe.scafe.client.ui.CommandLine;
 import net.shchoo.scafe.scafe.client.ui.EquipmentView;
@@ -32,6 +33,7 @@ import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.model.WorldContent;
 import net.shchoo.scafe.scafe.protocol.Intent;
 
+import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.screen.Screen;
 import com.googlecode.lanterna.screen.TerminalScreen;
 import com.googlecode.lanterna.terminal.virtual.DefaultVirtualTerminal;
@@ -71,7 +73,7 @@ class MouseTest {
         map = new MapMenu();
         tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), map,
                 List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
-        widgets = List.of(new BankView(), new StationView(),
+        widgets = List.of(new BankView(), new StationView(), new ChurchView(),
                 new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut = true),
                 new MapView(Layout.MAP, map), new EquipmentView(Layout.EQUIPMENT), tabs,
                 new MessageLogView(Layout.LOG, commandLine = new CommandLine()));
@@ -325,12 +327,16 @@ class MouseTest {
         clickText(Clicks.Button.LEFT, raw.skill.name);
         SkillsMenu skills = (SkillsMenu) tabs.selected();
         assertTrue(skills.skillOpen(), "a row opens its page");
-        int[] lv = find("Lv 0");
+        int[] lv = find("T0");
         assertTrue(board.clicks.click(Clicks.Button.LEFT, lv[0] + 3, lv[1]));
         assertTrue(player.waypoints.has(player.content.recipe(raw.id)), "waypoint");
+        assertTrue(skills.skillOpen(), "and the page stays open");
+        draw();
         assertTrue(board.clicks.click(Clicks.Button.RIGHT, lv[0] + 3, lv[1]));
+        assertTrue(skills.skillOpen());
         clickText(Clicks.Button.LEFT, "Mark all nodes");
         assertTrue(player.highlightedRecipes.contains(player.content.recipe(raw.id)));
+        assertTrue(skills.skillOpen(), "still on the page after the popup");
     }
 
     @Test
@@ -416,5 +422,41 @@ class MouseTest {
         draw();
         board.clicks.highlight(screen, map[0], map[1]);
         assertNotEquals(Clicks.HOVER, screen.getBackCharacter(map[0], map[1]).getBackgroundColor(), "the map isn't an option");
+    }
+
+    @Test
+    void clickingTheMapBesideAWindowClosesItAndWalksThere() {
+        for (Runnable open : List.<Runnable>of(() -> player.bankOpen = true, () -> player.stationMenuOpen = true,
+                () -> player.churchMenuOpen = true)) {
+            open.run();
+            Position from = player.position(), to = new Position(from.x() + 14, from.y() + 10); // the bank covers all but the map's right edge
+            clickTile(Clicks.Button.LEFT, to);
+            assertFalse(player.bankOpen || player.stationMenuOpen || player.churchMenuOpen, "closed");
+            for (int i = 0; i < 40 && !player.position().equals(to); i++) {
+                tick();
+                player.frame();
+            }
+            assertEquals(to, player.position(), "and walked there");
+        }
+    }
+
+    @Test
+    void clickingInsideAWindowDoesntCloseIt() {
+        player.churchMenuOpen = true;
+        clickText(Clicks.Button.LEFT, "Church");
+        assertTrue(player.churchMenuOpen, "the title isn't the map");
+    }
+
+    @Test
+    void wasdClosesAWindowAndWalks() {
+        player.bankOpen = true;
+        draw();
+        KeyStroke s = new KeyStroke('s', false, false);
+        for (Widget widget : widgets) {
+            if (widget.onKey(s, player, board)) {
+                fail(widget + " kept the key");
+            }
+        }
+        assertFalse(player.bankOpen);
     }
 }

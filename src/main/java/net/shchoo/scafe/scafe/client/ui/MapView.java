@@ -46,8 +46,13 @@ public class MapView extends Widget {
         drawFrame(screen);
         TextGraphics coords = screen.newTextGraphics();
         coords.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        coords.putString(map.x() + 2, map.y(), "(" + player.x + "," + player.y + ")" + (player.running ? " run" : "")
-                + (player.blessing != null ? " blessed " + player.blessingLeft : ""));
+        String where = "(" + player.x + "," + player.y + ")" + (player.running ? " run" : "");
+        coords.putString(map.x() + 2, map.y(), where);
+        if (player.blessing != null) {
+            // a church blessing's steps left (what for: by your name, PlayerDetailView)
+            coords.setForegroundColor(TextColor.ANSI.WHITE_BRIGHT);
+            coords.putString(map.x() + 2 + where.length(), map.y(), " blessed " + player.blessingLeft);
+        }
         if (player.content.combatSkill() != null) {
             String hp = "hp " + player.hp + "/" + player.maxHp;
             coords.setForegroundColor(player.hp * 3 <= player.maxHp ? TextColor.ANSI.RED_BRIGHT : TextColor.ANSI.GREEN);
@@ -214,6 +219,13 @@ public class MapView extends Widget {
         return new Position(Layout.viewToWorldX((column + 1) / 2, player.x), Layout.viewToWorldY(row, player.y));
     }
 
+    /** What's either side of a node of this tier (Contrast tiers): 1 ". ", 2 "..", 3 ":.", 4 "::". */
+    static String tierMarks(int tier) {
+        char left = tier > 2 ? ':' : tier > 0 ? '.' : ' ';
+        char right = tier > 3 ? ':' : tier > 1 ? '.' : ' ';
+        return "" + left + right;
+    }
+
     public static void drawTile(Player player, Board board, Screen screen, int worldX, int worldY, boolean highlighted) {
         Node node = board.nodeAt(worldX, worldY);
         Building building = player.content.buildingAt(new Position(worldX, worldY));
@@ -276,18 +288,9 @@ public class MapView extends Widget {
                 marked = true;
             }
             if (player.showProductTiers) {
-                if (node.recipe.product.tier > 0) {
-                    leftOfNode = '.';
-                }
-                if (node.recipe.product.tier > 1) {
-                    rightOfNode = '.';
-                }
-                if (node.recipe.product.tier > 2) {
-                    leftOfNode = ':';
-                }
-                if (node.recipe.product.tier > 3) {
-                    rightOfNode = ':';
-                }
+                String marks = tierMarks(node.recipe.product.tier);
+                leftOfNode = marks.charAt(0) != ' ' ? marks.charAt(0) : leftOfNode;
+                rightOfNode = marks.charAt(1) != ' ' ? marks.charAt(1) : rightOfNode;
             }
         }
         // The cells either side of a tile are shared with its neighbours (tiles are 2 columns apart), and tiles are

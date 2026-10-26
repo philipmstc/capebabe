@@ -193,7 +193,7 @@ class BankTest {
         player.perform();
         BankView view = new BankView();
         Board board = new Board(player.content);
-        assertTrue(view.onKey(new KeyStroke('w', false, false), player, board), "it takes every key");
+        assertTrue(view.onKey(new KeyStroke('k', false, false), player, board), "it takes every key but wasd");
         view.onKey(new KeyStroke(KeyType.Enter), player, board);
         assertTrue(view.asking(), "how many?");
         view.onKey(new KeyStroke(KeyType.ArrowDown), player, board);

@@ -16,9 +16,6 @@ public class SkillFactory {
     private static final double TARGET_SECONDARY_SKILL_DENSITY = 3;
     private static final double TARGET_TERTIARY_SKILL_DENSITY = 1;
 
-    private static final double TARGET_PRODUCT_LINE_DENSITY_PRIMARY = 1;
-    private static final double TARGET_PRODUCT_LINE_DENSITY_SECONDARY = 1;
-    private static final double TARGET_PRODUCT_LINE_DENSITY_TERTIARY = 1;
     private static final double TOLERANCE = 0.33;
 
     static class WeightedSkillTypeChoice {
@@ -119,17 +116,15 @@ public class SkillFactory {
                 TARGET_TERTIARY_SKILL_DENSITY,
                 Collection::size)
                 .type;
-        return createSkill(world, rng, "skill" + crafting.size(), type);
+        return createSkill(world, rng, world.nextSkillName(), type);
     }
 
-    /** Creates the skill with its product lines and adds it to {@code world}. */
+    /** Creates the skill with its one product line and adds it to {@code world}. */
     public static Skill createSkill(WorldContent world, Random rng, String name, SkillType type) {
         long sameType = world.skills.stream().filter(s -> s.type == type).count();
         Skill skill = new Skill(world.allocateId(), name, type, world.skills.size(),
                 SYMBOLS_BY_TYPE.get(type).get((int) (sameType % 3)));
-        do {
-            addNewProductLineToSkill(skill, world, rng);
-        } while (needsNewProductLine(skill, world.craftingSkills(), rng));
+        addNewProductLineToSkill(skill, world, rng);
         world.addSkill(skill);
         return skill;
     }
@@ -147,24 +142,5 @@ public class SkillFactory {
                             .filter(s -> SkillType.SECONDARY.equals(s.type)).toList(), allSkills.stream()
                             .filter(s -> PRIMARY.equals(s.type)).toList(), rng));
         }
-    }
-
-    public static boolean correctProductLineDensity = true;
-
-    private static boolean needsNewProductLine(Skill target, Collection<Skill> allSkills, Random rng) {
-        if (!correctProductLineDensity) {
-            return false;
-        }
-        Collection<Skill> all = new ArrayList<>(allSkills);
-        all.add(target);
-
-        WeightedSkillTypeChoice choice = typeInNeedOfLove(all,
-                rng,
-                TARGET_PRODUCT_LINE_DENSITY_PRIMARY,
-                TARGET_PRODUCT_LINE_DENSITY_SECONDARY,
-                TARGET_PRODUCT_LINE_DENSITY_TERTIARY,
-                skills -> skills.stream().flatMap(s -> s.productLines.stream()).toList().size());
-
-        return choice.weight > TOLERANCE && choice.type == target.type;
     }
 }

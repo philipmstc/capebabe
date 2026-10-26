@@ -45,6 +45,8 @@ public class StatsMenu extends Menu {
         for (Stat stat : Stat.values()) {
             if (stat == Stat.TIME_PLAYED) {
                 y = row(g, y, stat.label, XpTrackerView.duration(player.timePlayedTicks() * GameClock.TICK_MILLIS));
+            } else if (stat.ticks) {
+                y = row(g, y, stat.label, XpTrackerView.duration(player.stats.getOrDefault(stat, 0L) * GameClock.TICK_MILLIS));
             } else {
                 y = row(g, y, stat.label, player.stats.getOrDefault(stat, 0L));
             }

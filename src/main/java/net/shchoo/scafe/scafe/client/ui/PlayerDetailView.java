@@ -13,7 +13,7 @@ import net.shchoo.scafe.scafe.client.SkillStyle;
 import java.util.function.BooleanSupplier;
 
 /**
- * Top right: your name, total level and a red Log Out. Esc (with no tab focused) selects Log Out, Enter asks
+ * Top right: your name (after a cross and the node you prayed for, while blessed), total level and a red Log Out. Esc (with no tab focused) selects Log Out, Enter asks
  * "Log out?" in a popup (Left/Right or y/n, Enter), and yes logs out. It sits early in the widget list so that while
  * Log Out is selected or asking, it gets keys before the tabs (which use Left/Right).
  */
@@ -40,6 +40,15 @@ public class PlayerDetailView extends Widget {
         TextGraphics g = screen.newTextGraphics();
         g.setForegroundColor(SkillStyle.playerColor(player.colorIndex));
         g.putString(Layout.NAME_X, 0, String.format("%24s", player.name));
+        if (player.blessing != null) {
+            // "\u253c :@. name": the node prayed for as the map draws it, in its skill's colour
+            int x = Layout.NAME_X + 24 - player.name.length() - 6;
+            g.setForegroundColor(TextColor.ANSI.WHITE_BRIGHT);
+            g.setCharacter(x, 0, '\u253c');
+            String marks = MapView.tierMarks(player.blessing.product.tier);
+            g.setForegroundColor(SkillStyle.getColorForSkill(player.blessing.skill));
+            g.putString(x + 2, 0, marks.charAt(0) + "" + SkillStyle.getSymbolForSkill(player.blessing.skill) + marks.charAt(1));
+        }
         g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
         g.putString(Layout.TERMINAL_SIZE.getColumns() - 16, 0, String.format("%-16s", " [Total Lv. " + player.totalLevel() + "]"));
         if (state == State.IDLE) {

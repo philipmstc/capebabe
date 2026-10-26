@@ -12,6 +12,7 @@ import net.shchoo.scafe.scafe.model.Stat;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.model.WorldContent;
 import net.shchoo.scafe.scafe.server.GameCharacter;
+import net.shchoo.scafe.scafe.server.Oracle;
 import net.shchoo.scafe.scafe.server.Storage;
 
 import java.sql.ResultSet;
@@ -170,6 +171,16 @@ public class WorldStore extends SqliteStore implements Storage {
             """
             alter table game_character add column blessing_recipe_id integer references recipe(id);
             alter table game_character add column blessing_left integer not null default 0;
+            """,
+            // v20: the church's oracle (Oracle): new-skill rolls since the last skill, rolls an hour, average chance
+            """
+            alter table world_meta add column oracle_rolls_since real not null default 0;
+            alter table world_meta add column oracle_rolls_per_hour real not null default 0;
+            alter table world_meta add column oracle_base_chance real not null default 0;
+            """,
+            // v21: whether the Merch Ant has asked for you (your first prestige) and trades with you
+            """
+            alter table game_character add column met_merchant integer not null default 0;
             """
     );
 
@@ -249,6 +260,23 @@ public class WorldStore extends SqliteStore implements Storage {
         }
         world = new World(id, nameIfNew, seedIfNew);
         return world;
+    }
+
+    @Override
+    public Oracle.Saved loadOracle() throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery("select oracle_rolls_since, oracle_rolls_per_hour, oracle_base_chance from world_meta")) {
+            return rs.next() ? new Oracle.Saved(rs.getDouble(1), rs.getDouble(2), rs.getDouble(3)) : null;
+        }
+    }
+
+    @Override
+    public void saveOracle(Oracle.Saved saved) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "update world_meta set oracle_rolls_since = ?, oracle_rolls_per_hour = ?, oracle_base_chance = ?")) {
+            set(ps, saved.rollsSince(), saved.rollsPerHour(), saved.baseChance());
+            ps.executeUpdate();
+        }
     }
 
     // ---- content ----
@@ -476,6 +504,7 @@ public class WorldStore extends SqliteStore implements Storage {
                 }
                 character.weapon = product(rs, "weapon_product_id");
                 character.armor = product(rs, "armor_product_id");
+                character.metMerchant = rs.getInt("met_merchant") != 0;
                 int blessing = rs.getInt("blessing_recipe_id");
                 if (!rs.wasNull()) {
                     character.blessing = world.content.recipe(blessing);
@@ -531,14 +560,14 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ?, weapon_product_id = ?, armor_product_id = ?, hp = ?, blessing_recipe_id = ?, blessing_left = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ?, weapon_product_id = ?, armor_product_id = ?, hp = ?, blessing_recipe_id = ?, blessing_left = ?, met_merchant = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
                         character.autoInvestigate ? 1 : 0, character.weapon == null ? null : character.weapon.id,
                         character.armor == null ? null : character.armor.id,
                         character.currentHp(), character.blessing == null ? null : character.blessing.id,
-                        character.blessingLeft, character.id);
+                        character.blessingLeft, character.metMerchant ? 1 : 0, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "character_prestige", "inventory", "bank_item", "goal", "character_tried_node", "character_stat")) {
