@@ -19,6 +19,8 @@ import net.shchoo.scafe.scafe.protocol.GameClock;
 import net.shchoo.scafe.scafe.protocol.GameConnection;
 import net.shchoo.scafe.scafe.server.GameServer;
 import net.shchoo.scafe.scafe.server.LocalConnection;
+import net.shchoo.scafe.scafe.server.TutorialWorld;
+import net.shchoo.scafe.scafe.protocol.Intent;
 
 import com.googlecode.lanterna.terminal.Terminal;
 import com.googlecode.lanterna.screen.TerminalScreen;
@@ -39,6 +41,7 @@ import java.util.*;
 import java.util.List;
 import java.util.function.Consumer;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 
 import static java.awt.Font.PLAIN;
 
@@ -54,7 +57,7 @@ public class Main {
     }
 
     /** Fonts to draw with, best first: the grid needs a monospaced one, and not every computer has Consolas. */
-    private static final List<String> FONTS = List.of("Comic Mono NerdFont", "Consolas", "Menlo", "Monaco", "Cascadia Mono", "DejaVu Sans Mono",
+    private static final List<String> FONTS = List.of("Consolas", "Menlo", "Monaco", "Cascadia Mono", "DejaVu Sans Mono",
             "Liberation Mono", "Ubuntu Mono", "Courier New");
 
     /** {@code --font} if it's installed, else the first of {@link #FONTS} that is, else Java's monospace. */
@@ -75,8 +78,6 @@ public class Main {
         }
         System.exit(1);
     }
-
-
 
     private static void run(Options options) throws Exception {
         if ((options.server() || options.host()) && options.worldPassword() == null && !options.noWorldPassword()) {
@@ -125,12 +126,42 @@ public class Main {
                 }
                 System.exit(0);
             }
-            name = login.connection().player().name;
+            Player player = login.connection().player();
+            name = player.name;
             if (hosted == null) {
                 server = login.server();
                 prefs.save(options.data(), server, name);
             }
-            play(screen, login, options.data());
+            // an account's first login (or --tutorial): the tutorial, in a world of its own, then back to the login
+            if ((player.newAccount || options.tutorial()) && new TutorialOffer().run(screen)) {
+                login.connection().connection().close();
+                playTutorial(screen, name, options.data());
+                continue;
+            }
+            play(screen, login.connection().connection(), player, login.heard(), options.data(), null);
+        }
+    }
+
+    /** The tutorial ({@link TutorialWorld}: on this computer, nothing saved) until you log out of it. */
+    private static void playTutorial(Screen screen, String name, Path data) throws Exception {
+        GameServer server = TutorialWorld.create();
+        server.start();
+        try {
+            GameConnection local = new LocalConnection(server.connect());
+            Player player = new Player(local);
+            player.send(new Intent.Join(name));
+            long until = System.currentTimeMillis() + 5000;
+            while (!player.inWorld() && System.currentTimeMillis() < until) {
+                player.receive();
+                Thread.sleep(GameClock.FRAME_MILLIS);
+            }
+            if (!player.inWorld()) {
+                return;
+            }
+            player.send(new Intent.SetRunning(true));
+            play(screen, local, player, List.of(), data, new Tutorial());
+        } finally {
+            server.stop();
         }
     }
 
@@ -202,8 +233,13 @@ public class Main {
         return server;
     }
 
-    /** A mouse press: left or right, to whatever's under it this frame ({@link Clicks}). */
+    /** A mouse press: left or right, to whatever's under it this frame ({@link Clicks}); the wheel scrolls lists. */
     private static void click(MouseAction mouse, Board board) {
+        if (mouse.getActionType() == MouseActionType.SCROLL_UP || mouse.getActionType() == MouseActionType.SCROLL_DOWN) {
+            board.clicks.scroll(mouse.getActionType() == MouseActionType.SCROLL_UP ? -1 : 1,
+                    mouse.getPosition().getColumn(), mouse.getPosition().getRow());
+            return;
+        }
         if (mouse.getActionType() != MouseActionType.CLICK_DOWN) {
             return;
         }
@@ -220,7 +256,7 @@ public class Main {
     private static Screen openWindow(String font) throws IOException {
         SwingTerminalFontConfiguration fontConfig = new SwingTerminalFontConfiguration(
                 true, AWTTerminalFontConfiguration.BoldMode.EVERYTHING_BUT_SYMBOLS,
-        new Font(monospacedFont(font), Font.PLAIN, 14));
+        new Font(monospacedFont(font), Font.PLAIN, 18));
 
         DefaultTerminalFactory factory = new DefaultTerminalFactory();
         factory.setTerminalEmulatorFontConfiguration(fontConfig);
@@ -240,28 +276,28 @@ public class Main {
         return screen;
     }
 
-    /** Plays until you log out (closing the window quits the whole game). */
-    private static void play(Screen screen, LoginScreen login, Path data) throws Exception {
-        GameConnection connection = login.connection().connection();
-        Player player = login.connection().player();
+    /** Plays until you log out (closing the window quits the whole game); {@code tutorial}: its guide, or null. */
+    private static void play(Screen screen, GameConnection connection, Player player, List<String> heard, Path data,
+                             Tutorial tutorial) throws Exception {
         DisplaySettings.load(data).applyTo(player);
         player.onDisplaySettingsChanged = () -> DisplaySettings.of(player).save(data);
         Board board = new Board(player.content);
-        login.heard().forEach(line -> board.log.add(line));
+        heard.forEach(line -> board.log.add(line));
         Consumer<LogEntry> toLog = entry -> board.log.add(entry);
         GameLog.subscribeEntries(toLog);
         boolean[] loggedOut = {false};
 
         MapMenu map = new MapMenu();
         CommandLine commandLine = new CommandLine();
+        SkillsMenu skills = new SkillsMenu();
         TabBar tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), map,
-                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
+                List.of(skills, new MonstersMenu(), new StatsMenu()), new SettingsMenu());
         Runnable quit = () -> {
             connection.close();
             System.exit(0);
         };
         // Order matters: earlier widgets get each key first, later ones draw on top (popups: drawOnTop).
-        List<Widget> widgets = List.of(
+        List<Widget> widgets = new ArrayList<>(List.of(
                 new BankView(),
                 new StationView(),
                 new ChurchView(),
@@ -277,7 +313,11 @@ public class Main {
                 new XpTrackerView(Layout.XP),
                 new MessageLogView(Layout.LOG, commandLine),
                 new KeyCommands(quit),
-                new FrameRateAnimation());
+                new FrameRateAnimation()));
+        if (tutorial != null) {
+            // first for Enter on "Got it"; its box is under popups and windows
+            widgets.add(0, new TutorialView(tutorial, skills));
+        }
 
         while (!loggedOut[0]) {
             long frameStart = System.currentTimeMillis();
@@ -338,11 +378,12 @@ public class Main {
      * {@code --admins name1,name2} gives just those players admin commands (instead of {@code --admin}'s everyone).
      * Hosting backs up the accounts and the world into {@code --backups dir} (default {@code <data>/backups}) at start
      * and every {@code --backup-hours h} (default 24; 0 = never), keeping the last {@code --keep-backups n} (7).
-     * {@code --font name} picks the client's font, if it's installed.
+     * {@code --font name} picks the client's font, if it's installed. {@code --tutorial} offers the tutorial after
+     * every login (not just an account's first).
      */
     record Options(String name, String world, Path data, boolean server, boolean host, int port, boolean admin, String connect,
                    String worldPassword, boolean noWorldPassword, int maxPerIp, String bind, List<String> admins,
-                   String font, Path backups, int backupHours, int keepBackups) {
+                   String font, Path backups, int backupHours, int keepBackups, boolean tutorial) {
         static Options parse(String[] args) {
             String name = null;
             String world = "1";
@@ -358,6 +399,7 @@ public class Main {
             String font = null;
             Path backups = null;
             int backupHours = 24, keepBackups = 7;
+            boolean tutorial = false;
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
                     case "--name" -> name = args[++i];
@@ -377,6 +419,7 @@ public class Main {
                     case "--backups" -> backups = Path.of(args[++i]);
                     case "--backup-hours" -> backupHours = Math.max(0, Integer.parseInt(args[++i]));
                     case "--keep-backups" -> keepBackups = Math.max(1, Integer.parseInt(args[++i]));
+                    case "--tutorial" -> tutorial = true;
                     default -> throw new IllegalArgumentException("Unknown option " + args[i]);
                 }
             }
@@ -385,7 +428,8 @@ public class Main {
             }
             return new Options(name, world, data, server, host, port, admin, connect,
                     worldPassword == null || worldPassword.isEmpty() ? null : worldPassword, noWorldPassword, maxPerIp,
-                    bind, admins, font, backups == null ? data.resolve("backups") : backups, backupHours, keepBackups);
+                    bind, admins, font, backups == null ? data.resolve("backups") : backups, backupHours, keepBackups,
+                    tutorial);
         }
 
         /** The OS user name, cleaned up to a valid game name: the login screen's name when nothing else is known. */

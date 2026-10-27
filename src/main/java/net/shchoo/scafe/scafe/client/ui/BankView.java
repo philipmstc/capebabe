@@ -84,7 +84,7 @@ public class BankView extends Widget {
         if (of == Side.INVENTORY) {
             return InventoryPanel.slots(player, player.inventory);
         }
-        return player.bank.entrySet().stream().filter(e -> e.getValue() > 0)
+        return player.sorted(player.bank).stream().filter(e -> e.getValue() > 0)
                 .map(e -> new InventoryPanel.Slot(e.getKey(), e.getValue())).toList();
     }
 
@@ -279,6 +279,11 @@ public class BankView extends Widget {
         for (Side of : Side.values()) {
             Rect area = area(of);
             board.clicks.add(Clicks.MODAL, area, (button, cx, cy) -> {});
+            board.clicks.addScroll(Clicks.MODAL, area, step -> {
+                if (options == null && typing == null) {
+                    switchTo(of, player, selected[of.ordinal()] + step * columns(of));
+                }
+            });
             g.fillRectangle(new TerminalPosition(area.x() + 1, area.y() + 1), new TerminalSize(area.width() - 2, area.height() - 2), ' ');
             drawFrame(screen, area);
             drawSide(screen, g, player, board, of);
@@ -292,7 +297,7 @@ public class BankView extends Widget {
             g.putString(BOX.x() + 7, BOX.y(), " moving... ");
         }
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-        g.putString(INVENTORY.x() + 2, INVENTORY.bottom(), slots(player, Side.INVENTORY).size() + "/" + Stacks.INVENTORY_SLOTS);
+        g.putString(INVENTORY.x() + 2, INVENTORY.bottom(), slots(player, Side.INVENTORY).size() + "/" + player.inventorySlots());
         g.putString(BOX.x() + 2, BOX.bottom(), slots(player, Side.BANK).size() + " items");
 
         String[] hint = typing != null ? new String[]{"[0-9] how many", "[Enter] move", "[Esc] back"}
@@ -303,8 +308,9 @@ public class BankView extends Widget {
         drawOptions(screen, g, player, board);
     }
 
+    /** The bank's cells start a column further in than the inventory's, to share out its spare columns. */
     private static int cellX(Side of, int column) {
-        return area(of).x() + 2 + column * (of == Side.INVENTORY ? CELL_STEP_X : BANK_CELL_STEP_X);
+        return of == Side.INVENTORY ? area(of).x() + 2 + column * CELL_STEP_X : area(of).x() + 3 + column * BANK_CELL_STEP_X;
     }
 
     private static int cellY(Side of, int row) {
@@ -330,6 +336,10 @@ public class BankView extends Widget {
             g.putString(cellX(of, 0), cellY(of, 0), of == Side.BANK ? "empty" : "nothing to deposit");
             return;
         }
+        int[] xs = new int[columns], ys = new int[cellRows()];
+        java.util.Arrays.setAll(xs, c -> cellX(of, c));
+        java.util.Arrays.setAll(ys, r -> cellY(of, r));
+        InventoryPanel.drawCellLines(screen, area(of), xs, ys);
         for (int r = 0; r < cellRows(); r++) {
             for (int c = 0; c < columns; c++) {
                 int index = (topRow[s] + r) * columns + c;

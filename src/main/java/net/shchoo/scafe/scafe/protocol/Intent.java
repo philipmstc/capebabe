@@ -18,7 +18,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 25;
+    int PROTOCOL_VERSION = 30;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -61,8 +61,11 @@ public sealed interface Intent {
     /** Only next to a bank; takes no more than fits in the inventory. */
     record Withdraw(int productId, int count) implements Intent {}
 
-    /** {@code index} into your goals; {@code level} one of {@code Goal.LEVELS}. */
-    record SetGoalLevel(int index, int level) implements Intent {}
+    /** Throw away up to {@code count} of an item, for good. */
+    record Discard(int productId, int count) implements Intent {}
+
+    /** {@code skillId}'s goal to {@code level}, one of its milestones ({@code Goal.levels()}); 0 clears it. */
+    record SetGoal(int skillId, int level) implements Intent {}
     /** Fight a monster next to you (or stop fighting). */
     record Attack() implements Intent {}
     record SetColor(int colorIndex) implements Intent {}
@@ -76,6 +79,13 @@ public sealed interface Intent {
     record Pray(int recipeId, int paymentProductId) implements Intent {}
     /** At a church: give it this many of an item (a tiny new-skill roll). */
     record Tithe(int productId, int count) implements Intent {}
+    /** Use a church blessing item from your inventory (anywhere). */
+    record UseBlessing(int productId) implements Intent {}
+    /** Tell everyone in the world your level in this skill (the server says it, from your real stats). */
+    record ShareSkill(int skillId) implements Intent {}
+
+    /** Tell everyone where you're standing. */
+    record SharePosition() implements Intent {}
     /** At the Merch Ant: this many of a prestige item for 1 + its prestige of the plain one each. */
     record Trade(int productId, int count) implements Intent {}
     /** Say something to everyone in the world. */

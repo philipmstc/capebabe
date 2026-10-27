@@ -5,6 +5,7 @@ import net.shchoo.scafe.scafe.model.View;
 import net.shchoo.scafe.scafe.model.Stations;
 import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.Product;
+import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.ContentBatch;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
@@ -184,6 +185,10 @@ public class GameServer {
         return tick;
     }
 
+    public Discovery discovery() {
+        return discovery;
+    }
+
     /** Swap out how the world grows from play ({@link Discovery#off()} for tests that need a fixed world). */
     public void setDiscovery(Discovery discovery) {
         this.discovery = discovery;
@@ -222,6 +227,16 @@ public class GameServer {
                 applyContent(WorldGenerator.newBuilding(world, kind));
             }
         }
+    }
+
+    /** The blessing item for {@code recipe}: made (new content) the first time anyone prays for it. */
+    Product blessingProduct(Recipe recipe) {
+        Product blessing = world.content.blessing(recipe);
+        if (blessing == null) {
+            applyContent(WorldGenerator.newBlessingProduct(world, recipe));
+            blessing = world.content.blessing(recipe);
+        }
+        return blessing;
     }
 
     /** The prestige version of {@code base}: made (new content, saved and sent to everyone) the first time it's needed. */
@@ -475,7 +490,20 @@ public class GameServer {
                 character.stopAction("The " + character.currentAction.node.label() + " ran out.");
             }
         }
+        for (int[] bump : nodes.drainBumped()) {
+            GameCharacter bumped = online.get(bump[0]);
+            if (bumped != null && bumped.currentAction != null && bumped.currentAction.node.id == bump[1]) {
+                // already off the node's users: just stop the action
+                bumped.currentAction = null;
+                bumped.emit(new Event.ActionStopped());
+                bumped.say(Event.MessageKind.NOTICE, "Someone needed the " + world.content.node(bump[1]).label()
+                        + " -- you were bumped off it (AFK, and it was full).");
+            }
+        }
         nodes.tick();
+        if (nodes.setOnline(online.size())) {
+            broadcast(new Event.CapacityBonus(nodes.bonus()));
+        }
         for (GameCharacter character : List.copyOf(online.values())) {
             List<Discovery.Trigger> triggers = List.copyOf(character.triggers);
             character.triggers.clear();
@@ -496,8 +524,10 @@ public class GameServer {
         arrive();
         updateVisibility();
         for (GameCharacter changed : online.values()) {
-            if (changed.infoChanged) {
+            boolean afk = changed.afk();
+            if (changed.infoChanged || afk != changed.sentAfk) {
                 changed.infoChanged = false;
+                changed.sentAfk = afk;
                 toObservers(changed.id, new Event.EntityUpdated(changed.info()));
             }
         }
@@ -524,9 +554,26 @@ public class GameServer {
         }
         try {
             store.saveOracle(oracle.saved());
+            if (oracleSaveFailing) {
+                oracleSaveFailing = false;
+                broadcast(new Event.Message("The world is saving again.", Event.MessageKind.NOTICE));
+            }
         } catch (Exception e) {
             e.printStackTrace();
+            if (!oracleSaveFailing) {
+                oracleSaveFailing = true;
+                broadcast(new Event.Message(saveWarning("the world", e), Event.MessageKind.NOTICE));
+            }
         }
+    }
+
+    /** The oracle's last save failed (everyone was warned). */
+    private boolean oracleSaveFailing;
+
+    /** What everyone affected is told when something couldn't be saved. */
+    static String saveWarning(String what, Exception e) {
+        return "WARNING: couldn't save " + what + " (" + e.getMessage() + "). Anything since the last save will be "
+                + "lost if the game stops -- tell whoever hosts.";
     }
 
     private void save(GameCharacter character) {
@@ -536,9 +583,17 @@ public class GameServer {
         }
         try {
             store.saveCharacter(character);
+            if (character.saveFailing) {
+                character.saveFailing = false;
+                character.say(Event.MessageKind.NOTICE, "Your character is saving again.");
+            }
         } catch (Exception e) {
-            // keep playing; the next save will try again
+            // keep playing; the next save will try again (warned once until one works)
             e.printStackTrace();
+            if (!character.saveFailing) {
+                character.saveFailing = true;
+                character.say(Event.MessageKind.NOTICE, saveWarning("your character", e));
+            }
         }
     }
 
@@ -629,6 +684,15 @@ public class GameServer {
             } else {
                 character.heal();
             }
+        } else if (intent instanceof Intent.UseBlessing use) {
+            character.useBlessing(world.content.product(use.productId()));
+        } else if (intent instanceof Intent.ShareSkill share) {
+            Skill skill = world.content.skill(share.skillId());
+            if (skill != null) {
+                broadcast(new Event.Message(character.shareLine(skill), Event.MessageKind.NOTICE));
+            }
+        } else if (intent instanceof Intent.SharePosition) {
+            broadcast(new Event.Message(character.positionLine(), Event.MessageKind.NOTICE));
         } else if (intent instanceof Intent.Trade trade) {
             Building building = world.content.solidBuildingAt(character.ahead());
             if (building == null || building.kind() != Building.Kind.MERCHANT) {
@@ -700,12 +764,14 @@ public class GameServer {
             } else {
                 character.withdraw(world.content.product(withdraw.productId()), withdraw.count());
             }
+        } else if (intent instanceof Intent.Discard discard) {
+            character.discard(world.content.product(discard.productId()), discard.count());
         } else if (intent instanceof Intent.Unequip unequip) {
             if (unequip.slot() != null) {
                 character.unequip(unequip.slot());
             }
-        } else if (intent instanceof Intent.SetGoalLevel set) {
-            character.setGoalLevel(set.index(), set.level());
+        } else if (intent instanceof Intent.SetGoal set) {
+            character.setGoal(world.content.skill(set.skillId()), set.level());
         } else if (intent instanceof Intent.Admin admin) {
             if (session.admin || admins.contains(character.name.toLowerCase(java.util.Locale.ROOT))) {
                 admin(character, admin.command(), admin.args());
@@ -843,7 +909,7 @@ public class GameServer {
             return;
         }
         session.character = character;
-        character.connect(session.events::add, nodes, world.content, this::prestigeProduct);
+        character.connect(session.events::add, nodes, world.content, this::prestigeProduct, this::blessingProduct);
         character.walker.setPassable(this::passable);
         character.hp = character.savedHp == null ? character.maxHp() : Math.max(1, Math.min(character.savedHp, character.maxHp()));
         List<GameCharacter> nearby = online.values().stream()
@@ -862,6 +928,7 @@ public class GameServer {
             character.say(Event.MessageKind.NOTICE, "Also here: " + String.join(", ", alsoHere) + ".");
         }
         tellOthers(character, Event.MessageKind.NOTICE, name + " logged in.");
+        character.emit(new Event.CapacityBonus(nodes.bonus()));
         // prestiged before the Merch Ant traded: it asks for you now
         character.meetMerchantIfDue();
         for (GameCharacter other : nearby) {
@@ -908,6 +975,15 @@ public class GameServer {
             }
             if (command.equals("5")) {
                 giveExperience(character, args);
+                return;
+            }
+            if (command.equals("6")) {
+                if (discovery instanceof TutorialDiscovery tutorial) {
+                    tutorial.force(args.isEmpty() ? null : TutorialDiscovery.Stage.valueOf(args.get(0).toUpperCase(java.util.Locale.ROOT)));
+                    character.say("The tutorial moves on" + (args.isEmpty() ? "" : " through " + args.get(0)) + " on your next step.");
+                } else {
+                    character.say("Not a tutorial world.");
+                }
                 return;
             }
             ContentBatch batch = switch (command) {
@@ -997,6 +1073,14 @@ public class GameServer {
             try {
                 store.saveContent(batch, grant);
             } catch (Exception e) {
+                // nothing's applied, so nothing's lost: the find just doesn't happen
+                String warning = "WARNING: couldn't save something new to the world (" + e.getMessage()
+                        + "), so it's gone -- tell whoever hosts.";
+                if (by != null) {
+                    by.say(Event.MessageKind.NOTICE, warning);
+                } else {
+                    broadcast(new Event.Message(warning, Event.MessageKind.NOTICE));
+                }
                 throw new IllegalStateException("couldn't save new content: " + e.getMessage(), e);
             }
         }

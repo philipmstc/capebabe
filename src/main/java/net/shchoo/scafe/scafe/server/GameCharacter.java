@@ -36,6 +36,8 @@ public class GameCharacter implements Walker.Mobile {
     public boolean autoInvestigate;
     /** Lifetime counts (see {@link Stat}); sent to the client at the end of a tick in which they changed. */
     public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
+    /** Kills by monster type id (sent and saved with the stats). */
+    public final Map<Integer, Long> kills = new HashMap<>();
     boolean statsChanged;
     /** The last tick this character took a step (or turned), for "is moving right now". */
     long lastSteppedTick = -1;
@@ -50,6 +52,8 @@ public class GameCharacter implements Walker.Mobile {
     /** Prayed for at a church ({@link Prayer}): this recipe's node is coming, for this many more steps / actions. Saved. */
     public Recipe blessing;
     public int blessingLeft;
+    /** How many blessings of the same recipe are stacked up: each adds to the node chance and guarantees a node. */
+    public int blessingStrength;
     /** Training at a gym ({@link Combat#train}), or null. */
     Combat.Training training;
     /** The Merch Ant has asked for you (your first prestige): from then on it trades with you. Saved. */
@@ -96,6 +100,8 @@ public class GameCharacter implements Walker.Mobile {
     }
     /** Set on milestones (level ups) so the server saves this character at the end of the tick. */
     boolean saveSoon;
+    /** The last save of this character failed (you were warned; you'll hear when one works again). */
+    boolean saveFailing;
     /** Set when something others can see about this character changed (level ups). */
     boolean infoChanged;
     /** Things this character did this tick that might lead to discoveries; the server drains them. */
@@ -113,12 +119,24 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     void connect(Consumer<Event> outbox, NodeStates nodes, WorldContent content,
-                 java.util.function.BiFunction<Product, Integer, Product> prestigeProduct) {
+                 java.util.function.BiFunction<Product, Integer, Product> prestigeProduct,
+                 java.util.function.Function<Recipe, Product> blessingProduct) {
         this.outbox = outbox;
         this.nodes = nodes;
         this.content = content;
         this.prestigeProduct = prestigeProduct;
+        this.blessingProduct = blessingProduct;
+        // drops used to be equippable: a save from then comes back with them put away
+        if (weapon != null && content.droppedBy(weapon) != null) {
+            weapon = null;
+        }
+        if (armor != null && content.droppedBy(armor) != null) {
+            armor = null;
+        }
     }
+
+    /** The blessing item for a recipe, made (as new world content) the first time anyone prays for it. */
+    private java.util.function.Function<Recipe, Product> blessingProduct = recipe -> null;
 
     /** The prestige version of a product, made (as new world content) the first time anyone needs it. */
     private java.util.function.BiFunction<Product, Integer, Product> prestigeProduct = (base, level) -> base;
@@ -159,6 +177,17 @@ public class GameCharacter implements Walker.Mobile {
         meetMerchantIfDue();
     }
 
+    /** "alice shares: skill3 Lv. 42 (prestige 2), 1,234,567 xp" -- from your real stats, for everyone to see. */
+    String shareLine(Skill skill) {
+        int prestige = getPrestige(skill);
+        long lifetime = bankedXp.getOrDefault(skill, 0L) + getExperience(skill);
+        int virtual = Levels.virtualLevelFor(lifetime);
+        return name + " shares: " + skill.name + " Lv. " + getLevel(skill)
+                + (prestige > 0 ? " (prestige " + prestige + ")" : "")
+                + String.format(java.util.Locale.ROOT, ", %,d xp", lifetime)
+                + (virtual > getLevel(skill) ? ", virtual Lv. " + virtual : "");
+    }
+
     /** With a prestige to your name and the Merch Ant not met yet: it asks for you (once, ever). */
     void meetMerchantIfDue() {
         if (metMerchant || prestige.values().stream().noneMatch(times -> times > 0)) {
@@ -190,7 +219,7 @@ public class GameCharacter implements Walker.Mobile {
         Map<Product, Integer> changes = new HashMap<>();
         changes.put(item, -n);
         changes.merge(item.root(), back, Integer::sum);
-        if (!Stacks.fits(content, inventory, changes, this::stackLevel)) {
+        if (!Stacks.fits(content, inventory, changes, this::stackLevel, inventorySlots())) {
             say("Your inventory is full.");
             return;
         }
@@ -225,9 +254,10 @@ public class GameCharacter implements Walker.Mobile {
         statsChanged = true;
     }
 
-    Map<String, Long> statsByName() {
+    public Map<String, Long> statsByName() {
         Map<String, Long> named = new LinkedHashMap<>();
         stats.forEach((stat, value) -> named.put(stat.name(), value));
+        kills.forEach((type, value) -> named.put(Stat.killsName(type), value));
         return named;
     }
 
@@ -291,7 +321,7 @@ public class GameCharacter implements Walker.Mobile {
         Map<Product, Integer> changes = new HashMap<>();
         recipe.components.forEach((part, count) -> changes.merge(part, -count, Integer::sum));
         changes.merge(made(recipe), madePerCraft(recipe), Integer::sum);
-        return Stacks.fits(content, inventory, changes, this::stackLevel);
+        return Stacks.fits(content, inventory, changes, this::stackLevel, inventorySlots());
     }
 
     /** Inventory slots in use (stacks: see {@link Stacks}). */
@@ -301,12 +331,17 @@ public class GameCharacter implements Walker.Mobile {
 
     /** How many one craft of {@code recipe} makes at your level ({@link Tiers}). */
     int madePerCraft(Recipe recipe) {
-        return Tiers.yield(Tiers.of(recipe), getLevel(recipe.skill));
+        return Tiers.yield(recipe.skill.type, Tiers.of(recipe), getLevel(recipe.skill));
     }
 
     /** At least one slot free (for something new, like a drop). */
     boolean hasFreeSlot() {
-        return slotsUsed() < Stacks.INVENTORY_SLOTS;
+        return slotsUsed() < inventorySlots();
+    }
+
+    /** How many stacks your inventory holds: {@link Stacks#BASE_SLOTS}, and one a trophy you've found. */
+    int inventorySlots() {
+        return Stacks.capacity(content.trophies(name));
     }
 
     /** At a church: all your hp back. */
@@ -332,12 +367,43 @@ public class GameCharacter implements Walker.Mobile {
             say("Praying for that takes " + cost + " x " + payment.name + ".");
             return;
         }
+        Product blessing = blessingProduct.apply(recipe);
+        if (blessing == null) {
+            return;
+        }
+        Map<Product, Integer> changes = new HashMap<>();
+        changes.put(payment, -cost);
+        changes.merge(blessing, 1, Integer::sum);
+        if (!Stacks.fits(content, inventory, changes, this::stackLevel, inventorySlots())) {
+            say("Your inventory is full.");
+            return;
+        }
         changeInventory(payment, -cost);
-        setBlessing(recipe, Prayer.STEPS);
+        changeInventory(blessing, 1);
         count(Stat.TIMES_PRAYED);
         saveSoon = true;
         say(Event.MessageKind.NOTICE, "You pray for " + recipe.product.name + " (" + cost + " x " + payment.name
-                + "). Nodes are likelier near you, and the next is " + recipe.product.name + " -- for " + Prayer.STEPS + " steps.");
+                + ") and receive a " + blessing.name + ". Use it from your inventory.");
+    }
+
+    /**
+     * A blessing item used (from anywhere): one fewer, and for {@link Prayer#STEPS} steps / actions nodes are likelier
+     * near you, the next being its recipe's. Another of the same while it lasts stacks (twice as strong, the time back
+     * to full); a different one replaces it.
+     */
+    void useBlessing(Product item) {
+        if (item == null || item.blesses == null || inventory.getOrDefault(item, 0) <= 0) {
+            return;
+        }
+        changeInventory(item, -1);
+        int strength = item.blesses.equals(blessing) ? blessingStrength + 1 : 1;
+        setBlessing(item.blesses, Prayer.STEPS, strength);
+        saveSoon = true;
+        say(Event.MessageKind.NOTICE, strength > 1
+                ? "Your blessing grows (x" + strength + "): nodes are likelier still, and the next " + strength + " are "
+                + item.blesses.product.name + " -- for " + Prayer.STEPS + " steps."
+                : "You feel blessed: nodes are likelier near you, and the next is " + item.blesses.product.name
+                + " -- for " + Prayer.STEPS + " steps.");
     }
 
     /** At a church: gives up to {@code count} of {@code item}; returns how many went. */
@@ -362,14 +428,19 @@ public class GameCharacter implements Walker.Mobile {
             setBlessing(null, 0);
             say("Your blessing fades.");
         } else {
-            setBlessing(blessing, blessingLeft - 1);
+            setBlessing(blessing, blessingLeft - 1, blessingStrength);
         }
     }
 
     void setBlessing(Recipe recipe, int left) {
+        setBlessing(recipe, left, 1);
+    }
+
+    void setBlessing(Recipe recipe, int left, int strength) {
         blessing = recipe;
         blessingLeft = recipe == null ? 0 : left;
-        emit(new Event.BlessingChanged(recipe == null ? -1 : recipe.id, blessingLeft));
+        blessingStrength = recipe == null ? 0 : Math.max(1, strength);
+        emit(new Event.BlessingChanged(recipe == null ? -1 : recipe.id, blessingLeft, blessingStrength));
     }
 
     /** Up to {@code count} from the inventory into the bank. */
@@ -383,6 +454,17 @@ public class GameCharacter implements Walker.Mobile {
         changeBank(item, n);
     }
 
+    /** Up to {@code count} out of the inventory, gone for good. */
+    void discard(Product item, int count) {
+        int n = Math.min(count, item == null ? 0 : inventory.getOrDefault(item, 0));
+        if (n <= 0) {
+            say("You don't have that.");
+            return;
+        }
+        changeInventory(item, -n);
+        say("You dropped " + n + " x " + item.name + ". They're gone.");
+    }
+
     /** Up to {@code count} from the bank, as much as fits in the inventory. */
     void withdraw(Product item, int count) {
         int stored = item == null ? 0 : bank.getOrDefault(item, 0);
@@ -390,7 +472,7 @@ public class GameCharacter implements Walker.Mobile {
             say("That's not in your bank.");
             return;
         }
-        int n = Math.min(Math.min(count, stored), Stacks.room(content, inventory, item, this::stackLevel));
+        int n = Math.min(Math.min(count, stored), Stacks.room(content, inventory, item, this::stackLevel, inventorySlots()));
         if (n <= 0) {
             say("Your inventory is full.");
             return;
@@ -517,12 +599,16 @@ public class GameCharacter implements Walker.Mobile {
             perform(node);
         } else {
             String busy = afk && nodes.isDepleted(node) ? null : nodes.whyNot(node, id);
+            // full, but someone's AFK on it: crafting for real bumps them off
+            if (busy != null && !afk && !nodes.isDepleted(node) && nodes.bumpAfk(node)) {
+                busy = nodes.whyNot(node, id);
+            }
             if (busy != null) {
                 say(busy);
                 return;
             }
             stopWalking();
-            nodes.join(node, id);
+            nodes.join(node, id, afk);
             currentAction = new ActionProgress(node, this, tick, afk);
             emit(new Event.ActionStarted(node.id, ActionProgress.label(node, afk), tick, node.durationTicks()));
         }
@@ -631,32 +717,61 @@ public class GameCharacter implements Walker.Mobile {
             say("Try it first (q).");
         } else {
             Goal goal = new Goal(node.skill(), node.recipe.levelNeeded, node.recipe.product);
-            if (goals.contains(goal)) {
+            if (goal.equals(goal(node.skill()))) {
                 say("Already a goal.");
             } else {
-                goals.add(goal);
-                emit(new Event.GoalAdded(Event.GoalDef.of(goal)));
+                putGoal(goal);
                 say(Event.MessageKind.NOTICE, "New goal: " + goal.describe());
             }
         }
     }
 
-    void setGoalLevel(int index, int level) {
-        if (index < 0 || index >= goals.size() || !Goal.allowed(level)) {
+    /** {@code skill}'s goal (one a skill), or null. */
+    Goal goal(Skill skill) {
+        return goals.stream().filter(g -> g.skill().equals(skill)).findFirst().orElse(null);
+    }
+
+    /** {@code skill}'s goal to one of its milestones past your level; 0 clears it. */
+    void setGoal(Skill skill, int level) {
+        if (skill == null || !Goal.possible(skill)) {
             return;
         }
-        Goal goal = goals.get(index).withLevel(level);
-        if (level <= getLevel(goal.skill())) {
+        Goal had = goal(skill);
+        if (level == 0) {
+            if (had != null) {
+                goals.remove(had);
+                saveSoon = true;
+                emit(new Event.GoalSet(skill.id, null));
+            }
+            return;
+        }
+        Goal goal = Goal.toward(skill, level);
+        if (!goal.allows(level)) {
+            return;
+        }
+        if (level <= getLevel(skill)) {
             say("You're already past Lv. " + level + ".");
             return;
         }
-        if (goals.contains(goal)) {
-            say("Already a goal.");
+        if (goal.equals(had)) {
             return;
         }
-        goals.set(index, goal);
+        putGoal(goal);
+        if (had == null || had.isMet(getLevel(skill))) {
+            say(Event.MessageKind.NOTICE, "New goal: " + goal.describe());
+        }
+    }
+
+    /** In place of the skill's goal, if it had one. */
+    private void putGoal(Goal goal) {
+        Goal had = goal(goal.skill());
+        if (had != null) {
+            goals.set(goals.indexOf(had), goal);
+        } else {
+            goals.add(goal);
+        }
         saveSoon = true;
-        emit(new Event.GoalChanged(index, Event.GoalDef.of(goal)));
+        emit(new Event.GoalSet(goal.skill().id, Event.GoalDef.of(goal)));
     }
 
     public boolean has(Map<Product, Integer> components) {
@@ -700,6 +815,10 @@ public class GameCharacter implements Walker.Mobile {
     void equip(EquipSlot slot, Product item) {
         if (item == null || inventory.getOrDefault(item, 0) <= 0) {
             say("You don't have that.");
+            return;
+        }
+        if (content.droppedBy(item) != null || item.blesses != null) {
+            say("You can't fight with that.");
             return;
         }
         setEquipped(slot, item);
@@ -756,7 +875,7 @@ public class GameCharacter implements Walker.Mobile {
                 goals.stream().map(Event.GoalDef::of).toList(), new HashSet<>(triedNodes), lastActionAt, hp, maxHp(),
                 facing, colorIndex, running, autoInvestigate, statsByName(),
                 weapon == null ? -1 : weapon.id, armor == null ? -1 : armor.id, bankById(), byId(prestige), byId(bankedXp),
-                blessing == null ? -1 : blessing.id, blessingLeft, metMerchant);
+                blessing == null ? -1 : blessing.id, blessingLeft, blessingStrength, metMerchant);
     }
 
     private static <V> Map<Integer, V> byId(Map<Skill, V> bySkill) {
@@ -775,6 +894,20 @@ public class GameCharacter implements Walker.Mobile {
         // a prestige keeps the 99 levels it took: the total never goes down
         int levelsGained = xp.keySet().stream().mapToInt(skill -> getLevel(skill) - 1).sum()
                 + prestige.values().stream().mapToInt(times -> times * (Levels.MAX_LEVEL - 1)).sum();
-        return Event.EntityInfo.player(id, name, position(), facing, levelsGained, hp, maxHp(), colorIndex, combatLevel());
+        return Event.EntityInfo.player(id, name, position(), facing, levelsGained, hp, maxHp(), colorIndex, combatLevel(),
+                afk());
+    }
+
+    /** Crafting AFK, or training at the gym. */
+    boolean afk() {
+        return currentAction != null && currentAction.afk || training != null;
+    }
+
+    /** {@link #afk} as of the last update the server sent round (so it can tell when it changes). */
+    boolean sentAfk;
+
+    /** "phili is standing at (3, -7)" */
+    String positionLine() {
+        return name + " is standing at (" + x + ", " + y + ")";
     }
 }

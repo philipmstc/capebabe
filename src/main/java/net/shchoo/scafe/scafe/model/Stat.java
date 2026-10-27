@@ -24,6 +24,27 @@ public enum Stat {
     /** In ticks, counted while you're online. */
     TIME_PLAYED("Time played", true);
 
+    /**
+     * Kills of each kind of monster go with the stats (saved and sent the same way), as "KILLS_" + its type's id.
+     */
+    public static final String KILLS_PREFIX = "KILLS_";
+
+    public static String killsName(int monsterTypeId) {
+        return KILLS_PREFIX + monsterTypeId;
+    }
+
+    /** The monster type id a {@link #killsName} is for, or -1 if it isn't one. */
+    public static int killsOf(String name) {
+        if (!name.startsWith(KILLS_PREFIX)) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(name.substring(KILLS_PREFIX.length()));
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     public final String label;
     /** Counted in ticks, shown as a duration ("3h 05m"). */
     public final boolean ticks;

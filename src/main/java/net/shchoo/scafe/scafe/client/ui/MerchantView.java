@@ -187,6 +187,8 @@ public class MerchantView extends Widget {
                 : List.of();
         int height = Math.min(box.height(), rows.size() + notes.size() + 5);
         board.clicks.add(Clicks.MODAL, box.x(), box.y(), box.width(), height, (button, cx, cy) -> {});
+        board.clicks.addScroll(Clicks.MODAL, new Rect(box.x(), box.y(), box.width(), height),
+                step -> selected = Math.max(0, Math.min(rows.size() - 1, selected + step)));
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         g.fillRectangle(new TerminalPosition(box.x(), box.y()), new TerminalSize(box.width(), height), ' ');

@@ -158,15 +158,15 @@ class BankTest {
 
     @Test
     void theInventoryHolds100StacksAndWithdrawingStopsThere() {
-        alice.changeInventory(item, Stacks.INVENTORY_SLOTS + 10);
+        alice.changeInventory(item, Stacks.BASE_SLOTS + 10);
         tick();
-        assertEquals(Stacks.INVENTORY_SLOTS + 10, player.slotsUsed(), "already over (stacks of 1 at level 1)");
+        assertEquals(Stacks.BASE_SLOTS + 10, player.slotsUsed(), "already over (stacks of 1 at level 1)");
         standAtTheBank();
         player.deposit(mine(item), 20);
         tick();
         player.withdraw(mine(item), 20);
         tick();
-        assertEquals(Stacks.INVENTORY_SLOTS, player.inventory.get(mine(item)), "only up to the cap");
+        assertEquals(Stacks.BASE_SLOTS, player.inventory.get(mine(item)), "only up to the cap");
         assertEquals(10, player.bank.get(mine(item)));
         assertTrue(log.contains("Your inventory is full."));
     }
@@ -175,7 +175,7 @@ class BankTest {
     void craftingStopsWhenThereIsNoRoomForWhatYouMake() {
         Recipe raw = server.world.content.skills.get(0).productLines.get(0).recipes.get(0);
         Product other = server.world.content.skills.get(0).productLines.get(0).recipes.get(1).product;
-        alice.changeInventory(other, Stacks.INVENTORY_SLOTS);
+        alice.changeInventory(other, Stacks.BASE_SLOTS);
         WorldGeneratorAccess.place(server, raw, alice.ahead());
         tick();
         player.send(new Intent.Perform());
@@ -239,11 +239,10 @@ class BankTest {
         String inventory = screenText(screen, Layout.INVENTORY);
         String bank = screenText(screen, new Rect(Layout.INVENTORY.right() + 1, Layout.INVENTORY.y(),
                 Layout.MAP.width(), Layout.MAP.height()));
-        assertTrue(inventory.contains("5/100"), inventory);
+        assertTrue(inventory.contains("5/" + Stacks.BASE_SLOTS), inventory);
         assertTrue(bank.contains("Bank") && bank.contains("empty") && bank.contains("[Enter] deposit"), bank);
-        String label = InventoryPanel.label(item)[0];
-        assertTrue(inventory.contains(label), "the inventory's in its usual place");
-        assertFalse(bank.contains(label), "and not again in the bank's window");
+        assertTrue(inventory.contains("x1") || inventory.contains("x5"), "the inventory's in its usual place:\n" + inventory);
+        assertFalse(bank.contains("x1") || bank.contains("x5"), "and not again in the bank's window");
         assertEquals("\u250c", screen.getBackCharacter(Layout.MAP.x(), Layout.INVENTORY.y()).getCharacterString(),
                 "the bank opens right next to it");
     }
@@ -308,7 +307,7 @@ class BankTest {
         tick();
         net.shchoo.scafe.scafe.client.ui.TabBar tabs = new net.shchoo.scafe.scafe.client.ui.TabBar(Layout.TABS,
                 new InventoryPanel(Layout.INVENTORY), new net.shchoo.scafe.scafe.client.ui.MapMenu(),
-                List.of(new net.shchoo.scafe.scafe.client.ui.SkillsMenu(), new net.shchoo.scafe.scafe.client.ui.GoalsMenu(),
+                List.of(new net.shchoo.scafe.scafe.client.ui.SkillsMenu(), new net.shchoo.scafe.scafe.client.ui.MonstersMenu(),
                         new net.shchoo.scafe.scafe.client.ui.StatsMenu()), new net.shchoo.scafe.scafe.client.ui.SettingsMenu());
         Board board = new Board(player.content);
         tabs.onKey(new KeyStroke('i', false, false), player, board);
@@ -343,7 +342,7 @@ class BankTest {
                 "twice the inventory box's width (and a bit)");
         String bank = screenText(screen, new Rect(Layout.MAP.x(), Layout.INVENTORY.y() + 2, width, 2));
         assertTrue(bank.contains("1.1k"), "big counts shortened:\n" + bank);
-        assertEquals(6, bank.split("\n")[0].split("\\.", -1).length - 1 + 1, "6 across (the rest empty):\n" + bank);
+        assertEquals(6, bank.split("\n")[0].chars().filter(c -> c == '\u2502').count() - 1, "6 across, lines between (the rest empty):\n" + bank);
         assertTrue(screenText(screen, Layout.MAP).contains("1 items"));
 
         Board board = new Board(player.content);

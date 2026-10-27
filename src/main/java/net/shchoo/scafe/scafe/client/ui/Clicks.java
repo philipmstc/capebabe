@@ -42,8 +42,44 @@ public final class Clicks {
 
     private final List<Area> areas = new ArrayList<>();
 
+    /** What the wheel does over a scrollable list: {@code step} 1 down, -1 up. */
+    public interface Scroller {
+        void scroll(int step);
+    }
+
+    private record ScrollArea(int layer, Rect rect, Scroller scroller) {}
+
+    private final List<ScrollArea> scrollAreas = new ArrayList<>();
+
     public void clear() {
         areas.clear();
+        scrollAreas.clear();
+    }
+
+    /** A list the wheel scrolls (usually by moving its selection, as Up/Down do). */
+    public void addScroll(int layer, Rect rect, Scroller scroller) {
+        scrollAreas.add(new ScrollArea(layer, rect, scroller));
+    }
+
+    /**
+     * The wheel at {@code x}, {@code y}: to the topmost list there, if nothing's drawn over it (a popup or a window
+     * on a higher layer than the list). False if nothing scrolled.
+     */
+    public boolean scroll(int step, int x, int y) {
+        int visible = layerAt(x, y);
+        ScrollArea best = null;
+        for (ScrollArea area : scrollAreas) {
+            Rect r = area.rect;
+            if (x >= r.x() && y >= r.y() && x < r.x() + r.width() && y < r.y() + r.height()
+                    && area.layer >= visible && (best == null || area.layer >= best.layer)) {
+                best = area;
+            }
+        }
+        if (best == null) {
+            return false;
+        }
+        best.scroller.scroll(step);
+        return true;
     }
 
     public void add(int layer, Rect rect, Handler handler) {

@@ -72,6 +72,13 @@ class WindowMouseTest {
             assertEquals(new TerminalPosition(7, 4), move.getPosition());
             assertNull(frame.pollInput(), "the same cell again says nothing");
 
+            terminal.dispatchEvent(new java.awt.event.MouseWheelEvent(terminal, java.awt.event.MouseWheelEvent.MOUSE_WHEEL,
+                    System.currentTimeMillis(), 0, 2 * w + 1, 3 * h + 1, 0, false,
+                    java.awt.event.MouseWheelEvent.WHEEL_UNIT_SCROLL, 3, 1));
+            MouseAction wheel = (MouseAction) frame.pollInput();
+            assertEquals(MouseActionType.SCROLL_DOWN, wheel.getActionType(), "the wheel, down");
+            assertEquals(new TerminalPosition(2, 3), wheel.getPosition());
+
             send(terminal, MouseEvent.MOUSE_EXITED, 0, 0, MouseEvent.NOBUTTON);
             assertEquals(WindowMouse.OUTSIDE, ((MouseAction) frame.pollInput()).getPosition(), "leaving: no tile");
         } finally {

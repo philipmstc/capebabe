@@ -16,8 +16,8 @@ class DisplaySettingsTest {
     Path data;
 
     @Test
-    void allOffUntilSaved() {
-        assertEquals(new DisplaySettings(false, false, false, false), DisplaySettings.load(data));
+    void contrastTiersOnTheRestOffUntilSaved() {
+        assertEquals(new DisplaySettings(true, false, false, false, ItemSort.AS_GOT), DisplaySettings.load(data));
     }
 
     @Test
@@ -26,6 +26,7 @@ class DisplaySettingsTest {
         alice.onDisplaySettingsChanged = () -> DisplaySettings.of(alice).save(data);
         alice.toggleShowProductTiers();
         alice.toggleLightMode();
+        alice.stepItemSort(2);
         assertTrue(Files.exists(data.resolve(DisplaySettings.FILE)), "saved as soon as it changes");
 
         Player bob = new Player(new LocalConnection(new GameServer(new World(2, "x", 0)).connect()));
@@ -34,5 +35,6 @@ class DisplaySettingsTest {
         assertTrue(bob.lightMode);
         assertFalse(bob.compactChat);
         assertFalse(bob.showTimeEstimate);
+        assertEquals(ItemSort.TYPE, bob.itemSort, "the sort too");
     }
 }

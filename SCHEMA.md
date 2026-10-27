@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v2, worlds v21). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v25). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -42,8 +42,12 @@ Only the server side writes these (single player, `--host`, `--server`); `--conn
   never the password. Null for accounts from before logins; their first login sets it.
 - **Characters** (`game_character` + `character_skill_xp`, `inventory`, `goal`, `character_tried_node`, `character_stat`): one
   character per account per world (`account_id` points into `accounts.db`; no foreign key across files). Levels
-  aren't stored, only xp. Saved whole (delete + reinsert the child rows) in one transaction.
-- **One-of-a-kind drops**: a `monster_drop` row means that drop has dropped, for `found_by`. It's written in the
+  aren't stored, only xp. Saved whole (delete + reinsert the child rows) in one transaction. At most one `goal` a
+  skill (older saves with more: the first is kept on load). `character_stat` also holds kills by monster kind, as
+  `stat` = `KILLS_<monster type id>`. `character_skill_xp.skill_id` / `character_prestige.skill_id` aren't foreign
+  keys (v25): a skill split off an old world's extra product line has that line's id and no `skill` row.
+- **Monster drops**: a `monster_drop` row is one find, for `found_by`. Drop k (from 0) can be found k + 1 times, so a
+  product can have several rows (v22 dropped the one-row-a-product key). It's written in the
   same transaction as the finder's `inventory` row.
 - **Not stored**: hp, monsters out in the world, node charges, action progress, walk paths (all come back fresh).
 
@@ -60,7 +64,7 @@ CREATE TABLE world_meta (id integer primary key check (id = 1), name text not nu
 CREATE TABLE skill (id integer primary key, content_version integer not null, ordinal integer not null,
                     name text not null, type text not null, color_index integer not null, symbol text not null);
 CREATE TABLE product (id integer primary key, content_version integer not null, ordinal integer not null,
-                      name text not null, tier integer, base_id integer references product(id), prestige integer not null default 0);
+                      name text not null, tier integer, base_id integer references product(id), prestige integer not null default 0, blesses_recipe_id integer references recipe(id));
 CREATE TABLE product_line (id integer primary key, content_version integer not null, ordinal integer not null,
                            skill_id integer not null references skill(id));
 CREATE TABLE recipe (id integer primary key, content_version integer not null, ordinal integer not null,
@@ -75,10 +79,10 @@ CREATE TABLE node (id integer primary key, content_version integer not null, ord
                    capacity integer not null, max_charges integer not null, respawn_ticks integer not null);
 CREATE TABLE game_character (id integer primary key autoincrement, account_id integer not null unique,
                              name text not null, x integer not null, y integer not null,
-                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, weapon_product_id integer references product(id), armor_product_id integer references product(id), hp integer, blessing_recipe_id integer references recipe(id), blessing_left integer not null default 0, met_merchant integer not null default 0);
-CREATE TABLE character_skill_xp (character_id integer not null references game_character(id),
-                                 skill_id integer not null references skill(id), xp integer not null,
-                                 primary key (character_id, skill_id));
+                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, weapon_product_id integer references product(id), armor_product_id integer references product(id), hp integer, blessing_recipe_id integer references recipe(id), blessing_left integer not null default 0, blessing_strength integer not null default 1, met_merchant integer not null default 0);
+CREATE TABLE "character_skill_xp" (character_id integer not null references game_character(id),
+                                     skill_id integer not null, xp integer not null,
+                                     primary key (character_id, skill_id));
 CREATE TABLE inventory (character_id integer not null references game_character(id), ordinal integer not null,
                         product_id integer not null references product(id), count integer not null,
                         primary key (character_id, product_id));
@@ -93,16 +97,16 @@ CREATE TABLE monster_type (id integer primary key, content_version integer not n
                            max_hit integer not null, color_index integer not null, symbol text not null, roam_radius integer not null default 3, move_ticks integer not null default 2);
 CREATE TABLE monster_drop (monster_id integer not null references monster_type(id),
                            product_id integer not null references product(id),
-                           content_version integer not null, ordinal integer not null, one_in integer not null, found_by text,
-                           primary key (monster_id, product_id));
+                           content_version integer not null, ordinal integer not null,
+                           one_in integer not null, found_by text,
+                           primary key (content_version, ordinal));
 CREATE TABLE content_batch (content_version integer primary key, created_by text not null,
                             created_at integer not null);
 CREATE TABLE building (id integer primary key, content_version integer not null, ordinal integer not null,
                        kind text not null, x integer not null, y integer not null);
-CREATE TABLE character_prestige (character_id integer not null references game_character(id),
-                                 skill_id integer not null references skill(id),
-                                 prestige integer not null, banked_xp integer not null,
-                                 primary key (character_id, skill_id));
+CREATE TABLE "character_prestige" (character_id integer not null references game_character(id),
+                                     skill_id integer not null, prestige integer not null,
+                                     banked_xp integer not null, primary key (character_id, skill_id));
 CREATE TABLE bank_item (character_id integer not null references game_character(id), ordinal integer not null,
                         product_id integer not null references product(id), count integer not null,
                         primary key (character_id, ordinal));

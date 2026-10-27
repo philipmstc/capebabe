@@ -21,6 +21,14 @@ public class Product {
         this.prestige = prestige;
     }
 
+    /** A church blessing for this recipe ({@link Prayer}): used from the inventory, it blesses you. Else null. */
+    public Recipe blesses;
+
+    /** A blessing's name: "blessing of skill3-2". */
+    public static String blessingName(Recipe recipe) {
+        return "blessing of " + recipe.product.name;
+    }
+
     /** How much more a prestige level adds to a weapon's base damage than the tiers do: one line's worth. */
     public static final int PRESTIGE_DAMAGE = 5;
 
@@ -49,7 +57,7 @@ public class Product {
         return tier != NO_TIER;
     }
 
-    /** The name without its "-tier" ending: the product line's name ("skill1{0}-3" -> "skill1{0}"). */
+    /** The name without its "-tier" ending: the product line's (and so the skill's) name ("skill1-3" -> "skill1"). */
     public String lineName() {
         if (base != null) {
             return base.lineName();

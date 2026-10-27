@@ -148,6 +148,35 @@ class CombatTest {
         assertEquals(4, type.drops.get(1).oneIn());
         assertEquals(1, alice.inventory.get(drop0), "drop0 never drops again");
         assertEquals(1, alice.inventory.get(type.drops.get(1).product()));
+        assertEquals(2L, alice.kills.get(type.id), "kills of each kind");
+    }
+
+    @Test
+    void theMonstersTabListsEachKindWithItsStatsKillsAndTrophies() throws Exception {
+        Event.EntityInfo monster = spawnNextToAlice();
+        MonsterType type = alice.content.monster(monster.monsterTypeId());
+        fightUntilOver();
+        net.shchoo.scafe.scafe.client.ui.MonstersMenu menu = new net.shchoo.scafe.scafe.client.ui.MonstersMenu();
+        menu.setBounds(Layout.TABS);
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        menu.draw(screen, alice, new Board(alice.content));
+        StringBuilder text = new StringBuilder();
+        for (int y = Layout.TABS.y(); y <= Layout.TABS.bottom(); y++) {
+            for (int x = Layout.TABS.x(); x <= Layout.TABS.right(); x++) {
+                text.append(screen.getBackCharacter(x, y).getCharacterString());
+            }
+            text.append('\n');
+        }
+        String shown = text.toString();
+        assertTrue(shown.contains(type.name + "  Lv. " + type.level), shown);
+        assertTrue(shown.contains("hp " + type.maxHp), shown);
+        assertTrue(shown.contains("hit " + type.maxHit), shown);
+        assertTrue(shown.contains("kills 1"), shown);
+        assertTrue(shown.contains("\u03a81/1"), "the one drop found is yours: " + shown);
+        assertTrue(shown.contains("drops: monster0-drop0 1/1"), shown);
+        assertTrue(shown.contains("next drop: 1 in 4 kills"), shown);
+        assertTrue(shown.contains("best weapon"), shown);
     }
 
     @Test
@@ -517,14 +546,14 @@ class CombatTest {
 
     @Test
     void noDropWhileYourInventoryIsFull() {
-        Product item = giveItems(1, Stacks.INVENTORY_SLOTS);
-        assertEquals(Stacks.INVENTORY_SLOTS, alice.slotsUsed(), "stacks of 1 at level 1");
+        Product item = giveItems(1, Stacks.BASE_SLOTS);
+        assertEquals(Stacks.BASE_SLOTS, alice.slotsUsed(), "stacks of 1 at level 1");
         Event.EntityInfo monster = spawnNextToAlice();
         MonsterType type = alice.content.monster(monster.monsterTypeId());
         fightUntilOver();
         assertTrue(log.contains("Something glinted, but your inventory is full."));
         assertTrue(type.drops.isEmpty(), "the drop is still out there for later");
-        assertEquals(Stacks.INVENTORY_SLOTS, alice.inventory.get(item));
+        assertEquals(Stacks.BASE_SLOTS, alice.inventory.get(item));
     }
 
     @Test

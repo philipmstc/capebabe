@@ -183,9 +183,16 @@ class ChurchTest {
         press(KeyType.Enter);
         tick();
         assertEquals(50, alice.inventory.get(tier1), "200 of tier 1 for tier 2");
+        assertNull(alice.blessing, "praying gives you a blessing to use, not the blessing itself");
+        Product blessing = server.world.content.blessing(tier2);
+        assertEquals("blessing of " + tier2.product.name, blessing.name);
+        assertEquals(1, alice.inventory.get(blessing));
+        player.useBlessing(player.content.product(blessing.id));
+        tick();
         assertEquals(tier2, alice.blessing);
         assertEquals(Prayer.STEPS, alice.blessingLeft);
         assertEquals(tier2.id, player.blessing.id, "the client knows");
+        assertEquals(0, alice.inventory.get(blessing), "used up");
         assertFalse(player.churchMenuOpen);
     }
 
@@ -210,7 +217,7 @@ class ChurchTest {
         press(KeyType.ArrowDown);
         press(KeyType.Enter);
         tick();
-        assertEquals(recipe(2), alice.blessing);
+        assertEquals(1, alice.inventory.get(server.world.content.blessing(recipe(2))), "a blessing for it");
         assertEquals(30, alice.inventory.get(plus));
     }
 
@@ -227,7 +234,7 @@ class ChurchTest {
         alice.changeInventory(any, 1);
         player.pray(player.content.recipe(recipe(0).id), player.content.product(any.id));
         tick();
-        assertEquals(recipe(0), alice.blessing);
+        assertEquals(1, alice.inventory.get(server.world.content.blessing(recipe(0))), "a blessing for it");
         assertEquals(0, alice.inventory.get(any));
     }
 
@@ -241,7 +248,7 @@ class ChurchTest {
         player.pray(player.content.recipe(recipe(1).id), player.content.product(recipe(0).product.id));
         tick();
         tick();
-        assertEquals(1L, player.stats.get(Stat.TIMES_PRAYED), "the blessing, not the heal");
+        assertEquals(1L, player.stats.get(Stat.TIMES_PRAYED), "the prayer, not the heal");
     }
 
     @Test
@@ -299,6 +306,85 @@ class ChurchTest {
                 ChurchView.oracle(true, -24 * 60, 2));
         assertTrue(ChurchView.oracle(true, -24 * 60, 12).contains("12-fold"));
         assertTrue(ChurchView.oracle(false, 0, 0).contains("silent"));
+    }
+
+    @Test
+    void blessingsStackAndKeep_andCanBeUsedAnywhere() {
+        withSkills();
+        alice.changeInventory(recipe(0).product, 300);
+        atTheChurch();
+        for (int i = 0; i < 2; i++) {
+            player.pray(player.content.recipe(recipe(1).id), player.content.product(recipe(0).product.id));
+            tick();
+        }
+        Product blessing = server.world.content.blessing(recipe(1));
+        assertEquals(2, alice.inventory.get(blessing), "one item, stacking");
+        assertEquals(2L, player.stats.get(Stat.TIMES_PRAYED));
+        alice.moveTo(new Position(30, 30));
+        tick();
+        player.useBlessing(player.content.product(blessing.id));
+        tick();
+        assertEquals(recipe(1), alice.blessing, "away from the church too");
+        assertEquals(1, alice.inventory.get(blessing));
+    }
+
+    @Test
+    void twoOfTheSameBlessingStack_twiceAsStrongForTheSameTime() {
+        withSkills();
+        server.setDiscovery(new Discovery(new Random(1) {
+            @Override
+            public double nextDouble() {
+                // past one blessing's x2 (0.20 a step here), inside two's x3 (0.30)
+                return 0.25;
+            }
+        }));
+        alice.changeInventory(recipe(0).product, 1000);
+        atTheChurch();
+        for (int i = 0; i < 2; i++) {
+            player.pray(player.content.recipe(recipe(1).id), player.content.product(recipe(0).product.id));
+            tick();
+        }
+        Product blessing = server.world.content.blessing(recipe(1));
+        alice.moveTo(new Position(40, 40));
+        tick();
+        player.useBlessing(player.content.product(blessing.id));
+        tick();
+        int nodes = server.world.content.nodes().size();
+        player.send(new Intent.Move(0, 1));
+        tick();
+        assertEquals(nodes, server.world.content.nodes().size(), "one blessing: x2 isn't enough here");
+
+        player.useBlessing(player.content.product(blessing.id));
+        tick();
+        assertEquals(2, alice.blessingStrength, "stacked");
+        assertEquals(Prayer.STEPS, alice.blessingLeft, "the time back to full, not doubled");
+        assertEquals(2, player.blessingStrength, "the client knows");
+        player.send(new Intent.Move(0, 1));
+        tick();
+        assertEquals(nodes + 1, server.world.content.nodes().size(), "x3: a node");
+        assertEquals(recipe(1), alice.blessing, "one answered, one to go");
+        assertEquals(1, alice.blessingStrength);
+        player.send(new Intent.Move(0, 1));
+        tick();
+        player.send(new Intent.Move(0, 1));
+        tick();
+        player.send(new Intent.Move(0, 1));
+        tick();
+        assertTrue(server.world.content.nodes().size() >= nodes + 1);
+    }
+
+    @Test
+    void aDifferentBlessingReplacesIt() {
+        withSkills();
+        alice.setBlessing(recipe(1), 50, 3);
+        alice.changeInventory(recipe(0).product, 1000);
+        atTheChurch();
+        player.pray(player.content.recipe(recipe(2).id), player.content.product(recipe(0).product.id));
+        tick();
+        player.useBlessing(player.content.product(server.world.content.blessing(recipe(2)).id));
+        tick();
+        assertEquals(recipe(2), alice.blessing);
+        assertEquals(1, alice.blessingStrength);
     }
 
     @Test
@@ -375,7 +461,7 @@ class ChurchTest {
             node.append(screen.getBackCharacter(x, 0).getCharacterString());
             assertEquals(SkillStyle.getColorForSkill(skill), screen.getBackCharacter(x, 0).getForegroundColor());
         }
-        assertEquals(":" + SkillStyle.getSymbolForSkill(skill) + ".", node.toString(), "tier 3, as the map draws it, then the name");
+        assertEquals("." + SkillStyle.getSymbolForSkill(skill) + ":", node.toString(), "tier 3, as the map draws it, then the name");
         StringBuilder border = new StringBuilder();
         for (int x = Layout.MAP.x(); x < Layout.MAP.right(); x++) {
             border.append(screen.getBackCharacter(x, Layout.MAP.y()).getCharacterString());

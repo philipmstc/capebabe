@@ -10,11 +10,12 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 
 /**
  * The mouse, for the game's own window. Lanterna's Swing terminal doesn't report clicks to the program (its mouse
- * capture only works in real terminals), so this listens to the window itself and feeds presses -- and, for hover,
- * moves into a new cell -- into its input as {@link MouseAction}s, which the game reads along with the keys.
+ * capture only works in real terminals), so this listens to the window itself and feeds presses, the wheel -- and,
+ * for hover, moves into a new cell -- into its input as {@link MouseAction}s, which the game reads with the keys.
  */
 public final class WindowMouse {
     /** The cell to report when the pointer leaves the window (no tile under it). */
@@ -52,6 +53,14 @@ public final class WindowMouse {
                 moved(OUTSIDE);
             }
 
+            @Override
+            public void mouseWheelMoved(MouseWheelEvent e) {
+                if (e.getWheelRotation() != 0) {
+                    terminal.addInput(new MouseAction(e.getWheelRotation() < 0 ? MouseActionType.SCROLL_UP
+                            : MouseActionType.SCROLL_DOWN, e.getWheelRotation() < 0 ? 4 : 5, cell(terminal, e)));
+                }
+            }
+
             /** Only when it's in a new cell: hover needs no more. */
             private void moved(TerminalPosition at) {
                 if (!at.equals(last)) {
@@ -62,6 +71,7 @@ public final class WindowMouse {
         };
         terminal.addMouseListener(adapter);
         terminal.addMouseMotionListener(adapter);
+        terminal.addMouseWheelListener(adapter);
     }
 
     /** The character cell under a pixel. */

@@ -34,4 +34,19 @@ class ClicksTest {
         clicks.click(Clicks.Button.LEFT, 1, 1);
         assertEquals(List.of("bank"), got);
     }
+
+    @Test
+    void theWheelScrollsTheListUnderItUnlessSomethingsOverIt() {
+        Clicks clicks = new Clicks();
+        List<Integer> got = new ArrayList<>();
+        clicks.add(Clicks.BASE, 0, 0, 10, 10, (b, x, y) -> {});
+        clicks.addScroll(Clicks.BASE, new Rect(0, 0, 10, 10), got::add);
+        assertTrue(clicks.scroll(1, 2, 2));
+        assertTrue(clicks.scroll(-1, 2, 2));
+        assertFalse(clicks.scroll(1, 20, 20), "no list there");
+        clicks.add(Clicks.POPUP, 1, 1, 3, 3, (b, x, y) -> {});
+        assertFalse(clicks.scroll(1, 2, 2), "a popup's in the way");
+        assertTrue(clicks.scroll(1, 8, 8), "beside it, still");
+        assertEquals(List.of(1, -1, 1), got);
+    }
 }

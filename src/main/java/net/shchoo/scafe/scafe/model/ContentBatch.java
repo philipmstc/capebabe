@@ -33,10 +33,17 @@ public record ContentBatch(int version,
 
     public record SkillDef(int id, String name, SkillType type, int colorIndex, char symbol) {}
 
-    /** {@code tier}: which tier of its product line, or {@link Product#NO_TIER}. */
-    public record ProductDef(int id, String name, int tier, int baseId, int prestige) {
+    /**
+     * {@code tier}: which tier of its product line, or {@link Product#NO_TIER}. {@code blessesRecipeId}: a church
+     * blessing for that recipe (0: not one).
+     */
+    public record ProductDef(int id, String name, int tier, int baseId, int prestige, int blessesRecipeId) {
         public ProductDef(int id, String name, int tier) {
-            this(id, name, tier, 0, 0);
+            this(id, name, tier, 0, 0, 0);
+        }
+
+        public ProductDef(int id, String name, int tier, int baseId, int prestige) {
+            this(id, name, tier, baseId, prestige, 0);
         }
     }
 

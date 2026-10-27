@@ -24,7 +24,8 @@ public class SettingsMenu extends Menu {
     private static final int SHOW_TIME_ESTIMATE_ROW = 4;
     private static final int COMPACT_CHAT_ROW = 5;
     private static final int LIGHT_MODE_ROW = 6;
-    private static final int ROWS = 7;
+    private static final int SORT_ROW = 7;
+    private static final int ROWS = 8;
     private static final int VALUE_X = 19;
 
     private static final List<String[]> CONTROLS = List.of(
@@ -33,10 +34,10 @@ public class SettingsMenu extends Menu {
             new String[]{"r", "run on / off (2 tiles a tick)"},
             new String[]{"q", "use the node / building ahead"},
             new String[]{"g", "locked node ahead -> goal"},
+            new String[]{"  on a skill", "g next goal, Left/Right moves it"},
             new String[]{"f", "fight the monster next to you"},
             new String[]{"i", "inventory (Enter: equip / use)"},
-            new String[]{"1 2 3 4", "Skills, Goals, Stats, Settings"},
-            new String[]{"  in Goals", "Left/Right moves a goal's level"},
+            new String[]{"1 2 3 4", "Skills, Monsters, Stats, Settings"},
             new String[]{"v", "hover; Enter: walk / node menu (AFK)"},
             new String[]{"Left/Right", "pick a tab; Down/Enter uses it"},
             new String[]{"/", "chat (//1 etc: debug commands)"},
@@ -75,6 +76,7 @@ public class SettingsMenu extends Menu {
                     case SHOW_TIME_ESTIMATE_ROW -> player.toggleShowTimeEstimate();
                     case COMPACT_CHAT_ROW -> player.toggleCompactChat();
                     case LIGHT_MODE_ROW -> player.toggleLightMode();
+                    case SORT_ROW -> player.stepItemSort(delta);
                 }
             }
             case Escape -> {
@@ -104,6 +106,7 @@ public class SettingsMenu extends Menu {
         settingRow(g, y++, isFocused() && row == SHOW_TIME_ESTIMATE_ROW, "Show time to goal", player.showTimeEstimate ? "on" : "off");
         settingRow(g, y++, isFocused() && row == COMPACT_CHAT_ROW, "Compact chat", player.compactChat ? "on" : "off");
         settingRow(g, y++, isFocused() && row == LIGHT_MODE_ROW, "Light mode", player.lightMode ? "on" : "off");
+        settingRow(g, y++, isFocused() && row == SORT_ROW, "Sort items", player.itemSort.label);
 
         y++;
         g.setForegroundColor(TextColor.ANSI.DEFAULT);
@@ -137,6 +140,7 @@ public class SettingsMenu extends Menu {
             case SHOW_TIME_ESTIMATE_ROW -> player.toggleShowTimeEstimate();
             case COMPACT_CHAT_ROW -> player.toggleCompactChat();
             case LIGHT_MODE_ROW -> player.toggleLightMode();
+            case SORT_ROW -> player.stepItemSort(delta);
         }
     }
 

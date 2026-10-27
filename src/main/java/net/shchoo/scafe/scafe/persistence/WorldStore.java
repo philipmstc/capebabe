@@ -181,6 +181,41 @@ public class WorldStore extends SqliteStore implements Storage {
             // v21: whether the Merch Ant has asked for you (your first prestige) and trades with you
             """
             alter table game_character add column met_merchant integer not null default 0;
+            """,
+            // v22: a drop can be found more than once (drop k: k + 1 copies), so a row a find, not a row a product
+            """
+            create table monster_drop_v22 (monster_id integer not null references monster_type(id),
+                                           product_id integer not null references product(id),
+                                           content_version integer not null, ordinal integer not null,
+                                           one_in integer not null, found_by text,
+                                           primary key (content_version, ordinal));
+            insert into monster_drop_v22 select monster_id, product_id, content_version, ordinal, one_in, found_by from monster_drop;
+            drop table monster_drop;
+            alter table monster_drop_v22 rename to monster_drop;
+            """,
+            // v23: church blessings are items: a product can be the blessing for a recipe
+            """
+            alter table product add column blesses_recipe_id integer references recipe(id);
+            """,
+            // v24: blessings of the same recipe stack: how many
+            """
+            alter table game_character add column blessing_strength integer not null default 1;
+            """,
+            // v25: a skill split off an old world's extra product line has the line's id and no skill row, so xp and
+            // prestige can't point into skill (a character with xp in one couldn't be saved at all)
+            """
+            create table character_skill_xp_v25 (character_id integer not null references game_character(id),
+                                                 skill_id integer not null, xp integer not null,
+                                                 primary key (character_id, skill_id));
+            insert into character_skill_xp_v25 select character_id, skill_id, xp from character_skill_xp;
+            drop table character_skill_xp;
+            alter table character_skill_xp_v25 rename to character_skill_xp;
+            create table character_prestige_v25 (character_id integer not null references game_character(id),
+                                                 skill_id integer not null, prestige integer not null,
+                                                 banked_xp integer not null, primary key (character_id, skill_id));
+            insert into character_prestige_v25 select character_id, skill_id, prestige, banked_xp from character_prestige;
+            drop table character_prestige;
+            alter table character_prestige_v25 rename to character_prestige;
             """
     );
 
@@ -321,9 +356,10 @@ public class WorldStore extends SqliteStore implements Storage {
             }
         }
         try (PreparedStatement ps = connection.prepareStatement(
-                "insert into product (id, content_version, ordinal, name, tier, base_id, prestige) values (?,?,?,?,?,?,?)")) {
+                "insert into product (id, content_version, ordinal, name, tier, base_id, prestige, blesses_recipe_id) values (?,?,?,?,?,?,?,?)")) {
             for (ContentBatch.ProductDef d : batch.products()) {
-                set(ps, d.id(), v, ordinal++, d.name(), d.tier(), d.prestige() > 0 ? d.baseId() : null, d.prestige());
+                set(ps, d.id(), v, ordinal++, d.name(), d.tier(), d.prestige() > 0 ? d.baseId() : null, d.prestige(),
+                        d.blessesRecipeId() > 0 ? d.blessesRecipeId() : null);
                 ps.executeUpdate();
             }
         }
@@ -396,8 +432,8 @@ public class WorldStore extends SqliteStore implements Storage {
         return legacy.matches() ? Integer.parseInt(legacy.group(1)) : Product.NO_TIER;
     }
 
-    /** How generated product names ended before tiers were stored: "skill1{0}-3". */
-    private static final Pattern LEGACY_TIER = Pattern.compile(".*\\}-(\\d+)");
+    /** How generated product names end: "skill1{0}-3" before tiers were stored, "skill1-3" now. */
+    private static final Pattern LEGACY_TIER = Pattern.compile(".*-(\\d+)");
 
     private List<ContentBatch> loadBatches() throws SQLException {
         int version;
@@ -420,7 +456,7 @@ public class WorldStore extends SqliteStore implements Storage {
                         SkillType.valueOf(rs.getString("type")), rs.getInt("color_index"), rs.getString("symbol").charAt(0))));
         all("select * from product order by content_version, ordinal", rs ->
                 products.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductDef(rs.getInt("id"), rs.getString("name"),
-                        tierOf(rs), rs.getInt("base_id"), rs.getInt("prestige"))));
+                        tierOf(rs), rs.getInt("base_id"), rs.getInt("prestige"), rs.getInt("blesses_recipe_id"))));
         all("select * from product_line order by content_version, ordinal", rs ->
                 productLines.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductLineDef(rs.getInt("id"), rs.getInt("skill_id"))));
         Map<Integer, Map<Integer, Integer>> components = new HashMap<>();
@@ -509,6 +545,7 @@ public class WorldStore extends SqliteStore implements Storage {
                 if (!rs.wasNull()) {
                     character.blessing = world.content.recipe(blessing);
                     character.blessingLeft = rs.getInt("blessing_left");
+                    character.blessingStrength = Math.max(1, rs.getInt("blessing_strength"));
                 }
                 int lastX = rs.getInt("last_action_x");
                 if (!rs.wasNull()) {
@@ -529,11 +566,21 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.inventory.put(content.product(rs.getInt("product_id")), rs.getInt("count")));
         query("select * from bank_item where character_id = ? order by ordinal", id, rs ->
                 character.bank.put(content.product(rs.getInt("product_id")), rs.getInt("count")));
-        query("select * from goal where character_id = ? order by ordinal", id, rs ->
-                character.goals.add(new Goal(content.skill(rs.getInt("skill_id")), rs.getInt("level"), content.product(rs.getInt("product_id")))));
+        // one a skill (older saves could have several: the first stays)
+        query("select * from goal where character_id = ? order by ordinal", id, rs -> {
+            Skill skill = content.skill(rs.getInt("skill_id"));
+            if (character.goals.stream().noneMatch(g -> g.skill().equals(skill))) {
+                character.goals.add(new Goal(skill, rs.getInt("level"), content.product(rs.getInt("product_id"))));
+            }
+        });
         query("select * from character_tried_node where character_id = ?", id, rs ->
                 character.triedNodes.add(rs.getInt("node_id")));
         query("select * from character_stat where character_id = ?", id, rs -> {
+            int killed = Stat.killsOf(rs.getString("stat"));
+            if (killed >= 0) {
+                character.kills.put(killed, rs.getLong("value"));
+                return;
+            }
             try {
                 character.stats.put(Stat.valueOf(rs.getString("stat")), rs.getLong("value"));
             } catch (IllegalArgumentException retired) {
@@ -547,27 +594,30 @@ public class WorldStore extends SqliteStore implements Storage {
         int[] id = new int[1];
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "insert into game_character (account_id, name, x, y) values (?, ?, 0, 0)")) {
+                    "insert into game_character (account_id, name, x, y, running) values (?, ?, 0, 0, 1)")) {
                 set(ps, accountId, name);
                 ps.executeUpdate();
             }
             id[0] = lastInsertId();
         });
-        return new GameCharacter(id[0], name);
+        GameCharacter character = new GameCharacter(id[0], name);
+        // new characters run (they can walk instead in the settings)
+        character.running = true;
+        return character;
     }
 
     @Override
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ?, weapon_product_id = ?, armor_product_id = ?, hp = ?, blessing_recipe_id = ?, blessing_left = ?, met_merchant = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ?, weapon_product_id = ?, armor_product_id = ?, hp = ?, blessing_recipe_id = ?, blessing_left = ?, blessing_strength = ?, met_merchant = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
                         character.autoInvestigate ? 1 : 0, character.weapon == null ? null : character.weapon.id,
                         character.armor == null ? null : character.armor.id,
                         character.currentHp(), character.blessing == null ? null : character.blessing.id,
-                        character.blessingLeft, character.metMerchant ? 1 : 0, character.id);
+                        character.blessingLeft, Math.max(1, character.blessingStrength), character.metMerchant ? 1 : 0, character.id);
                 ps.executeUpdate();
             }
             for (String table : List.of("character_skill_xp", "character_prestige", "inventory", "bank_item", "goal", "character_tried_node", "character_stat")) {
@@ -618,8 +668,8 @@ public class WorldStore extends SqliteStore implements Storage {
                 }
             }
             try (PreparedStatement ps = connection.prepareStatement("insert into character_stat values (?, ?, ?)")) {
-                for (Map.Entry<Stat, Long> stat : character.stats.entrySet()) {
-                    set(ps, character.id, stat.getKey().name(), stat.getValue());
+                for (Map.Entry<String, Long> stat : character.statsByName().entrySet()) {
+                    set(ps, character.id, stat.getKey(), stat.getValue());
                     ps.executeUpdate();
                 }
             }

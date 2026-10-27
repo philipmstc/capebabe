@@ -4,9 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A kind of monster in a world (content, like a skill). Its drops are one of a kind: each kill has a 1 in
- * 2^(n+1) chance (n = drops found so far) of dropping the next one, and once it has dropped it never drops
- * again for anyone in this world.
+ * A kind of monster in a world (content, like a skill). Its drops come in order, each a limited run: drop k
+ * (from 0) drops k + 1 times in all ({@link #copiesOf}), to anyone, then never again in this world; each kill has a
+ * 1 in 2^(k+1) chance of dropping the next copy of the drop that's due. {@link #drops} is every find, in order.
  */
 public class MonsterType {
     public final int id;
@@ -39,9 +39,38 @@ public class MonsterType {
         this.moveTicks = Math.max(1, moveTicks);
     }
 
-    /** 1 in this many kills drops the next one-of-a-kind item (2, 4, 8, ...). */
+    /** 1 in this many kills drops the next copy of the drop that's due (2, 4, 8, ...). */
     public int nextDropOneIn() {
-        return oneInForDrop(drops.size());
+        return oneInForDrop(nextDropIndex());
+    }
+
+    /** How many times drop {@code index} drops in all: the first once, the second twice, ... */
+    public static int copiesOf(int index) {
+        return index + 1;
+    }
+
+    /** The different drops found so far, in order. */
+    public List<Product> dropProducts() {
+        return drops.stream().map(Drop::product).distinct().toList();
+    }
+
+    /** How many copies of {@code product} have been found. */
+    public int found(Product product) {
+        return (int) drops.stream().filter(d -> d.product().equals(product)).count();
+    }
+
+    /** The drop that's due: the latest while it has copies left, else the next new one. */
+    public int nextDropIndex() {
+        List<Product> products = dropProducts();
+        int last = products.size() - 1;
+        return last >= 0 && found(products.get(last)) < copiesOf(last) ? last : products.size();
+    }
+
+    /** The item the next find is: the latest drop's, if it has copies left, else null (a new one). */
+    public Product nextDropProduct() {
+        List<Product> products = dropProducts();
+        int next = nextDropIndex();
+        return next < products.size() ? products.get(next) : null;
     }
 
     public static int oneInForDrop(int index) {

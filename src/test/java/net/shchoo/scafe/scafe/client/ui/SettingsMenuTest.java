@@ -39,7 +39,7 @@ class SettingsMenuTest {
         player.send(new Intent.Join("alice"));
         tick();
         tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), new MapMenu(),
-                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
+                List.of(new SkillsMenu(), new MonstersMenu(), new StatsMenu()), new SettingsMenu());
         CommandLine commandLine = new CommandLine();
         widgets = List.of(commandLine, new MapView(Layout.MAP), tabs, new MessageLogView(Layout.LOG, commandLine),
                 new KeyCommands(() -> quit = true));

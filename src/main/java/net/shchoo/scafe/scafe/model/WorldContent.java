@@ -53,11 +53,16 @@ public class WorldContent {
             seen(def.id());
             if (clash != null) {
                 clash.name = nextSkillName();
+                clash.productLines.forEach(line -> line.recipes.forEach(this::name));
             }
         }
         for (ContentBatch.ProductDef def : batch.products()) {
             Product base = def.prestige() > 0 ? require(productsById, def.baseId(), "product") : null;
-            addProduct(new Product(def.id(), def.name(), def.tier(), base, def.prestige()));
+            Recipe blesses = def.blessesRecipeId() > 0 ? require(recipesById, def.blessesRecipeId(), "recipe") : null;
+            Product product = new Product(def.id(), base != null ? Product.prestigeName(base, def.prestige())
+                    : blesses != null ? Product.blessingName(blesses) : def.name(), def.tier(), base, def.prestige());
+            product.blesses = blesses;
+            addProduct(product);
             seen(def.id());
         }
         for (ContentBatch.ProductLineDef def : batch.productLines()) {
@@ -80,6 +85,8 @@ public class WorldContent {
                     Tiers.levelNeeded(productLine.recipes.size(), def.levelNeeded()), def.expGained(), components);
             productLine.recipes.add(recipe);
             recipesById.put(def.id(), recipe);
+            // "skillN-T" whatever it was saved as (old worlds: "skill1{0}-2"; a split-off line's: its new skill's name)
+            name(recipe);
             seen(def.id());
         }
         for (ContentBatch.MonsterDef def : batch.monsters()) {
@@ -148,6 +155,40 @@ public class WorldContent {
         skillsById.put(lineId, split);
         splitFrom.put(split, from);
         return split;
+    }
+
+    /** One-of-a-kind monster drops {@code name} has found: trophies (each adds an inventory slot). */
+    public long trophies(String name) {
+        return monsters.stream().flatMap(monster -> monster.drops.stream())
+                .filter(drop -> name != null && name.equals(drop.foundBy())).count();
+    }
+
+    /** A recipe's item (and its prestige versions) named after its skill and tier: "skill3-2", "skill3-2+1". */
+    private void name(Recipe recipe) {
+        int tier = recipe.skill.productLines.isEmpty() ? -1 : recipe.skill.productLines.get(0).recipes.indexOf(recipe);
+        if (tier < 0) {
+            return;
+        }
+        recipe.product.name = recipe.skill.name + "-" + tier;
+        for (Product variant : variants.values()) {
+            if (variant.base == recipe.product) {
+                variant.name = Product.prestigeName(recipe.product, variant.prestige);
+            }
+        }
+        Product blessing = blessing(recipe);
+        if (blessing != null) {
+            blessing.name = Product.blessingName(recipe);
+        }
+    }
+
+    /** The church blessing item for {@code recipe}, or null if nobody's prayed for it yet. */
+    public Product blessing(Recipe recipe) {
+        for (Product product : productsById.values()) {
+            if (recipe.equals(product.blesses)) {
+                return product;
+            }
+        }
+        return null;
     }
 
     /** The skill {@code skill} was split off from (see {@link #splitFrom}), or null. */
@@ -259,8 +300,8 @@ public class WorldContent {
             }
         }
         for (Product product : productsById.values()) {
-            // products not reached through recipes or drops: prestige versions
-            if (product.base != null) {
+            // products not reached through recipes or drops: prestige versions, blessings
+            if (product.base != null || product.blesses != null) {
                 addIfNew(original, product, newProducts);
             }
         }
@@ -277,7 +318,8 @@ public class WorldContent {
     private static void addIfNew(WorldContent original, Product product, Map<Integer, ContentBatch.ProductDef> into) {
         if (!original.productsById.containsKey(product.id)) {
             into.putIfAbsent(product.id, new ContentBatch.ProductDef(product.id, product.name, product.tier,
-                    product.base == null ? 0 : product.base.id, product.prestige));
+                    product.base == null ? 0 : product.base.id, product.prestige,
+                    product.blesses == null ? 0 : product.blesses.id));
         }
     }
 

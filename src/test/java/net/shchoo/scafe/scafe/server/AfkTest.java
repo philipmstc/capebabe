@@ -3,7 +3,7 @@ package net.shchoo.scafe.scafe.server;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
-import net.shchoo.scafe.scafe.client.ui.GoalsMenu;
+import net.shchoo.scafe.scafe.client.ui.MonstersMenu;
 import net.shchoo.scafe.scafe.client.ui.InventoryPanel;
 import net.shchoo.scafe.scafe.client.ui.Layout;
 import net.shchoo.scafe.scafe.client.ui.MapMenu;
@@ -167,7 +167,7 @@ class AfkTest {
         Node node = node(new Position(2, 1), Node.UNLIMITED, 0);
         Board board = new Board(player.content);
         TabBar tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), new MapMenu(),
-                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
+                List.of(new SkillsMenu(), new MonstersMenu(), new StatsMenu()), new SettingsMenu());
         tabs.onKey(new KeyStroke('v', false, false), player, board);
         tabs.onKey(new KeyStroke(KeyType.ArrowRight), player, board);
         tabs.onKey(new KeyStroke(KeyType.ArrowRight), player, board);
@@ -205,7 +205,7 @@ class AfkTest {
     void enterOnEmptyGroundStillWalks() {
         Board board = new Board(player.content);
         TabBar tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), new MapMenu(),
-                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
+                List.of(new SkillsMenu(), new MonstersMenu(), new StatsMenu()), new SettingsMenu());
         tabs.onKey(new KeyStroke('v', false, false), player, board);
         tabs.onKey(new KeyStroke(KeyType.ArrowRight), player, board);
         tabs.onKey(new KeyStroke(KeyType.ArrowRight), player, board);

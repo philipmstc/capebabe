@@ -15,6 +15,8 @@ public class NodeStates {
         int charges;
         int respawnIn;
         final Set<Integer> users = new LinkedHashSet<>();
+        /** Those of {@link #users} crafting AFK: someone crafting for real can bump one off a full node. */
+        final Set<Integer> afk = new LinkedHashSet<>();
 
         State(Node node) {
             this.node = node;
@@ -37,9 +39,27 @@ public class NodeStates {
     private final Map<Integer, State> states = new HashMap<>();
     private final List<State> justDepleted = new ArrayList<>();
     private final Consumer<Event> broadcast;
+    /** What every node's capacity is up by just now ({@link Node#capacityBonus} of the players online). */
+    private int bonus;
+    /** AFK users bumped off a full node this tick, for the server to stop: [character id, node id]. */
+    private final List<int[]> bumped = new ArrayList<>();
 
     public NodeStates(Consumer<Event> broadcast) {
         this.broadcast = broadcast;
+    }
+
+    /** {@code online} players in the world now: sets the capacity bonus; true if it changed. */
+    boolean setOnline(int online) {
+        int now = Node.capacityBonus(online);
+        if (now == bonus) {
+            return false;
+        }
+        bonus = now;
+        return true;
+    }
+
+    int bonus() {
+        return bonus;
     }
 
     private State of(Node node) {
@@ -62,10 +82,35 @@ public class NodeStates {
         if (state.depleted()) {
             return "It's empty -- back in about " + (state.respawnIn * GameClock.TICK_MILLIS / 1000 + 1) + "s.";
         }
-        if (node.capacity != Node.UNLIMITED && state.users.size() >= node.capacity && !state.users.contains(characterId)) {
-            return "Someone else is using that (" + state.users.size() + "/" + node.capacity + ").";
+        int capacity = node.capacity(bonus);
+        if (capacity != Node.UNLIMITED && state.users.size() >= capacity && !state.users.contains(characterId)) {
+            return "Someone else is using that (" + state.users.size() + "/" + capacity + ").";
         }
         return null;
+    }
+
+    /**
+     * Full, and someone wants it for real (not AFK): bumps one of its AFK users off to make room (the server stops
+     * them, {@link #drainBumped}). Returns whether there was one to bump.
+     */
+    boolean bumpAfk(Node node) {
+        State state = states.get(node.id);
+        if (state == null || state.afk.isEmpty()) {
+            return false;
+        }
+        int who = state.afk.iterator().next();
+        state.afk.remove(who);
+        state.users.remove(who);
+        bumped.add(new int[]{who, node.id});
+        changed(state);
+        return true;
+    }
+
+    /** AFK users bumped this tick: [character id, node id]. */
+    List<int[]> drainBumped() {
+        List<int[]> out = List.copyOf(bumped);
+        bumped.clear();
+        return out;
     }
 
     /** Ticks until an empty node is back (0 if it isn't empty). */
@@ -79,8 +124,11 @@ public class NodeStates {
         return state != null && state.depleted();
     }
 
-    void join(Node node, int characterId) {
+    void join(Node node, int characterId, boolean afk) {
         State state = of(node);
+        if (afk) {
+            state.afk.add(characterId);
+        }
         if (state.users.add(characterId)) {
             changed(state);
         }
@@ -88,8 +136,11 @@ public class NodeStates {
 
     void leave(Node node, int characterId) {
         State state = states.get(node.id);
-        if (state != null && state.users.remove(characterId)) {
-            changed(state);
+        if (state != null) {
+            state.afk.remove(characterId);
+            if (state.users.remove(characterId)) {
+                changed(state);
+            }
         }
     }
 

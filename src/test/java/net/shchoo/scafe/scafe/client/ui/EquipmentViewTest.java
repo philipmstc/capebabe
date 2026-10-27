@@ -34,11 +34,10 @@ class EquipmentViewTest {
 
     @Test
     void tiersShowAsDots() {
-        String[] marks = {"  ", " .", "..", ".:", "::"};
+        String[] marks = {"  ", ". ", "..", ".:", "::"};
         for (int tier = 0; tier < marks.length; tier++) {
-            assertEquals(marks[tier], EquipmentView.tierMark(new Product(1, "p", tier)));
+            assertEquals(marks[tier], MapView.tierMarks(tier), "either side of the symbol");
         }
-        assertEquals("  ", EquipmentView.tierMark(new Product(1, "monster0-drop0")), "drops have no tier");
     }
 
     @Test
@@ -59,19 +58,21 @@ class EquipmentViewTest {
         screen.startScreen();
         new EquipmentView(Layout.EQUIPMENT).draw(screen, player, new Board(player.content));
         int y = Layout.EQUIPMENT.y() + 1, x = Layout.EQUIPMENT.x() + 2;
-        assertEquals(" Weapon [.:]S0-0 x123", row(screen, y).substring(1, 22));
+        char symbol = SkillStyle.getSymbolForSkill(skill);
+        assertEquals(" Weapon ." + symbol + ": x123", row(screen, y).substring(1, 17));
         assertTrue(row(screen, y + 1).contains("Armor  none"));
         assertEquals(TextColor.ANSI.YELLOW, screen.getBackCharacter(x, y).getForegroundColor(), "Weapon in dark yellow");
-        assertEquals(SkillStyle.darkOf(skill), screen.getBackCharacter(x + 7, y).getForegroundColor(), "[ dark");
-        assertEquals(SkillStyle.darkOf(skill), screen.getBackCharacter(x + 9, y).getForegroundColor(), "tier dots dark");
-        assertEquals(SkillStyle.getColorForSkill(skill), screen.getBackCharacter(x + 11, y).getForegroundColor(), "S0-0 bright");
-        assertEquals(TextColor.ANSI.BLACK_BRIGHT, screen.getBackCharacter(x + 16, y).getForegroundColor(), "x grey");
-        assertEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x + 17, y).getForegroundColor(), "count white");        player.inventory.put(item, 1113);
+        assertEquals(SkillStyle.darkOf(skill), screen.getBackCharacter(x + 7, y).getForegroundColor(), "tier dots dark");
+        assertEquals(SkillStyle.getColorForSkill(skill), screen.getBackCharacter(x + 8, y).getForegroundColor(), "its symbol bright");
+        assertEquals(SkillStyle.darkOf(skill), screen.getBackCharacter(x + 9, y).getForegroundColor());
+        assertEquals(TextColor.ANSI.BLACK_BRIGHT, screen.getBackCharacter(x + 11, y).getForegroundColor(), "x grey");
+        assertEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x + 12, y).getForegroundColor(), "count white");
+        player.inventory.put(item, 1113);
         new EquipmentView(Layout.EQUIPMENT).draw(screen, player, new Board(player.content));
-        assertEquals(" Weapon [.:]S0-0 x1.1k\u2502", row(screen, y).substring(1), "a thousand and more, shortened");
+        assertTrue(row(screen, y).contains(" Weapon ." + symbol + ": x1.1k "), "a thousand and more, shortened: " + row(screen, y));
         player.inventory.put(item, 10_250);
         new EquipmentView(Layout.EQUIPMENT).draw(screen, player, new Board(player.content));
-        assertEquals(" Weapon [.:]S0-0x10.2k\u2502", row(screen, y).substring(1), "the space goes before the label is cut");
+        assertTrue(row(screen, y).contains(" Weapon ." + symbol + ": x10.2k"), row(screen, y));
 
     }
 }

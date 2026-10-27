@@ -50,8 +50,8 @@ class WorldStoreTest {
     @Test
     void eachWorldIsItsOwnFileAndRemembersItsSeed() throws Exception {
         try (WorldStore one = open(1); WorldStore two = open(2)) {
-            assertEquals(21, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
-                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats, v12 equipped stack, v13 weapon + armor, v14 light mode, v15 buildings + banks, v16 hp, v17 prestige, v18 display settings moved to the client, v19 church blessings, v20 the oracle, v21 the Merch Ant");
+            assertEquals(25, one.schemaVersion(), "v1 base, v2 monsters, v3 drop finders, v4 roam + speed, v5 facing/color/run, "
+                    + "v6 auto-investigate, v7 content origins, v8 product tiers, v9 contrast tiers, v10 time estimate, v11 compact chat + stats, v12 equipped stack, v13 weapon + armor, v14 light mode, v15 buildings + banks, v16 hp, v17 prestige, v18 display settings moved to the client, v19 church blessings, v20 the oracle, v21 the Merch Ant, v22 drops found more than once, v23 blessings as items, v24 stacked blessings, v25 xp for split-off skills");
             assertEquals(777, one.loadOrCreateWorld(1, "w1", 777).seed);
             assertEquals(888, two.loadOrCreateWorld(2, "w2", 888).seed);
         }
@@ -115,6 +115,37 @@ class WorldStoreTest {
     }
 
     @Test
+    void xpAndPrestigeInASkillSplitOffAnOldWorldsExtraLineAreSaved() throws Exception {
+        int splitId;
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 9);
+            // an old world's skill with two product lines: the second becomes a skill of its own, with no skill row
+            WorldContent made = world.content.copy();
+            java.util.Random rng = new java.util.Random(1);
+            Skill old = net.shchoo.scafe.scafe.generation.SkillFactory.createSkill(made, rng, "skill0", SkillType.PRIMARY);
+            net.shchoo.scafe.scafe.generation.SkillFactory.addNewProductLineToSkill(old, made, rng);
+            save(store, world, made.diff(world.content));
+            Skill split = world.content.craftingSkills().get(1);
+            assertNotNull(world.content.splitFrom(split));
+            splitId = split.id;
+
+            GameCharacter alice = store.loadOrCreateCharacter("alice");
+            alice.xp.put(split, 1234L);
+            alice.prestige.put(split, 1);
+            alice.bankedXp.put(split, 99L);
+            store.saveCharacter(alice);
+        }
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 9);
+            GameCharacter alice = store.loadCharacter(accounts.idFor("alice"));
+            Skill split = world.content.skill(splitId);
+            assertEquals(1234L, alice.getExperience(split));
+            assertEquals(1, alice.prestige.get(split));
+            assertEquals(99L, alice.bankedXp.get(split));
+        }
+    }
+
+    @Test
     void charactersRoundTrip() throws Exception {
         int nodeId;
         try (WorldStore store = open(1)) {
@@ -125,6 +156,7 @@ class WorldStoreTest {
             nodeId = node.nodes().get(0).id();
 
             GameCharacter alice = store.loadOrCreateCharacter("alice");
+            assertTrue(alice.running, "new characters run");
             Skill skill = world.content.skills.get(0);
             Recipe recipe = skill.productLines.get(0).recipes.get(1);
             alice.x = 4;
@@ -135,6 +167,8 @@ class WorldStoreTest {
             alice.inventory.put(skill.productLines.get(0).recipes.get(0).product, 0);
             alice.goals.add(new Goal(skill, recipe.levelNeeded, recipe.product));
             alice.triedNodes.add(nodeId);
+            alice.kills.put(77, 12L);
+            alice.stats.put(net.shchoo.scafe.scafe.model.Stat.STEPS, 9L);
             store.saveCharacter(alice);
         }
         try (WorldStore store = open(1)) {
@@ -149,6 +183,8 @@ class WorldStoreTest {
             assertEquals(3, alice.inventory.get(recipe.product));
             assertEquals(List.of(new Goal(skill, recipe.levelNeeded, recipe.product)), alice.goals);
             assertTrue(alice.triedNodes.contains(nodeId));
+            assertEquals(java.util.Map.of(77, 12L), alice.kills, "kills by kind, kept with the stats");
+            assertEquals(9L, alice.stats.get(net.shchoo.scafe.scafe.model.Stat.STEPS));
         }
     }
 
@@ -317,7 +353,7 @@ class WorldStoreTest {
             statement.execute("insert into world_meta (id, name, seed) values (1, 'old', 55)");
         }
         try (WorldStore store = open(7)) {
-            assertEquals(21, store.schemaVersion());
+            assertEquals(25, store.schemaVersion());
             World world = store.loadOrCreateWorld(7, "ignored", 0);
             assertEquals("old", world.name);
             save(store, world, WorldGenerator.newSkills(world, 1));
@@ -446,6 +482,45 @@ class WorldStoreTest {
             World again = store.loadOrCreateWorld(0, "gabe's world", 99);
             assertEquals("Gabe's World", again.name, "same file, and it keeps the name it was made with");
             assertEquals(4, again.seed);
+        }
+    }
+
+    @Test
+    void aDropFoundTwiceIsSavedTwice() throws Exception {
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 3);
+            save(store, world, WorldGenerator.newMonsterType(world));
+            int monster = world.content.monsters.get(0).id;
+            save(store, world, WorldGenerator.newDrop(world, monster, "alice"));
+            save(store, world, WorldGenerator.newDrop(world, monster, "alice"));
+            save(store, world, WorldGenerator.newDrop(world, monster, "bob"));
+        }
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 3);
+            MonsterType monster = world.content.monsters.get(0);
+            assertEquals(3, monster.drops.size(), "drop0, then drop1 twice");
+            assertEquals(2, monster.found(monster.dropProducts().get(1)));
+            assertEquals(2, world.content.trophies("alice"));
+            assertEquals(1, world.content.trophies("bob"));
+        }
+    }
+
+    @Test
+    void aBlessingItemIsSavedWithItsRecipe() throws Exception {
+        int recipeId;
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 3);
+            save(store, world, WorldGenerator.newSkills(world, 1));
+            Recipe recipe = world.content.craftingSkills().get(0).productLines.get(0).recipes.get(2);
+            recipeId = recipe.id;
+            save(store, world, WorldGenerator.newBlessingProduct(world, recipe));
+        }
+        try (WorldStore store = open(1)) {
+            World world = store.loadOrCreateWorld(1, "w", 3);
+            Recipe recipe = world.content.recipe(recipeId);
+            Product blessing = world.content.blessing(recipe);
+            assertNotNull(blessing);
+            assertEquals("blessing of " + recipe.product.name, blessing.name);
         }
     }
 }

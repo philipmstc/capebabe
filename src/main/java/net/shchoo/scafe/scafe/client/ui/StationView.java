@@ -125,6 +125,7 @@ public class StationView extends Widget {
         board.clicks.addClickOff(Clicks.MODAL, () -> player.stationMenuOpen = false);
         int rows = Math.min(box.height(), line.size() + 4 + (line.size() < 2 ? 2 : 0));
         board.clicks.add(Clicks.MODAL, box.x(), box.y(), box.width(), rows, (button, cx, cy) -> {});
+        board.clicks.addScroll(Clicks.MODAL, new Rect(box.x(), box.y(), box.width(), rows), step -> selected = step(player, line, step));
         // the line map, over the tabs
         board.clicks.add(Clicks.MODAL, TABS, (button, cx, cy) -> {});
         TextGraphics g = screen.newTextGraphics();

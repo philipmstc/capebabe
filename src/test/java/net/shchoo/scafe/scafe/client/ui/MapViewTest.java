@@ -94,8 +94,8 @@ class MapViewTest {
     void tierDotsSurviveTheTilesDrawnAfterThem() throws IOException {
         player.showProductTiers = true;
         TextCharacter[] cells = cellsAround(draw(), -2);
-        assertEquals(":", cells[0].getCharacterString());
-        assertEquals(".", cells[2].getCharacterString(), "tier 3: ':' on the left, '.' on the right");
+        assertEquals(".", cells[0].getCharacterString());
+        assertEquals(":", cells[2].getCharacterString(), "tier 3: '.' on the left, ':' on the right");
     }
 
     private void tick() {
@@ -111,7 +111,7 @@ class MapViewTest {
         int y = Layout.tileScreenY(0, player.y);
         assertEquals(String.valueOf(Symbols.SINGLE_LINE_VERTICAL), screen.getBackCharacter(Layout.MAP.x(), y).getCharacterString());
         assertEquals(String.valueOf(Symbols.SINGLE_LINE_VERTICAL), screen.getBackCharacter(Layout.MAP.right(), y).getCharacterString());
-        assertEquals(":", cellsAround(screen, EDGE)[0].getCharacterString(), "the inner dot still shows");
+        assertEquals(".", cellsAround(screen, EDGE)[0].getCharacterString(), "the inner dot still shows");
     }
 
     @Test

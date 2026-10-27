@@ -58,7 +58,10 @@ public enum ConsoleAction {
             (player, board, args) -> player.send(new Intent.Admin("4", args))),
 
     DEBUG_GAIN_XP('5', "Gain experience: <skill name or id> [amount, default 10000]",
-            (player, board, args) -> player.send(new Intent.Admin("5", args)));
+            (player, board, args) -> player.send(new Intent.Admin("5", args))),
+
+    DEBUG_TUTORIAL_NEXT('6', "Tutorial: on to the next stage [or through: primary secondary monster locked_node tertiary]",
+            (player, board, args) -> player.send(new Intent.Admin("6", args)));
 
     private static SkillType getSkillType(List<String> additionalInputs) {
         SkillType filter = null;

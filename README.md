@@ -87,7 +87,8 @@ Friends then join with your Tailscale address (`tailscale ip -4`).
 A few more hosting options: `--admins name1,name2` lets just those players use admin commands, `--bind address`
 listens on one address only, and backups of the accounts and the world go to `<data>/backups` at start and every
 24 hours (`--backup-hours`, `--keep-backups`). For an always-on server there's a ready-made setup in `deploy/`
-(see HOSTING.md, Phase 2). Players can pick their font with `--font "Font Name"`.
+(see HOSTING.md, Phase 2). Players can pick their font with `--font "Font Name"`. A new account is offered a tutorial on its first
+login; `--tutorial` offers it after every login.
 
 ## Building from source
 

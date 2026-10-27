@@ -2,7 +2,6 @@ package net.shchoo.scafe.scafe.client.ui;
 
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
-import net.shchoo.scafe.scafe.client.SkillStyle;
 import net.shchoo.scafe.scafe.model.EquipSlot;
 import net.shchoo.scafe.scafe.model.Product;
 
@@ -13,21 +12,14 @@ import com.googlecode.lanterna.screen.Screen;
 /**
  * Under the inventory: what you fight with and wear, and how many are left (every stack of it).
  * <pre>
- * Weapon [.:]S0-0 x123
- * Armor  [  ]S1-1 x321
+ * Weapon .#: +2 x123
+ * Armor   %  x321
  * </pre>
  * Clicking a piece takes it off.
  */
 public class EquipmentView extends Widget {
-    private static final String[] TIER_MARKS = {"  ", " .", "..", ".:", "::"};
-
     public EquipmentView(Rect bounds) {
         super(bounds);
-    }
-
-    /** The two characters inside the tier brackets: tier 0 "  ", 1 " .", 2 "..", 3 ".:", 4 "::". */
-    static String tierMark(Product product) {
-        return product.hasTier() ? TIER_MARKS[Math.max(0, Math.min(TIER_MARKS.length - 1, product.tier))] : "  ";
     }
 
     @Override
@@ -54,27 +46,15 @@ public class EquipmentView extends Widget {
             g.putString(x, y, nothing);
             return;
         }
-        TextColor bright = InventoryPanel.colorOf(item, player);
-        TextColor dark = bright instanceof TextColor.ANSI ansi ? SkillStyle.dim(ansi) : bright;
-        // a prestige version: bright yellow brackets
-        g.setForegroundColor(item.prestige > 0 ? TextColor.ANSI.YELLOW_BRIGHT : dark);
-        g.putString(x, y, "[");
-        g.putString(x + 3, y, "]");
-        g.setForegroundColor(dark);
-        g.putString(x + 1, y, tierMark(item));
-        x += 4;
+        InventoryPanel.drawSymbol(g, x, y, item, player);
+        x += 3;
         String count = ShortNumbers.of(player.inventory.getOrDefault(item, 0));
-        // label, a space, "x", the count -- dropping the space, then a prestige version's "+N", before cutting the label
-        int room = bounds().right() - x - 2 - count.length();
-        String label = InventoryPanel.label(item)[0];
-        if (label.length() > room + 1 && item.base != null) {
-            label = InventoryPanel.label(item.base)[0];
-        }
-        boolean gap = label.length() <= room;
-        room = gap ? room : room + 1;
-        g.setForegroundColor(bright);
-        g.putString(x, y, Layout.fit(label, Math.max(0, room)));
-        x += Math.min(label.length(), Math.max(0, room)) + (gap ? 1 : 0);
+        String plus = item.prestige > 0 ? " +" + item.prestige : "";
+        // " +P x123", dropping the space before the x if it doesn't fit
+        boolean gap = x + plus.length() + 2 + count.length() <= textX() + textWidth();
+        g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
+        g.putString(x, y, plus);
+        x += plus.length() + (gap ? 1 : 0);
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         g.putString(x, y, "x");
         g.setForegroundColor(TextColor.ANSI.WHITE);

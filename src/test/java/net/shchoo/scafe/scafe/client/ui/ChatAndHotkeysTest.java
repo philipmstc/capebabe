@@ -47,7 +47,7 @@ class ChatAndHotkeysTest {
         tick();
         commandLine = new CommandLine();
         tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), new MapMenu(),
-                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
+                List.of(new SkillsMenu(), new MonstersMenu(), new StatsMenu()), new SettingsMenu());
         widgets = List.of(commandLine, tabs, new KeyCommands(() -> {}));
     }
 
@@ -156,30 +156,6 @@ class ChatAndHotkeysTest {
         assertTrue(tabs.settingsOpen(), "4 = Settings");
         type("i");
         assertEquals("Inventory", tabs.selected().title());
-    }
-
-    @Test
-    void goalsCanBePickedAndTheirLevelMoved() {
-        type("2");
-        assertFalse(tabs.menuFocused(), "nothing to pick yet");
-        Skill skill = player.content.craftingSkills().get(0);
-        Product product = skill.productLines.get(0).recipes.get(1).product;
-        player.goals.add(new Goal(skill, 20, product));
-        player.goals.add(new Goal(skill, 35, product));
-        type("2");
-        assertTrue(tabs.menuFocused());
-        GoalsMenu goals = (GoalsMenu) tabs.selected();
-        press(new KeyStroke(KeyType.ArrowDown));
-        assertEquals(1, goals.index());
-        press(new KeyStroke(KeyType.ArrowDown));
-        assertEquals(1, goals.index(), "stops at the last");
-        press(new KeyStroke(KeyType.ArrowRight));
-        press(new KeyStroke(KeyType.ArrowUp));
-        press(new KeyStroke(KeyType.ArrowLeft));
-        assertEquals(20, player.goals.get(0).level(), "the server hasn't answered yet");
-        assertEquals(35, player.goals.get(1).level());
-        press(new KeyStroke(KeyType.ArrowUp));
-        assertFalse(tabs.menuFocused(), "Up from the top leaves");
     }
 
     @Test

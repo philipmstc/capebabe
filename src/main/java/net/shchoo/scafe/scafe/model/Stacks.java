@@ -10,8 +10,13 @@ import java.util.function.ToIntFunction;
  * Lv. 100 they keep growing). Callers pass that level in.
  */
 public final class Stacks {
-    /** How many stacks your inventory holds. */
-    public static final int INVENTORY_SLOTS = 100;
+    /** How many stacks an inventory holds to start with; each trophy (a monster's drop you found) adds one. */
+    public static final int BASE_SLOTS = 15;
+
+    /** How many stacks your inventory holds with {@code trophies} found. */
+    public static int capacity(long trophies) {
+        return BASE_SLOTS + (int) trophies;
+    }
 
     private Stacks() {}
 
@@ -27,20 +32,24 @@ public final class Stacks {
         return slots;
     }
 
-    /** Whether {@code inventory} with {@code changes} added fits (or at least doesn't take more slots than before). */
+    /**
+     * Whether {@code inventory} with {@code changes} added fits in {@code capacity} slots (or at least doesn't take
+     * more slots than before).
+     */
     public static boolean fits(WorldContent content, Map<Product, Integer> inventory, Map<Product, Integer> changes,
-                               ToIntFunction<Skill> levelOf) {
+                               ToIntFunction<Skill> levelOf, int capacity) {
         Map<Product, Integer> after = new HashMap<>(inventory);
         changes.forEach((product, delta) -> after.merge(product, delta, Integer::sum));
         int slots = slots(content, after, levelOf);
-        return slots <= INVENTORY_SLOTS || slots <= slots(content, inventory, levelOf);
+        return slots <= capacity || slots <= slots(content, inventory, levelOf);
     }
 
     /** How many more of {@code product} fit: the free slots' worth, plus the room left in its last stack. */
-    public static int room(WorldContent content, Map<Product, Integer> inventory, Product product, ToIntFunction<Skill> levelOf) {
+    public static int room(WorldContent content, Map<Product, Integer> inventory, Product product, ToIntFunction<Skill> levelOf,
+                           int capacity) {
         int stack = size(content, product, levelOf);
         int have = inventory.getOrDefault(product, 0);
-        int free = Math.max(0, INVENTORY_SLOTS - slots(content, inventory, levelOf));
+        int free = Math.max(0, capacity - slots(content, inventory, levelOf));
         return free * stack + (have % stack == 0 ? 0 : stack - have % stack);
     }
 

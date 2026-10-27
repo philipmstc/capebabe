@@ -63,7 +63,7 @@ public class MapDetailView extends Widget {
             if (type != null) {
                 boolean nextTo = player.stepsTo(target) <= 1;
                 List<String> lines = List.of(nextTo ? "  [f] fight" : "  get next to it to fight",
-                        "  one-of-a-kinds found: " + type.drops.size() + ", next 1 in " + type.nextDropOneIn());
+                        "  drops found: " + type.drops.size() + ", next 1 in " + type.nextDropOneIn());
                 for (String line : lines) {
                     if (row <= last) {
                         g.putString(textX() + 2, row++, fit(line, textWidth() - 2));
@@ -107,8 +107,9 @@ public class MapDetailView extends Widget {
         if (node.maxCharges != Node.UNLIMITED) {
             lines.add(status.depleted() ? "  empty -- respawning" : "  " + status.charges() + "/" + node.maxCharges + " left");
         }
-        if (node.capacity != Node.UNLIMITED || status.users() > 0) {
-            lines.add("  in use: " + status.users() + (node.capacity == Node.UNLIMITED ? "" : "/" + node.capacity));
+        int capacity = node.capacity(player.capacityBonus);
+        if (capacity != Node.UNLIMITED || status.users() > 0) {
+            lines.add("  in use: " + status.users() + (capacity == Node.UNLIMITED ? "" : "/" + capacity));
         }
         boolean locked = player.isLockedFor(node);
         if (locked) {

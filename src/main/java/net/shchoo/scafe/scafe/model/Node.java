@@ -32,6 +32,23 @@ public class Node {
         return DEFAULT_DURATION_TICKS;
     }
 
+    /**
+     * How many more a node holds with {@code online} players in the world: one per power of 4 (1-3: 0, 4-15: 1,
+     * 16-63: 2, ...).
+     */
+    public static int capacityBonus(int online) {
+        int bonus = 0;
+        for (int n = online; n >= 4; n /= 4) {
+            bonus++;
+        }
+        return bonus;
+    }
+
+    /** How many can use it at once with {@code bonus} ({@link #capacityBonus}); {@link #UNLIMITED} stays so. */
+    public int capacity(int bonus) {
+        return capacity == UNLIMITED ? UNLIMITED : capacity + bonus;
+    }
+
     public String label() {
         return recipe.product.name;
     }

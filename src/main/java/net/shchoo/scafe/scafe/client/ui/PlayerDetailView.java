@@ -1,6 +1,7 @@
 package net.shchoo.scafe.scafe.client.ui;
 
 import com.googlecode.lanterna.SGR;
+import com.googlecode.lanterna.TextCharacter;
 import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.graphics.TextGraphics;
 import com.googlecode.lanterna.input.KeyStroke;
@@ -13,7 +14,8 @@ import net.shchoo.scafe.scafe.client.SkillStyle;
 import java.util.function.BooleanSupplier;
 
 /**
- * Top right: your name (after a cross and the node you prayed for, while blessed), total level and a red Log Out. Esc (with no tab focused) selects Log Out, Enter asks
+ * Top right: your name (after a cross and the node you prayed for, while blessed), total level, your hp as a red
+ * bar with "36 / 50" in it ({@link #drawHp}), and a red Log Out. Esc (with no tab focused) selects Log Out, Enter asks
  * "Log out?" in a popup (Left/Right or y/n, Enter), and yes logs out. It sits early in the widget list so that while
  * Log Out is selected or asking, it gets keys before the tabs (which use Left/Right).
  */
@@ -50,7 +52,8 @@ public class PlayerDetailView extends Widget {
             g.putString(x + 2, 0, marks.charAt(0) + "" + SkillStyle.getSymbolForSkill(player.blessing.skill) + marks.charAt(1));
         }
         g.setForegroundColor(TextColor.ANSI.YELLOW_BRIGHT);
-        g.putString(Layout.TERMINAL_SIZE.getColumns() - 16, 0, String.format("%-16s", " [Total Lv. " + player.totalLevel() + "]"));
+        g.putString(Layout.NAME_X + 24, 0, String.format("%-16s", " [Total Lv. " + player.totalLevel() + "]"));
+        drawHp(screen, player);
         if (state == State.IDLE) {
             g.setForegroundColor(TextColor.ANSI.RED);
         } else {
@@ -63,6 +66,26 @@ public class PlayerDetailView extends Widget {
             state = State.ASKING;
             yes = false;
         });
+    }
+
+    /** {@code [   36 / 50  ]}: filled red as far as your hp goes, the numbers in bright white over it. */
+    static void drawHp(Screen screen, Player player) {
+        int inner = Layout.HP_WIDTH - 2, x = Layout.HP_X;
+        double fraction = player.maxHp <= 0 ? 0 : Math.max(0, Math.min(1, (double) player.hp / player.maxHp));
+        int filled = (int) Math.ceil(fraction * inner - 1e-9);
+        String text = player.hp + " / " + player.maxHp;
+        if (text.length() > inner) {
+            text = player.hp + "/" + player.maxHp;
+        }
+        int start = (inner - text.length()) / 2;
+        screen.setCharacter(x, 0, TextCharacter.fromCharacter('[', TextColor.ANSI.BLACK_BRIGHT, TextColor.ANSI.DEFAULT)[0]);
+        for (int i = 0; i < inner; i++) {
+            int t = i - start;
+            char c = t >= 0 && t < text.length() ? text.charAt(t) : ' ';
+            TextColor bg = i < filled ? TextColor.ANSI.RED : TextColor.ANSI.DEFAULT;
+            screen.setCharacter(x + 1 + i, 0, TextCharacter.fromCharacter(c, TextColor.ANSI.WHITE_BRIGHT, bg, SGR.BOLD)[0]);
+        }
+        screen.setCharacter(x + 1 + inner, 0, TextCharacter.fromCharacter(']', TextColor.ANSI.BLACK_BRIGHT, TextColor.ANSI.DEFAULT)[0]);
     }
 
     /** The "Log out?" popup, over everything else. */

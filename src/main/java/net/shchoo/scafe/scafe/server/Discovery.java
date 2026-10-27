@@ -8,6 +8,7 @@ import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Recipe;
+import net.shchoo.scafe.scafe.model.Tiers;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.model.Stat;
@@ -16,6 +17,7 @@ import net.shchoo.scafe.scafe.protocol.Event;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.function.ToIntFunction;
 
 /**
  * Grows the world from what players do. Every step, every item made, every level up and every kill rolls a
@@ -48,15 +50,23 @@ public class Discovery {
     public static final double SKILL_BACKOFF = 0.6;
     /** A tithe's new-skill chance per item given, before the backoff (capped at a step's: 1500 items). */
     public static final double TITHE_CHANCE_PER_ITEM = 0.00002;
-    /** A church blessing ({@link net.shchoo.scafe.scafe.model.Prayer}) makes a new node this much likelier. */
-    public static final double BLESSED_NODE_FACTOR = 2;
+    /**
+     * A church blessing ({@link net.shchoo.scafe.scafe.model.Prayer}) adds this much to the chance of a new node, for
+     * each stacked: one x2, two x3, ...
+     */
+    public static final double BLESSED_NODE_BONUS = 1;
     public static final double NODE_BACKOFF = 0.5;
     /** Nodes within this many tiles count towards the node backoff. */
-    public static final int NODE_CROWD_RADIUS = 8;
+    public static final int NODE_CROWD_RADIUS = 15;
     public static final int SPAWN_MIN_DISTANCE = 2;
     public static final int SPAWN_MAX_DISTANCE = 5;
     /** Unlocked recipes are this many times likelier than locked ones to show up as a new node. */
     public static final int UNLOCKED_WEIGHT = 4;
+    /**
+     * ...and by tier, low ones far likelier: with only tier 0 unlocked about 84% tier 0, 10% tier 1; with everything
+     * unlocked 57% / 28% / 7% / 4% / 4%.
+     */
+    static final int[] TIER_WEIGHTS = {16, 8, 2, 1, 1};
     public static final double MONSTER_KIND_BACKOFF = 0.5;
     public static final double MONSTER_CROWD_BACKOFF = 0.5;
     /** Monsters within this many tiles count towards the spawn backoff. */
@@ -121,14 +131,15 @@ public class Discovery {
         }
     }
 
-    private void discover(GameServer server, GameCharacter character, Trigger trigger) {
+    /** One roll's worth of chances (discovery on). */
+    void discover(GameServer server, GameCharacter character, Trigger trigger) {
         World world = server.world;
         server.oracle().rolled(trigger.skillChance);
         if (random.nextDouble() < chance(trigger.skillChance, SKILL_BACKOFF, world.content.craftingSkills().size())) {
             discoverSkill(server, character);
         }
         boolean anySkills = !world.content.craftingSkills().isEmpty();
-        double blessed = character.blessing != null ? BLESSED_NODE_FACTOR : 1;
+        double blessed = character.blessing != null ? 1 + BLESSED_NODE_BONUS * character.blessingStrength : 1;
         if (anySkills && random.nextDouble()
                 < blessed * chance(trigger.nodeChance, NODE_BACKOFF, nodesNear(world, character.position()))) {
             discoverNode(server, character);
@@ -140,6 +151,12 @@ public class Discovery {
         if (trigger == Trigger.MOVED && farFromStations(world, character.position()) && random.nextDouble() < STATION_CHANCE) {
             server.discoverStation(character);
         }
+        rollMonsterSpawn(server, character, trigger);
+    }
+
+    /** A known kind of monster might show up near you (fewer, the more there already are). */
+    void rollMonsterSpawn(GameServer server, GameCharacter character, Trigger trigger) {
+        World world = server.world;
         if (!world.content.monsters.isEmpty() && random.nextDouble() < chance(trigger.monsterSpawnChance,
                 MONSTER_CROWD_BACKOFF, server.monsters().near(character.position(), MONSTER_CROWD_RADIUS))) {
             spawnMonsterNear(server, character, pickKind(world.content.monsters, character.combatLevel()));
@@ -155,7 +172,7 @@ public class Discovery {
         return !line.isEmpty() && line.stream().noneMatch(b -> b.within(at, STATION_LONELY_DISTANCE));
     }
 
-    private void discoverMonsterKind(GameServer server, GameCharacter character) {
+    void discoverMonsterKind(GameServer server, GameCharacter character) {
         server.applyContent(WorldGenerator.newMonsterType(server.world), character);
         List<MonsterType> kinds = server.world.content.monsters;
         MonsterType kind = kinds.get(kinds.size() - 1);
@@ -191,8 +208,12 @@ public class Discovery {
     }
 
     private void discoverSkill(GameServer server, GameCharacter character) {
+        discoverSkill(server, character, WorldGenerator.newSkills(server.world, 1));
+    }
+
+    /** {@code batch} (one new skill) found by {@code character}: told about, and a starter node near them. */
+    void discoverSkill(GameServer server, GameCharacter character, ContentBatch batch) {
         server.oracle().found();
-        ContentBatch batch = WorldGenerator.newSkills(server.world, 1);
         server.applyContent(batch, character);
         ContentBatch.SkillDef skill = batch.skills().get(0);
         character.say(Event.MessageKind.NOTICE, "You discovered a new skill: " + skill.name() + " (" + skill.type().name().toLowerCase() + ")!");
@@ -223,24 +244,43 @@ public class Discovery {
     }
 
     private void discoverNode(GameServer server, GameCharacter character) {
+        discoverNode(server, character, null);
+    }
+
+    /** A new node near {@code character}: for a recipe picked by {@code weight} (null: as usual, or the prayed-for). */
+    Node discoverNode(GameServer server, GameCharacter character, ToIntFunction<Recipe> weight) {
         Position at = nodeSpot(server, character.position(), SPAWN_MIN_DISTANCE, SPAWN_MAX_DISTANCE, random);
         if (at == null) {
-            return;
+            return null;
         }
         int capacity = 1 + random.nextInt(3);
         int charges = 5 + random.nextInt(16);
         int respawnTicks = 20 + random.nextInt(41);
-        Recipe prayedFor = character.blessing;
-        ContentBatch batch = WorldGenerator.newNode(server.world, at, capacity, charges, respawnTicks, prayedFor != null
+        Recipe prayedFor = weight != null ? null : character.blessing;
+        ContentBatch batch = WorldGenerator.newNode(server.world, at, capacity, charges, respawnTicks, weight != null
+                ? weight : prayedFor != null
                 ? recipe -> recipe.id == prayedFor.id ? 1 : 0
-                : recipe -> recipe.levelMet(character.getLevel(recipe.skill)) ? UNLOCKED_WEIGHT : 1);
+                : recipe -> nodeWeight(recipe, character.getLevel(recipe.skill)));
         server.applyContent(batch, character);
         Node node = server.world.content.node(batch.nodes().get(0).id());
         character.say(Event.MessageKind.NOTICE, "A " + node.skill().name + " node (" + node.label() + ") appeared nearby."
                 + (prayedFor != null ? " Your prayer is answered." : ""));
+        // each stacked blessing guarantees one: the last spends it
         if (prayedFor != null) {
-            character.setBlessing(null, 0);
+            if (character.blessingStrength > 1) {
+                character.setBlessing(prayedFor, character.blessingLeft, character.blessingStrength - 1);
+            } else {
+                character.setBlessing(null, 0);
+            }
         }
+        return node;
+    }
+
+    /** How likely {@code recipe} is to be a new node's, for someone at {@code level} in its skill. */
+    static int nodeWeight(Recipe recipe, int level) {
+        int tier = Tiers.of(recipe);
+        int byTier = tier >= 0 && tier < TIER_WEIGHTS.length ? TIER_WEIGHTS[tier] : 1;
+        return (recipe.levelMet(level) ? UNLOCKED_WEIGHT : 1) * byTier;
     }
 
     static int nodesNear(World world, Position around) {

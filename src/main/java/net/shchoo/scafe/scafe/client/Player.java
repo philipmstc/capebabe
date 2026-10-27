@@ -46,10 +46,14 @@ public class Player {
     /** Hide routine messages ("Made x") in the chat. */
     public boolean compactChat;
     public boolean lightMode;
+    /** How the inventory and bank are ordered. */
+    public ItemSort itemSort = ItemSort.AS_GOT;
     /** Called when a display setting changes (the game saves them). */
     public Runnable onDisplaySettingsChanged = () -> {};
     /** Your lifetime counts in this world. */
     public final Map<Stat, Long> stats = new EnumMap<>(Stat.class);
+    /** Your kills by monster type id. */
+    public final Map<Integer, Long> kills = new HashMap<>();
 
     /** Where you are and which way you face. */
     record Pose(Position position, Direction facing) {}
@@ -71,11 +75,15 @@ public class Player {
     public boolean churchMenuOpen;
     /** The Merch Ant trades with you (you've prestiged); its window is up; its "wants to speak with you" is showing. */
     public boolean metMerchant;
+    /** Every node holds this many more just now (more players online). */
+    public int capacityBonus;
     public boolean merchantMenuOpen;
     public boolean merchantCalling;
     /** Your church blessing (null: none) and the steps / actions it has left ({@link net.shchoo.scafe.scafe.model.Prayer}). */
     public Recipe blessing;
     public int blessingLeft;
+    /** Blessings of that recipe stacked up (x2, x3...). */
+    public int blessingStrength;
     /** The church oracle's last word on the next new skill (null: none yet), and when it came. */
     private Event.OracleSaid oracle;
     private long oracleAt;
@@ -107,6 +115,8 @@ public class Player {
 
     /** Login progress, for the login screen: the server's latest answer (cleared once read). */
     public Event.LoginAccepted loginAccepted;
+    /** This login made the account (its first time on that server): offer the tutorial. */
+    public boolean newAccount;
     public String loginRefused;
     private boolean inWorld;
     public ActionView currentAction;
@@ -169,6 +179,22 @@ public class Player {
         return nearest;
     }
 
+    /** The nearest {@code kind} of building (by its nearest tile), or null if there isn't one. */
+    public Building nearestBuilding(Building.Kind kind) {
+        Building nearest = null;
+        for (Building building : content.buildings()) {
+            if (building.kind() == kind && (nearest == null || stepsTo(nearestTile(building)) < stepsTo(nearestTile(nearest)))) {
+                nearest = building;
+            }
+        }
+        return nearest;
+    }
+
+    /** The tile of {@code building} you'd reach first (one you can't walk on: not the station's track). */
+    public Position nearestTile(Building building) {
+        return building.solidTiles().stream().min(java.util.Comparator.comparingInt(this::stepsTo)).orElse(building.corner());
+    }
+
     public int stepsTo(Position position) {
         return Math.max(Math.abs(position.x() - x), Math.abs(position.y() - y));
     }
@@ -182,6 +208,7 @@ public class Player {
             inWorld = true;
         } else if (event instanceof Event.LoginAccepted accepted) {
             loginAccepted = accepted;
+            newAccount |= accepted.newAccount();
         } else if (event instanceof Event.LoginRefused refused) {
             loginRefused = refused.reason();
         } else if (event instanceof Event.ContentAdded added) {
@@ -224,12 +251,15 @@ public class Player {
         } else if (event instanceof Event.OracleSaid said) {
             oracle = said;
             oracleAt = System.currentTimeMillis();
+        } else if (event instanceof Event.CapacityBonus bonus) {
+            capacityBonus = bonus.bonus();
         } else if (event instanceof Event.MerchantCalls) {
             metMerchant = true;
             merchantCalling = true;
         } else if (event instanceof Event.BlessingChanged changed) {
             blessing = changed.recipeId() < 0 ? null : content.recipe(changed.recipeId());
             blessingLeft = changed.left();
+            blessingStrength = changed.strength();
         } else if (event instanceof Event.Prestiged prestiged) {
             Skill skill = content.skill(prestiged.skillId());
             xp.put(skill, 0L);
@@ -246,18 +276,21 @@ public class Player {
             } else {
                 bank.put(item, changed.count());
             }
-        } else if (event instanceof Event.GoalAdded added) {
-            goals.add(added.goal().toGoal(content));
+        } else if (event instanceof Event.GoalSet set) {
+            Goal had = goal(content.skill(set.skillId()));
+            if (set.goal() == null) {
+                goals.remove(had);
+            } else if (had != null) {
+                goals.set(goals.indexOf(had), set.goal().toGoal(content));
+            } else {
+                goals.add(set.goal().toGoal(content));
+            }
         } else if (event instanceof Event.EquipmentChanged changed) {
             Product item = changed.productId() < 0 ? null : content.product(changed.productId());
             if (changed.slot() == EquipSlot.WEAPON) {
                 weapon = item;
             } else {
                 armor = item;
-            }
-        } else if (event instanceof Event.GoalChanged changed) {
-            if (changed.index() < goals.size()) {
-                goals.set(changed.index(), changed.goal().toGoal(content));
             }
         } else if (event instanceof Event.NodeTried tried) {
             triedNodes.add(tried.nodeId());
@@ -308,6 +341,7 @@ public class Player {
         weapon = you.weaponId() < 0 ? null : content.product(you.weaponId());
         blessing = you.blessingRecipeId() < 0 ? null : content.recipe(you.blessingRecipeId());
         blessingLeft = you.blessingLeft();
+        blessingStrength = you.blessingStrength();
         metMerchant = you.metMerchant();
         armor = you.armorId() < 0 ? null : content.product(you.armorId());
         setStats(you.stats());
@@ -542,8 +576,13 @@ public class Player {
     private void setStats(Map<String, Long> byName) {
         statsTick = serverTick;
         stats.clear();
+        kills.clear();
         if (byName != null) {
             byName.forEach((name, value) -> {
+                if (Stat.killsOf(name) >= 0) {
+                    kills.put(Stat.killsOf(name), value);
+                    return;
+                }
                 try {
                     stats.put(Stat.valueOf(name), value);
                 } catch (IllegalArgumentException newer) {
@@ -558,12 +597,34 @@ public class Player {
         send(new Intent.Chat(text));
     }
 
-    /** {@code step} 1 = up to the next of {@code Goal.LEVELS}, -1 = down, never to your level or below; the server confirms. */
-    public void stepGoalLevel(int index, int step) {
-        Goal goal = goals.get(index);
+    /** {@code skill}'s goal (one a skill), or null. */
+    public Goal goal(Skill skill) {
+        return goals.stream().filter(g -> g.skill().equals(skill)).findFirst().orElse(null);
+    }
+
+    /** {@code step} 1 = {@code skill}'s goal up to the next of its {@code levels()}, -1 = down, never to your level or below; the server confirms. */
+    public void stepGoalLevel(Skill skill, int step) {
+        Goal goal = goal(skill);
+        if (goal == null) {
+            return;
+        }
         int level = goal.stepped(step);
-        if (level != goal.level() && level > getLevel(goal.skill())) {
-            send(new Intent.SetGoalLevel(index, level));
+        if (level != goal.level() && level > getLevel(skill)) {
+            send(new Intent.SetGoal(skill.id, level));
+        }
+    }
+
+    /** {@code skill}'s goal to its next milestone past your level (a tier unlocking, or making more). */
+    public void goalForNextMilestone(Skill skill) {
+        Goal next = Goal.next(skill, getLevel(skill));
+        if (next != null) {
+            send(new Intent.SetGoal(skill.id, next.level()));
+        }
+    }
+
+    public void clearGoal(Skill skill) {
+        if (goal(skill) != null) {
+            send(new Intent.SetGoal(skill.id, 0));
         }
     }
 
@@ -618,7 +679,7 @@ public class Player {
 
     /** How many one craft of {@code recipe} makes at your level ({@link Tiers}): 1, 2 or 3. */
     public int madePerCraft(Recipe recipe) {
-        return Tiers.yield(Tiers.of(recipe), getLevel(recipe.skill));
+        return Tiers.yield(recipe.skill.type, Tiers.of(recipe), getLevel(recipe.skill));
     }
 
     /**
@@ -635,6 +696,26 @@ public class Player {
         }
         int made = madePerCraft(node.recipe);
         return (made > 1 ? made + " x " : "") + currentAction.label();
+    }
+
+    /** Use a church blessing item: it blesses you (the server takes the item). */
+    public void useBlessing(Product item) {
+        send(new Intent.UseBlessing(item.id));
+    }
+
+    /** Tell everyone your level in {@code skill} (the server words it). */
+    public void shareSkill(Skill skill) {
+        send(new Intent.ShareSkill(skill.id));
+    }
+
+    /** Throw away {@code count} of {@code item} for good. */
+    public void discard(Product item, int count) {
+        send(new Intent.Discard(item.id, count));
+    }
+
+    /** Tell everyone where you're standing. */
+    public void broadcastPosition() {
+        send(new Intent.SharePosition());
     }
 
     /** At the Merch Ant: {@code count} of a prestige item for 1 + its prestige of the plain one each. */
@@ -672,9 +753,29 @@ public class Player {
         return serverTick <= bankSentAt;
     }
 
-    /** Inventory slots in use, out of {@link Stacks#INVENTORY_SLOTS}. */
+    /** How many stacks your inventory holds: {@link Stacks#BASE_SLOTS}, and one a trophy you've found. */
+    public int inventorySlots() {
+        return Stacks.capacity(trophies());
+    }
+
+    /** Inventory slots in use, out of {@link #inventorySlots}. */
     public int slotsUsed() {
         return Stacks.slots(content, inventory, this::stackLevel);
+    }
+
+    public void stepItemSort(int step) {
+        itemSort = itemSort.step(step);
+        onDisplaySettingsChanged.run();
+    }
+
+    /** {@code items} in {@link #itemSort}'s order. */
+    public List<Map.Entry<Product, Integer>> sorted(Map<Product, Integer> items) {
+        List<Map.Entry<Product, Integer>> entries = new ArrayList<>(items.entrySet());
+        Comparator<Product> order = itemSort.comparator(content);
+        if (order != null) {
+            entries.sort(Map.Entry.comparingByKey(order));
+        }
+        return entries;
     }
 
     public void toggleLightMode() {
@@ -736,6 +837,11 @@ public class Player {
      * Every skill's level added up, skills you haven't trained counting as 1 -- the same number others see for you
      * on hover (skills in the world + levels gained).
      */
+    /** Your combat skill's level (1 before there's one). */
+    public int combatLevel() {
+        return content.skills.stream().filter(s -> s.type == SkillType.COMBAT).mapToInt(this::getLevel).max().orElse(1);
+    }
+
     /** Every skill's level, plus 99 for each prestige (the levels it took): it never goes down. */
     public int totalLevel() {
         return content.skills.stream().mapToInt(s -> getLevel(s) + getPrestige(s) * (Levels.MAX_LEVEL - 1)).sum();
@@ -771,7 +877,6 @@ public class Player {
 
     /** One-of-a-kind monster drops you found (each drops once per world, so every one is a different item). */
     public long trophies() {
-        return content.monsters.stream().flatMap(monster -> monster.drops.stream())
-                .filter(drop -> name != null && name.equals(drop.foundBy())).count();
+        return content.trophies(name);
     }
 }

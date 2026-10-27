@@ -7,7 +7,7 @@ import net.shchoo.scafe.scafe.client.ui.ChurchView;
 import net.shchoo.scafe.scafe.client.ui.Clicks;
 import net.shchoo.scafe.scafe.client.ui.CommandLine;
 import net.shchoo.scafe.scafe.client.ui.EquipmentView;
-import net.shchoo.scafe.scafe.client.ui.GoalsMenu;
+import net.shchoo.scafe.scafe.client.ui.MonstersMenu;
 import net.shchoo.scafe.scafe.client.ui.InventoryPanel;
 import net.shchoo.scafe.scafe.client.ui.Layout;
 import net.shchoo.scafe.scafe.client.ui.MapMenu;
@@ -72,7 +72,7 @@ class MouseTest {
         board = new Board(player.content);
         map = new MapMenu();
         tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), map,
-                List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()), new SettingsMenu());
+                List.of(new SkillsMenu(), new MonstersMenu(), new StatsMenu()), new SettingsMenu());
         widgets = List.of(new BankView(), new StationView(), new ChurchView(),
                 new PlayerDetailView(Layout.PLAYER_DETAILS, () -> !tabs.menuFocused(), () -> loggedOut = true),
                 new MapView(Layout.MAP, map), new EquipmentView(Layout.EQUIPMENT), tabs,
@@ -261,6 +261,31 @@ class MouseTest {
         assertEquals(List.of("Trade", "Fight", "Friend", "Walk here", "Cancel"), map.popup().labels());
         clickText(Clicks.Button.LEFT, "Trade");
         assertNull(map.popup(), "not there yet: just closes");
+
+        // AFK only shows while they are
+        GameCharacter b = server.online(bob.id);
+        b.training = new Combat.Training(b.position(), b.facing, Long.MAX_VALUE);
+        tick();
+        clickTile(Clicks.Button.RIGHT, player.others.get(bob.id).position());
+        assertEquals("bob (Lv 1) AFK", map.popup().title());
+        clickText(Clicks.Button.LEFT, "Cancel");
+        server.online(bob.id).training = null;
+        tick();
+        clickTile(Clicks.Button.RIGHT, player.others.get(bob.id).position());
+        assertEquals("bob (Lv 1)", map.popup().title());
+    }
+
+    @Test
+    void rightClickingYourselfOffersBroadcastingWhereYouAre() {
+        List<String> said = new java.util.ArrayList<>();
+        net.shchoo.scafe.scafe.client.GameLog.subscribe(said::add);
+        clickTile(Clicks.Button.RIGHT, player.position());
+        assertEquals(player.name + "  Total Lv. " + player.totalLevel() + "  Combat Lv. 1", map.popup().title());
+        assertEquals(List.of("Broadcast position", "Cancel"), map.popup().labels());
+        clickText(Clicks.Button.LEFT, "Broadcast position");
+        tick();
+        assertTrue(said.contains(player.name + " is standing at (" + player.x + ", " + player.y + ")"), said.toString());
+        assertNull(map.popup());
     }
 
     @Test
@@ -313,8 +338,8 @@ class MouseTest {
 
     @Test
     void clickingATabHeaderShowsIt() {
-        clickText(Clicks.Button.LEFT, "2 Goals");
-        assertEquals("Goals", tabs.selected().title());
+        clickText(Clicks.Button.LEFT, "2 Monsters");
+        assertEquals("Monsters", tabs.selected().title());
         clickText(Clicks.Button.LEFT, "1 Skills");
         assertEquals("Skills", tabs.selected().title());
         assertTrue(tabs.menuFocused());
@@ -327,7 +352,8 @@ class MouseTest {
         clickText(Clicks.Button.LEFT, raw.skill.name);
         SkillsMenu skills = (SkillsMenu) tabs.selected();
         assertTrue(skills.skillOpen(), "a row opens its page");
-        int[] lv = find("T0");
+        int[] lv = find("x1     x2    x3");
+        lv[1]++;
         assertTrue(board.clicks.click(Clicks.Button.LEFT, lv[0] + 3, lv[1]));
         assertTrue(player.waypoints.has(player.content.recipe(raw.id)), "waypoint");
         assertTrue(skills.skillOpen(), "and the page stays open");

@@ -5,7 +5,7 @@ import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.client.SkillStyle;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
-import net.shchoo.scafe.scafe.client.ui.GoalsMenu;
+import net.shchoo.scafe.scafe.client.ui.MonstersMenu;
 import net.shchoo.scafe.scafe.client.ui.InventoryPanel;
 import net.shchoo.scafe.scafe.client.ui.Layout;
 import net.shchoo.scafe.scafe.client.ui.MapMenu;
@@ -53,7 +53,7 @@ class SkillsMenuTest {
         board = new Board(player.content);
         skills = new SkillsMenu();
         tabs = new TabBar(Layout.TABS, new InventoryPanel(Layout.INVENTORY), new MapMenu(),
-                List.of(skills, new GoalsMenu(), new StatsMenu()), new SettingsMenu());
+                List.of(skills, new MonstersMenu(), new StatsMenu()), new SettingsMenu());
         first = board.skills.get(0);
     }
 
@@ -128,6 +128,43 @@ class SkillsMenuTest {
     }
 
     @Test
+    void theSkillsPageHoldsItsGoal_gForTheNextMilestone_LeftRightMoveIt_xClearsIt() throws IOException {
+        press(new KeyStroke('1', false, false));
+        press(new KeyStroke(KeyType.Enter));
+        int[] steps = net.shchoo.scafe.scafe.model.Tiers.milestones(first.type);
+        String shown = box(drawn());
+        assertTrue(shown.contains("Goal: none  [g] Lv. " + steps[0] + ": "), shown);
+        press(new KeyStroke('g', false, false));
+        tick();
+        assertEquals(steps[0], player.goal(first).level());
+        assertTrue(skills.skillOpen(), "still on the page");
+        assertTrue(box(drawn()).contains("Goal: < Lv. " + steps[0] + " > " + player.goal(first).what()));
+        press(new KeyStroke(KeyType.ArrowRight));
+        tick();
+        assertEquals(steps[1], player.goal(first).level());
+        press(new KeyStroke(KeyType.ArrowLeft));
+        tick();
+        assertEquals(steps[0], player.goal(first).level());
+        press(new KeyStroke('x', false, false));
+        tick();
+        assertNull(player.goal(first));
+    }
+
+    @Test
+    void clickingNoGoalAddsTheNextMilestone() throws IOException {
+        press(new KeyStroke('1', false, false));
+        press(new KeyStroke(KeyType.Enter));
+        Screen screen = drawn();
+        int y = Layout.TABS.y();
+        while (!row(screen, y).contains("Goal: none")) {
+            y++;
+        }
+        board.clicks.click(net.shchoo.scafe.scafe.client.ui.Clicks.Button.LEFT, Layout.TABS.x() + row(screen, y).indexOf("Goal"), y);
+        tick();
+        assertEquals(net.shchoo.scafe.scafe.model.Tiers.milestones(first.type)[0], player.goal(first).level());
+    }
+
+    @Test
     void atLevel100PPrestigesAfterAYes() throws IOException {
         long xp = Skill.XP_PER_LEVEL[Levels.MAX_LEVEL - 1];
         xp(first, xp);
@@ -188,5 +225,36 @@ class SkillsMenuTest {
         assertTrue(skills.skillOpen());
         press(new KeyStroke(KeyType.Escape));
         assertFalse(skills.skillOpen(), "then the list");
+    }
+
+    @Test
+    void usedByLinksToTheSkillsTakingItsItems() throws IOException {
+        server.applyContent(WorldGenerator.newSkills(server.world, 4));
+        tick();
+        Skill crafted = board.skills.stream().filter(s -> !s.productLines.isEmpty()
+                && !s.productLines.get(0).recipes.get(0).components.isEmpty()).findFirst().orElseThrow();
+        Product component = crafted.productLines.get(0).recipes.get(0).components.keySet().iterator().next();
+        Skill raw = player.content.madeBy(component).skill;
+
+        press(new KeyStroke('1', false, false));
+        for (int i = 0; i < board.skills.indexOf(raw); i++) {
+            press(new KeyStroke(KeyType.ArrowDown));
+        }
+        press(new KeyStroke(KeyType.Enter));
+        press(new KeyStroke(KeyType.ArrowDown));
+        String page = box(drawn());
+        String usedBy = java.util.Arrays.stream(page.split("\n")).filter(l -> l.contains("- Used by: ")).findFirst().orElseThrow();
+        assertTrue(usedBy.contains(crafted.name), usedBy);
+
+        int costs = raw.productLines.get(0).recipes.get(1).components.size();
+        int before = (int) java.util.Arrays.stream(usedBy.substring(usedBy.indexOf(": ") + 2).split(", "))
+                .map(String::trim).takeWhile(n -> !n.equals(crafted.name)).count();
+        for (int i = 0; i <= costs + before; i++) {
+            press(new KeyStroke(KeyType.Tab));
+        }
+        press(new KeyStroke(KeyType.Enter));
+        assertEquals(crafted.productLines.get(0).recipes.get(1), skills.selectedRecipe(crafted), "its page, the same tier");
+        press(new KeyStroke(KeyType.Escape));
+        assertEquals(raw.productLines.get(0).recipes.get(1), skills.selectedRecipe(raw), "and back");
     }
 }

@@ -19,7 +19,7 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
 /**
  * The tab headers and the right-column box holding the selected tab's content. The map is the default: nothing
  * focused means you're just playing on the map (wasd). Hotkeys focus a tab from anywhere: "i" the inventory,
- * "1", "2", "3"... the tabs after it (Skills, Goals, Stats, Settings), "v" the map's hover cursor, "," the settings
+ * "1", "2", "3"... the tabs after it (Skills, Monsters, Stats, Settings), "v" the map's hover cursor, "," the settings
  * (again: back where you were). Esc at a tab's top level goes back to the map. With nothing focused, Left/Right
  * still pick a tab and Down/Enter focus it. While a tab (or the map) is focused it gets keys first.
  */
@@ -124,6 +124,7 @@ public class TabBar extends Widget {
             }
         };
         board.clicks.add(Clicks.BASE, INVENTORY, onItem);
+        board.clicks.addScroll(Clicks.BASE, INVENTORY, step -> inventory.scrollRows(step, player));
         inventory.addCells(board.clicks, player, onItem);
         drawFrame(screen);
         Menu shown = map.isFocused() ? map : selected();

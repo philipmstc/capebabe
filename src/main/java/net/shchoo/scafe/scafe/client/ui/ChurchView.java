@@ -239,6 +239,8 @@ public class ChurchView extends Widget {
         // title, rows, a gap, the notes, a gap, the hint
         int height = Math.min(box.height(), rows.size() + notes.size() + (notes.isEmpty() ? 5 : 6));
         board.clicks.add(Clicks.MODAL, box.x(), box.y(), box.width(), height, (button, cx, cy) -> {});
+        board.clicks.addScroll(Clicks.MODAL, new Rect(box.x(), box.y(), box.width(), height),
+                step -> selected = Math.max(0, Math.min(rows.size() - 1, selected + step)));
         TextGraphics g = screen.newTextGraphics();
         g.setBackgroundColor(TextColor.ANSI.DEFAULT);
         g.fillRectangle(new TerminalPosition(box.x(), box.y()), new TerminalSize(box.width(), height), ' ');
@@ -280,9 +282,10 @@ public class ChurchView extends Widget {
         List<String> notes = new ArrayList<>();
         if (step == Step.MAIN) {
             notes.add(player.blessing == null ? "No blessing."
-                    : "Blessed: " + player.blessing.product.name + ", " + player.blessingLeft + " steps left");
-            notes.addAll(wrap("Praying: the next node near you is it, twice as likely, for " + Prayer.STEPS + " steps",
-                    bounds().width() - 4));
+                    : "Blessed" + (player.blessingStrength > 1 ? " x" + player.blessingStrength : "") + ": "
+                    + player.blessing.product.name + ", " + player.blessingLeft + " steps left");
+            notes.addAll(wrap("Praying gives you a blessing to use when you like: for " + Prayer.STEPS
+                    + " steps the next node near you is it, twice as likely.", bounds().width() - 4));
             notes.add("");
             Event.OracleSaid said = player.oracle();
             notes.addAll(wrap(said == null ? oracle(false, 0, 0) : oracle(said.known(), said.minutes(), said.fold()),

@@ -10,6 +10,7 @@ import net.shchoo.scafe.scafe.model.Node;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Recipe;
 import net.shchoo.scafe.scafe.model.Skill;
+import net.shchoo.scafe.scafe.model.Tiers;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.model.WorldContent;
 import net.shchoo.scafe.scafe.protocol.Event;
@@ -315,35 +316,79 @@ class GameServerTest {
         assertEquals(locked.levelNeeded, alice.goals.get(0).level());
         assertTrue(log.contains("Already a goal."));
 
-        alice.stepGoalLevel(0, 1);
+        // the steps are the goal's skill's (by its type): work them out rather than guess the type
+        Skill skill = alice.goals.get(0).skill();
+        List<Integer> steps = java.util.Arrays.stream(alice.goals.get(0).levels()).boxed().toList();
+        int at = steps.indexOf(locked.levelNeeded);
+        alice.stepGoalLevel(skill, 1);
         tick(alice);
-        assertEquals(85, alice.goals.get(0).level(), "80 -> 85 (tier 2 makes x3)");
-        for (int i = 0; i < 3; i++) {
-            alice.stepGoalLevel(0, 1);
+        assertEquals(steps.get(at + 1), alice.goals.get(0).level(), "up to the next milestone");
+        for (int i = 0; i < steps.size(); i++) {
+            alice.stepGoalLevel(skill, 1);
             tick(alice);
         }
-        assertEquals(Levels.MAX_LEVEL, alice.goals.get(0).level(), "90, 95, the max");
-        alice.stepGoalLevel(0, -1);
-        alice.stepGoalLevel(0, -1);
+        assertEquals(Levels.MAX_LEVEL, alice.goals.get(0).level(), "up to the max, and nowhere past it");
+        int belowMax = steps.get(steps.size() - 2);
+        alice.stepGoalLevel(skill, -1);
+        alice.stepGoalLevel(skill, -1);
         tick(alice);
-        assertEquals(95, alice.goals.get(0).level(), "both steps were worked out from 100 before the server answered");
+        assertEquals(belowMax, alice.goals.get(0).level(), "both steps were worked out from 100 before the server answered");
 
-        alice.send(new Intent.SetGoalLevel(0, 42));
-        alice.send(new Intent.SetGoalLevel(3, 20));
+        alice.send(new Intent.SetGoal(skill.id, 42));
+        alice.send(new Intent.SetGoal(-5, 20));
         tick(alice);
-        assertEquals(95, alice.goals.get(0).level(), "only the goal levels, only your goals");
+        assertEquals(belowMax, alice.goals.get(0).level(), "only the goal levels, only your goals");
 
-        Skill skill = alice.goals.get(0).skill();
-        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[89]))));
+        int below = steps.get(steps.size() - 3);
+        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[below - 1]))));
         tick(alice);
-        assertEquals(90, alice.getLevel(skill));
-        alice.stepGoalLevel(0, -1);
+        assertEquals(below, alice.getLevel(skill));
+        int stepBack = steps.get(steps.size() - 2);
+        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[stepBack - 1]))));
         tick(alice);
-        assertEquals(95, alice.goals.get(0).level(), "90 is your level already: Left does nothing");
-        alice.send(new Intent.SetGoalLevel(0, 85));
+        alice.stepGoalLevel(skill, -1);
         tick(alice);
-        assertEquals(95, alice.goals.get(0).level(), "and the server won't take it either");
-        assertTrue(log.contains("You're already past Lv. 85."));
+        assertEquals(belowMax, alice.goals.get(0).level(), stepBack + " is your level already: Left does nothing");
+        alice.send(new Intent.SetGoal(skill.id, below));
+        tick(alice);
+        assertEquals(belowMax, alice.goals.get(0).level(), "and the server won't take it either");
+        assertTrue(log.contains("You're already past Lv. " + below + "."));
+    }
+
+    @Test
+    void oneGoalASkill_gAimsForTheNextMilestone_andZeroClearsIt() {
+        Player alice = join("alice");
+        alice.send(new Intent.Admin("1", List.of("2")));
+        tick(alice);
+        Skill skill = alice.content.craftingSkills().get(0);
+        int[] steps = Tiers.milestones(skill.type);
+        alice.goalForNextMilestone(skill);
+        tick(alice);
+        assertEquals(1, alice.goals.size());
+        assertEquals(steps[0], alice.goal(skill).level(), "the first milestone past Lv. 1");
+        assertTrue(log.contains("New goal: " + alice.goal(skill).describe()));
+        alice.stepGoalLevel(skill, 1);
+        tick(alice);
+        assertEquals(1, alice.goals.size(), "moved, not another");
+        assertEquals(steps[1], alice.goal(skill).level());
+
+        Skill other = alice.content.craftingSkills().get(1);
+        alice.goalForNextMilestone(other);
+        tick(alice);
+        assertEquals(2, alice.goals.size(), "one each");
+
+        alice.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[steps[2] - 1]))));
+        tick(alice);
+        alice.goalForNextMilestone(skill);
+        tick(alice);
+        assertEquals(steps[3], alice.goal(skill).level(), "met: g aims past where you are now");
+
+        alice.clearGoal(skill);
+        tick(alice);
+        assertNull(alice.goal(skill));
+        assertEquals(1, alice.goals.size());
+        assertEquals(1, server.online(alice.id).goals.size(),
+                "the server's too");
     }
 
     @Test

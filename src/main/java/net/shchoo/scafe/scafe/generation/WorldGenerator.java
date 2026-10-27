@@ -35,6 +35,11 @@ public final class WorldGenerator {
         });
     }
 
+    /** One new skill of {@code type} (the tutorial's, which come in a fixed order). */
+    public static ContentBatch newSkill(World world, SkillType type) {
+        return generate(world, (content, rng) -> SkillFactory.createSkill(content, rng, content.nextSkillName(), type));
+    }
+
     /** A node for a random recipe. Capacity / charges use {@link Node#UNLIMITED} for "no limit". */
     public static ContentBatch newNode(World world, Position at, int capacity, int maxCharges, int respawnTicks) {
         return newNode(world, at, capacity, maxCharges, respawnTicks, recipe -> 1);
@@ -154,6 +159,15 @@ public final class WorldGenerator {
                 Product.prestigeName(base, prestige), base.tier, content.product(base.id), prestige)));
     }
 
+    /** The church blessing item for {@code recipe} (made the first time anyone prays for it). */
+    public static ContentBatch newBlessingProduct(World world, Recipe recipe) {
+        return generate(world, (content, rng) -> {
+            Product blessing = new Product(content.allocateId(), Product.blessingName(recipe));
+            blessing.blesses = content.recipe(recipe.id);
+            content.addProduct(blessing);
+        });
+    }
+
     /** Nothing on it or one tile round it, so it walls nothing in and can always be walked up to. */
     private static boolean clearAround(WorldContent content, Building building) {
         for (Position tile : building.tiles()) {
@@ -172,8 +186,12 @@ public final class WorldGenerator {
     public static ContentBatch newDrop(World world, int monsterId, String foundBy) {
         return generate(world, (content, rng) -> {
             MonsterType monster = content.monster(monsterId);
-            int k = monster.drops.size();
-            Product product = new Product(content.allocateId(), monster.name + "-drop" + k);
+            // another copy of the drop that's due, or the next drop's first
+            int k = monster.nextDropIndex();
+            Product product = monster.nextDropProduct();
+            if (product == null) {
+                product = new Product(content.allocateId(), monster.name + "-drop" + k);
+            }
             monster.drops.add(new MonsterType.Drop(product, MonsterType.oneInForDrop(k), foundBy));
         });
     }

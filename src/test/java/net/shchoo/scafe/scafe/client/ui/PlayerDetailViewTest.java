@@ -8,6 +8,7 @@ import net.shchoo.scafe.scafe.server.GameServer;
 import net.shchoo.scafe.scafe.server.LocalConnection;
 
 import com.googlecode.lanterna.TextCharacter;
+import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
@@ -111,5 +112,31 @@ class PlayerDetailViewTest {
     @Test
     void totalLevelIsShown() throws IOException {
         assertTrue(popupText().contains("[Total Lv. " + player.totalLevel() + "]"));
+    }
+
+    @Test
+    void hpIsARedBarWithCurrentOverMaxInWhite_rightOfTheTotalLevel() throws IOException {
+        player.hp = 5;
+        player.maxHp = 10;
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        view.draw(screen, player, board);
+        StringBuilder row = new StringBuilder();
+        for (int x = 0; x < Layout.TERMINAL_SIZE.getColumns(); x++) {
+            row.append(screen.getBackCharacter(x, 0).getCharacterString());
+        }
+        String top = row.toString();
+        int total = top.indexOf("[Total Lv.");
+        int bar = top.indexOf("[", total + 1);
+        assertTrue(total >= 0 && bar > total, top);
+        assertEquals(Layout.HP_X, bar);
+        assertEquals("[  5 / 10  ]", top.substring(bar, bar + Layout.HP_WIDTH));
+        assertTrue(top.endsWith("]"), "fits on screen: " + top);
+        int inner = Layout.HP_WIDTH - 2;
+        for (int i = 0; i < inner; i++) {
+            TextCharacter c = screen.getBackCharacter(bar + 1 + i, 0);
+            assertEquals(i < inner / 2 ? TextColor.ANSI.RED : TextColor.ANSI.DEFAULT, c.getBackgroundColor(), "half full at " + i);
+            assertEquals(TextColor.ANSI.WHITE_BRIGHT, c.getForegroundColor());
+        }
     }
 }

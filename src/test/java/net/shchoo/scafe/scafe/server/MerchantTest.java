@@ -133,6 +133,9 @@ class MerchantTest {
     @Test
     void throughItsWindow() {
         Product plus = server.prestigeProduct(base(), 1);
+        // Lv. 50: stacks of 50, so it all fits in 15 slots
+        player.send(new Intent.Admin("5", List.of(skill.name, String.valueOf(Skill.XP_PER_LEVEL[49]))));
+        tick();
         alice.metMerchant = true;
         alice.changeInventory(plus, 20);
         player.metMerchant = true;

@@ -51,7 +51,7 @@ public class MapView extends Widget {
         if (player.blessing != null) {
             // a church blessing's steps left (what for: by your name, PlayerDetailView)
             coords.setForegroundColor(TextColor.ANSI.WHITE_BRIGHT);
-            coords.putString(map.x() + 2 + where.length(), map.y(), " blessed " + player.blessingLeft);
+            coords.putString(map.x() + 2 + where.length(), map.y(), " blessed " + (player.blessingStrength > 1 ? "x" + player.blessingStrength + " " : "") + player.blessingLeft);
         }
         if (player.content.combatSkill() != null) {
             String hp = "hp " + player.hp + "/" + player.maxHp;
@@ -104,8 +104,17 @@ public class MapView extends Widget {
         }
     }
 
-    /** Each waypoint's node in [brackets] when it's on screen, else an arrow on the border (drawn over the home arrow). */
+    /**
+     * Each waypoint's node in [brackets] when it's on screen, else an arrow on the border (drawn over the home arrow);
+     * a building waypoint's arrow in white (on screen, the building's plain to see).
+     */
     private static void drawWaypoint(Rect map, Player player, Screen screen) {
+        if (player.waypoints.building() != null) {
+            Position at = player.nearestTile(player.waypoints.building());
+            if (!inView(at, player.x, player.y)) {
+                drawEdgeMarker(map, player, screen, at, BUILDING_WAYPOINT_COLOR);
+            }
+        }
         for (Node waypoint : player.waypoints.nodes()) {
             Position at = waypoint.position;
             if (!inView(at, player.x, player.y)) {
@@ -120,6 +129,7 @@ public class MapView extends Widget {
     }
 
     public static final TextColor WAYPOINT_COLOR = TextColor.ANSI.MAGENTA_BRIGHT;
+    public static final TextColor BUILDING_WAYPOINT_COLOR = TextColor.ANSI.WHITE_BRIGHT;
 
     private static void drawEdgeArrow(Rect map, Player player, Screen screen, Position target, TextColor color) {
         Edge edge = edgeTowards(map, player, target);
@@ -219,10 +229,13 @@ public class MapView extends Widget {
         return new Position(Layout.viewToWorldX((column + 1) / 2, player.x), Layout.viewToWorldY(row, player.y));
     }
 
-    /** What's either side of a node of this tier (Contrast tiers): 1 ". ", 2 "..", 3 ":.", 4 "::". */
+    /**
+     * What's either side of a node of this tier (Contrast tiers), and of an item's symbol in the inventory and a
+     * skill's tier table: 1 ". ", 2 "..", 3 ".:", 4 "::".
+     */
     static String tierMarks(int tier) {
-        char left = tier > 2 ? ':' : tier > 0 ? '.' : ' ';
-        char right = tier > 3 ? ':' : tier > 1 ? '.' : ' ';
+        char left = tier > 3 ? ':' : tier > 0 ? '.' : ' ';
+        char right = tier > 2 ? ':' : tier > 1 ? '.' : ' ';
         return "" + left + right;
     }
 

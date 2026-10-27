@@ -17,6 +17,7 @@ import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.screen.Screen;
 
 import java.util.Comparator;
+import java.util.List;
 
 import static net.shchoo.scafe.scafe.client.ui.Layout.clampToView;
 import static net.shchoo.scafe.scafe.client.ui.Layout.inView;
@@ -27,7 +28,8 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.tileScreenY;
 
 /**
  * The Map tab: focused, arrows move a hover cursor over the map and Enter walks there ({@link MapDetailView}
- * describes the hovered tile). Its box lists your waypoints.
+ * describes the hovered tile). Its box lists the nearest of each kind of building ({@link #POINTS_OF_INTEREST};
+ * click one for a white waypoint to it, again to clear it), then your waypoints.
  */
 public class MapMenu extends Menu {
     /**
@@ -44,6 +46,10 @@ public class MapMenu extends Menu {
     private Position popupAt;
     /** The popup came from a right-click: closing it puts the map back down too. */
     private boolean popupByMouse;
+
+    /** The buildings listed, in order. */
+    static final List<Building.Kind> POINTS_OF_INTEREST = List.of(Building.Kind.CHURCH, Building.Kind.BANK,
+            Building.Kind.MERCHANT, Building.Kind.GYM, Building.Kind.STATION);
 
     public MapMenu() {
         super("Map");
@@ -135,15 +141,25 @@ public class MapMenu extends Menu {
                 PopupMenu.Option.of("Walk here", then(() -> player.walkTo(at)))));
     }
 
-    /** Another player's menu: "shchoo (Lv 12)" (combat), Trade / Fight / Friend (coming) / Walk here / Cancel. */
+    /**
+     * Another player's menu: "shchoo (Lv 12)" (combat; " AFK" after it while they're AFK), Trade / Fight / Friend
+     * (coming) / Walk here / Cancel.
+     */
     private PopupMenu playerMenu(Event.EntityInfo other, Player player) {
         Position at = other.position();
-        return new PopupMenu(other.name() + " (Lv " + Math.max(1, other.combatLevel()) + ")",
+        return new PopupMenu(other.name() + " (Lv " + Math.max(1, other.combatLevel()) + ")" + (other.afk() ? " AFK" : ""),
                 SkillStyle.playerColor(other.colorIndex()), java.util.List.of(
                 new PopupMenu.Option("Trade", null, null),
                 new PopupMenu.Option("Fight", null, null),
                 new PopupMenu.Option("Friend", null, null),
                 PopupMenu.Option.of("Walk here", then(() -> player.walkTo(at)))));
+    }
+
+    /** Your own menu: "phili  Total Lv. 120  Combat Lv. 12", Broadcast position / Cancel. */
+    private PopupMenu selfMenu(Player player) {
+        return new PopupMenu(player.name + "  Total Lv. " + player.totalLevel() + "  Combat Lv. "
+                + Math.max(1, player.combatLevel()), SkillStyle.playerColor(player.colorIndex), java.util.List.of(
+                PopupMenu.Option.of("Broadcast position", then(player::broadcastPosition))));
     }
 
     /** Opens a popup; when it closes the map goes back down if something was done, or it was a right-click's. */
@@ -194,7 +210,8 @@ public class MapMenu extends Menu {
         }
         PopupMenu menu = monster != null && type != null ? monsterMenu(monster, type, player)
                 : other != null ? playerMenu(other, player)
-                : node != null ? nodeMenu(node, player) : null;
+                : node != null ? nodeMenu(node, player)
+                : tile.equals(player.position()) ? selfMenu(player) : null;
         if (menu == null) {
             return;
         }
@@ -262,10 +279,19 @@ public class MapMenu extends Menu {
             row++;
             g.setForegroundColor(TextColor.ANSI.DEFAULT);
         }
+        row = drawPointsOfInterest(g, player, board, row);
+        g.setForegroundColor(TextColor.ANSI.DEFAULT);
         g.putString(textX(), row++, "Waypoints");
         if (player.waypoints.isEmpty()) {
             g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
             g.putString(textX(), row, fit("none -- Skills tab, pick a tier, [Enter]", textWidth()));
+        }
+        Building heading = player.waypoints.building();
+        if (heading != null && row < hintRow()) {
+            Position at = player.nearestTile(heading);
+            g.setForegroundColor(MapView.BUILDING_WAYPOINT_COLOR);
+            g.putString(textX() + 2, row++, fit(heading.kind().label + " at (" + at.x() + "," + at.y() + "), "
+                    + player.stepsTo(at) + " steps", textWidth() - 2));
         }
         for (Node node : player.waypoints.nodes()) {
             if (row >= hintRow()) {
@@ -280,6 +306,39 @@ public class MapMenu extends Menu {
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         g.putString(textX(), hintRow(), !isFocused() ? "[Down] hover the map"
                 : using != null ? "[arrows] aim  [Enter] use it  [Esc] cancel" : "[arrows] hover  [Enter] walk / node menu  [Esc] back");
+    }
+
+    /**
+     * "Points of interest", then a row for the nearest of each kind of building there is: "Bank (12,-3), 40 steps",
+     * white when it's your building waypoint. Clicking one toggles that waypoint. Returns the row after (and a gap).
+     */
+    private int drawPointsOfInterest(TextGraphics g, Player player, Board board, int row) {
+        g.setForegroundColor(TextColor.ANSI.DEFAULT);
+        g.putString(textX(), row++, "Points of interest");
+        boolean any = false;
+        for (Building.Kind kind : POINTS_OF_INTEREST) {
+            Building nearest = player.nearestBuilding(kind);
+            if (nearest == null || row >= hintRow()) {
+                continue;
+            }
+            any = true;
+            Position at = player.nearestTile(nearest);
+            boolean heading = nearest.equals(player.waypoints.building());
+            g.setForegroundColor(heading ? MapView.BUILDING_WAYPOINT_COLOR : TextColor.ANSI.WHITE);
+            if (heading) {
+                g.enableModifiers(SGR.BOLD);
+            }
+            g.putString(textX() + 2, row, fit(kind.label + " (" + at.x() + "," + at.y() + "), " + player.stepsTo(at)
+                    + " steps", textWidth() - 2));
+            g.disableModifiers(SGR.BOLD);
+            board.clicks.option(Clicks.BASE, textX(), row++, textWidth(), 1,
+                    (button, cx, cy) -> player.waypoints.toggle(nearest, player));
+        }
+        if (!any) {
+            g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
+            g.putString(textX() + 2, row++, fit("none found yet", textWidth() - 2));
+        }
+        return row + 1;
     }
 
     /** The popup, just right of what it's about on the map (a click that closes it puts the map down if it should). */

@@ -130,7 +130,8 @@ public class SkillFactory {
     }
 
     public static void addNewProductLineToSkill(Skill skill, WorldContent world, Random rng) {
-        String name = skill.name + "{" + (skill.productLines.size()) + "}";
+        // one product line a skill: its items are just "skillN-T"
+        String name = skill.name;
         List<Skill> allSkills = world.skills;
         switch (skill.type) {
             case PRIMARY -> skill.productLines.add(ProductLineFactory.createPrimaryProductLine(world, skill, name));

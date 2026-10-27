@@ -181,8 +181,8 @@ class StationTest {
         assertTrue(shown.contains("you're here"));
         assertTrue(shown.contains("> tation1 ("), "starts on the first one that isn't here:\n" + shown);
         Product fare = Stations.fare(server.world.content, 1);
-        assertEquals("skill1{0}-0", fare.name, "1 x skillN{0}-0 for station N");
-        assertTrue(shown.contains("1 x skill1{0}-0"));
+        assertEquals("skill1-0", fare.name, "1 x skillN-0 for station N");
+        assertTrue(shown.contains("1 x skill1-0"));
     }
 
     @Test

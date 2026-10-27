@@ -6,26 +6,49 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TiersTest {
     @Test
-    void unlockLevels() {
+    void unlockLevelsAreTheSameForEveryType() {
         assertArrayEquals(new int[]{0, 20, 40, 60, 80}, Tiers.LEVEL_NEEDED);
     }
 
-    @Test
-    void yieldsGoUpAtTheirLevels() {
-        int[][] table = {
-                // tier, level, makes
-                {0, 0, 1}, {0, 29, 1}, {0, 30, 2}, {0, 64, 2}, {0, 65, 3}, {0, 99, 3},
-                {1, 20, 1}, {1, 50, 2}, {1, 75, 3},
-                {2, 40, 1}, {2, 70, 2}, {2, 85, 3},
-                {3, 60, 1}, {3, 89, 1}, {3, 90, 2}, {3, 95, 3},
-                {4, 80, 1}, {4, 99, 1}, {4, 100, 2},
-        };
-        for (int[] row : table) {
-            assertEquals(row[2], Tiers.yield(row[0], row[1]), "tier " + row[0] + " at Lv. " + row[1]);
+    /** Each type's table: {tier, x1, x2, x3} (-1: never). */
+    private static void table(SkillType type, int[][] rows) {
+        for (int[] row : rows) {
+            int tier = row[0];
+            assertEquals(row[2], Tiers.yieldLevel(type, tier, 2), type + " T" + tier + " x2");
+            assertEquals(row[3], Tiers.yieldLevel(type, tier, 3), type + " T" + tier + " x3");
+            int x2 = row[2], x3 = row[3];
+            if (x2 > 0) {
+                assertEquals(1, Tiers.yield(type, tier, x2 - 1));
+                assertEquals(2, Tiers.yield(type, tier, x2));
+            }
+            if (x3 > 0) {
+                assertEquals(2, Tiers.yield(type, tier, x3 - 1));
+                assertEquals(3, Tiers.yield(type, tier, x3));
+            }
         }
-        assertEquals(65, Tiers.nextYieldLevel(0, 30));
-        assertEquals(-1, Tiers.nextYieldLevel(0, 65), "x3 is as good as it gets");
-        assertEquals(100, Tiers.nextYieldLevel(4, 1));
+    }
+
+    @Test
+    void primary() {
+        table(SkillType.PRIMARY, new int[][]{{0, 0, 10, 45}, {1, 20, 30, 65}, {2, 40, 50, 75}, {3, 60, 70, 95}, {4, 80, 90, -1}});
+    }
+
+    @Test
+    void secondary() {
+        table(SkillType.SECONDARY, new int[][]{{0, 0, 20, 55}, {1, 20, 40, 75}, {2, 40, 60, 95}, {3, 60, 80, -1}, {4, 80, 100, -1}});
+    }
+
+    @Test
+    void tertiary() {
+        table(SkillType.TERTIARY, new int[][]{{0, 0, 30, 65}, {1, 20, 50, 95}, {2, 40, 70, -1}, {3, 60, 90, -1}, {4, 80, -1, -1}});
+        assertEquals(1, Tiers.yield(SkillType.TERTIARY, 4, 100), "tertiary tier 4 never makes more");
+    }
+
+    @Test
+    void nextYield() {
+        assertEquals(45, Tiers.nextYieldLevel(SkillType.PRIMARY, 0, 10));
+        assertEquals(-1, Tiers.nextYieldLevel(SkillType.PRIMARY, 0, 45), "x3 is as good as it gets");
+        assertEquals(-1, Tiers.nextYieldLevel(SkillType.TERTIARY, 4, 1), "never");
     }
 
     @Test
@@ -39,7 +62,8 @@ class TiersTest {
     }
 
     @Test
-    void milestones() {
-        assertArrayEquals(new int[]{20, 30, 40, 50, 60, 65, 70, 75, 80, 85, 90, 95, 100}, Tiers.milestones(), "the same steps as before");
+    void milestonesByType() {
+        assertArrayEquals(new int[]{10, 20, 30, 40, 45, 50, 60, 65, 70, 75, 80, 90, 95, 100}, Tiers.milestones(SkillType.PRIMARY));
+        assertArrayEquals(new int[]{20, 30, 40, 50, 60, 65, 70, 80, 90, 95, 100}, Tiers.milestones(SkillType.TERTIARY));
     }
 }

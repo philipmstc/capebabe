@@ -18,7 +18,8 @@ public sealed interface Event {
                              Position lastActionAt, int hp, int maxHp, Direction facing, int colorIndex,
                              boolean running, boolean autoInvestigate, Map<String, Long> stats, int weaponId, int armorId,
                              Map<Integer, Integer> bank, Map<Integer, Integer> prestige,
-                             Map<Integer, Long> bankedXp, int blessingRecipeId, int blessingLeft, boolean metMerchant) {}
+                             Map<Integer, Long> bankedXp, int blessingRecipeId, int blessingLeft, int blessingStrength,
+                             boolean metMerchant) {}
 
     record GoalDef(int skillId, int level, int productId) {
         public static GoalDef of(Goal goal) {
@@ -37,17 +38,21 @@ public sealed interface Event {
      * For players, total level = (number of skills in the world) + levelsGained, so it stays right when new
      * skills appear without the server re-sending everyone. For monsters, monsterTypeId says which kind.
      */
-    /** {@code combatLevel}: a player's (for "shchoo (Lv 12)"); 0 for monsters, whose level is their type's. */
+    /**
+     * {@code combatLevel}: a player's (for "shchoo (Lv 12)"); 0 for monsters, whose level is their type's.
+     * {@code afk}: a player crafting AFK or training at the gym.
+     */
     record EntityInfo(int id, EntityKind kind, String name, Position position, Direction facing, int levelsGained,
-                      int monsterTypeId, int hp, int maxHp, int colorIndex, int combatLevel) {
+                      int monsterTypeId, int hp, int maxHp, int colorIndex, int combatLevel, boolean afk) {
         public static EntityInfo player(int id, String name, Position position, Direction facing, int levelsGained,
-                                        int hp, int maxHp, int colorIndex, int combatLevel) {
+                                        int hp, int maxHp, int colorIndex, int combatLevel, boolean afk) {
             return new EntityInfo(id, EntityKind.PLAYER, name, position, facing, levelsGained, 0, hp, maxHp, colorIndex,
-                    combatLevel);
+                    combatLevel, afk);
         }
 
         public static EntityInfo monster(int id, String name, Position position, int monsterTypeId, int hp, int maxHp) {
-            return new EntityInfo(id, EntityKind.MONSTER, name, position, Direction.DOWN, 0, monsterTypeId, hp, maxHp, 0, 0);
+            return new EntityInfo(id, EntityKind.MONSTER, name, position, Direction.DOWN, 0, monsterTypeId, hp, maxHp, 0, 0,
+                    false);
         }
 
         public boolean isMonster() {
@@ -59,7 +64,7 @@ public sealed interface Event {
         }
 
         public EntityInfo at(Position newPosition, Direction newFacing) {
-            return new EntityInfo(id, kind, name, newPosition, newFacing, levelsGained, monsterTypeId, hp, maxHp, colorIndex, combatLevel);
+            return new EntityInfo(id, kind, name, newPosition, newFacing, levelsGained, monsterTypeId, hp, maxHp, colorIndex, combatLevel, afk);
         }
     }
 
@@ -93,18 +98,19 @@ public sealed interface Event {
     /** The skill starts over (its xp back to 0), {@code prestige} times now, with {@code bankedXp} banked in all. */
     record Prestiged(int skillId, int prestige, long bankedXp) implements Event {}
     /** Your church blessing ({@link net.shchoo.scafe.scafe.model.Prayer}): -1 = none. */
-    record BlessingChanged(int recipeId, int left) implements Event {}
+    record BlessingChanged(int recipeId, int left, int strength) implements Event {}
     /** Your first prestige: "The Merch Ant wants to speak with you..." -- it trades with you from now on. */
     record MerchantCalls() implements Event {}
+    /** Every node holds this many more just now, for how many are online ({@code Node.capacityBonus}). */
+    record CapacityBonus(int bonus) implements Event {}
     /**
      * The church's guess at the next new skill: in {@code minutes} (negative: it's late by that much), {@code fold}
      * times over what it should have taken so far; not {@code known}: no idea.
      */
     record OracleSaid(boolean known, long minutes, int fold) implements Event {}
     record InventoryChanged(int productId, int count) implements Event {}
-    record GoalAdded(GoalDef goal) implements Event {}
-
-    record GoalChanged(int index, GoalDef goal) implements Event {}
+    /** {@code skillId}'s goal (one a skill) is now {@code goal}; null: it has none. */
+    record GoalSet(int skillId, GoalDef goal) implements Event {}
 
     /** {@code productId} -1 = nothing (fists / no armour). */
     record EquipmentChanged(EquipSlot slot, int productId) implements Event {}

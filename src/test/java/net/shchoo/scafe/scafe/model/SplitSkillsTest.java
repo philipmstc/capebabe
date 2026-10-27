@@ -36,7 +36,7 @@ class SplitSkillsTest {
         assertEquals(original.type, split.type);
         for (Recipe recipe : split.productLines.get(0).recipes) {
             assertSame(split, recipe.skill, "its recipes are its own");
-            assertTrue(recipe.product.name.startsWith("skill0{1}"), "the items keep their names");
+            assertTrue(recipe.product.name.startsWith("skill1-"), "the items are named after their new skill");
         }
         WorldContent replay = new WorldContent();
         content.history().forEach(replay::apply);

@@ -4,6 +4,7 @@ import com.googlecode.lanterna.TextColor;
 import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.Player;
+import net.shchoo.scafe.scafe.client.SkillStyle;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.World;
@@ -44,7 +45,7 @@ class InventoryPanelTest {
         player.send(new Intent.Join("alice"));
         server.tick();
         player.receive();
-        tabs = new TabBar(Layout.TABS, inventory, new MapMenu(), List.of(new SkillsMenu(), new GoalsMenu(), new StatsMenu()),
+        tabs = new TabBar(Layout.TABS, inventory, new MapMenu(), List.of(new SkillsMenu(), new MonstersMenu(), new StatsMenu()),
                 new SettingsMenu());
     }
 
@@ -70,13 +71,11 @@ class InventoryPanelTest {
 
     @Test
     void cellsAreLabelledShortly() {
-        assertArrayEquals(new String[]{"S3-2", "T7"}, InventoryPanel.label(new Product(1, "skill3{2}-7", 7)));
-        assertArrayEquals(new String[]{"skill3", "{2}-7"}, InventoryPanel.label(new Product(4, "skill3{2}-7")),
+        assertArrayEquals(new String[]{"S3", "T2"}, InventoryPanel.label(new Product(1, "skill3-2", 2)));
+        assertArrayEquals(new String[]{"skill3", "-2"}, InventoryPanel.label(new Product(4, "skill3-2")),
                 "the tier comes from the data, not the name");
         assertArrayEquals(new String[]{"M1-D4", ""}, InventoryPanel.label(new Product(2, "monster1-drop4")));
         assertArrayEquals(new String[]{"someth", "ing el"}, InventoryPanel.label(new Product(3, "something else")));
-        assertEquals("T2   7", InventoryPanel.countLine("T2", 7), "the stack's count on the right");
-        assertEquals("T2 100", InventoryPanel.countLine("T2", 100));
     }
 
     @Test
@@ -98,14 +97,14 @@ class InventoryPanelTest {
         press(KeyType.ArrowRight);
         press(KeyType.ArrowDown);
         assertEquals(1 + columns, inventory.selectedIndex());
-        assertFalse(gridText().contains("S1-2"), "the last item is below the fold");
+        assertFalse(gridText().contains(".?:"), "the last item (tier 3) is below the fold");
 
         for (int i = 0; i < Layout.INVENTORY_ROWS + 1; i++) {
             press(KeyType.ArrowDown);
         }
         assertEquals(fits, inventory.selectedIndex(), "stops at the last item");
         String grid = gridText();
-        assertTrue(grid.contains("S1-2"), "scrolled down to it:\n" + grid);
+        assertTrue(grid.contains(".?:"), "scrolled down to it:\n" + grid);
         assertTrue(grid.contains(String.valueOf(fits + 1)), "item count on the border");
 
         press(KeyType.Escape);
@@ -167,7 +166,8 @@ class InventoryPanelTest {
         player.content.monsters.add(monster);
         player.inventory.put(drop, 1);
         tabs.onKey(new KeyStroke('i', false, false), player, board);
-        assertTrue(gridText().contains("M0-D0"));
+        String grid = gridText();
+        assertTrue(grid.contains("\u03a8M "), "a drop: a trophy mark and its monster's symbol\n" + grid);
     }
 
     private String screenText() throws IOException {
@@ -205,7 +205,9 @@ class InventoryPanelTest {
         assertEquals(List.of(new InventoryPanel.Slot(item, 4), new InventoryPanel.Slot(item, 4), new InventoryPanel.Slot(item, 2)),
                 InventoryPanel.slots(player));
         String grid = gridText();
-        assertTrue(grid.contains("T1    4") || grid.contains("T1   4"), "counts on the cells:\n" + grid);
+        assertTrue(grid.contains("    x4"), "counts on the cells:\n" + grid);
+        char symbol = SkillStyle.getSymbolForSkill(player.content.madeBy(item).skill);
+        assertTrue(grid.contains("." + symbol + " "), "tier 1's marks:\n" + grid);
         assertTrue(grid.contains("3"), "3 slots on the border");
     }
 
@@ -221,7 +223,8 @@ class InventoryPanelTest {
         assertTrue(lines[row + 1].contains("Equip armor"));
         assertTrue(lines[row + 2].contains("Equip both"));
         assertTrue(lines[row + 3].contains("Use"));
-        assertTrue(lines[row + 4].contains("Cancel"));
+        assertTrue(lines[row + 4].contains("Drop stack"));
+        assertTrue(lines[row + 5].contains("Cancel"));
         assertFalse(screenText().contains("Unequip"), "it isn't equipped");
         int at = lines[row].indexOf("> Equip");
         assertTrue(at > Layout.INVENTORY.x() + 2 + Layout.CELL_WIDTH && at < Layout.INVENTORY.x() + 2 + 2 * Layout.CELL_WIDTH,
@@ -229,7 +232,7 @@ class InventoryPanelTest {
 
         type('w');
         assertTrue(inventory.popupOpen(), "keys stay in the popup");
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             press(KeyType.ArrowDown);
         }
         press(KeyType.Enter);
@@ -263,8 +266,31 @@ class InventoryPanelTest {
         int x = Layout.INVENTORY.x() + 2, y = Layout.INVENTORY.y() + 2;
         assertEquals("3", screen.getBackCharacter(x + Layout.CELL_WIDTH - 1, y + 1).getCharacterString());
         assertEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x + Layout.CELL_WIDTH - 1, y + 1).getForegroundColor());
-        assertEquals("T", screen.getBackCharacter(x, y + 1).getCharacterString());
-        assertNotEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x, y + 1).getForegroundColor(), "the tier keeps the item's colour");
+        assertEquals("x", screen.getBackCharacter(x + Layout.CELL_WIDTH - 2, y + 1).getCharacterString());
+        assertNotEquals(TextColor.ANSI.WHITE, screen.getBackCharacter(x + Layout.CELL_WIDTH - 2, y + 1).getForegroundColor(), "the x grey");
+        Skill skill = player.content.madeBy(item).skill;
+        assertEquals(String.valueOf(SkillStyle.getSymbolForSkill(skill)), screen.getBackCharacter(x + 1, y).getCharacterString());
+        assertEquals(SkillStyle.getColorForSkill(skill), screen.getBackCharacter(x + 1, y).getForegroundColor(), "its skill's symbol, in colour");
+        assertEquals(".", screen.getBackCharacter(x, y).getCharacterString(), "tier 1: a dot on the left");
+        assertEquals(" ", screen.getBackCharacter(x + 2, y).getCharacterString());
         assertNotNull(item);
+    }
+
+    @Test
+    void theWheelMovesThroughTheInventoryARowAtATime() throws IOException {
+        int columns = Layout.INVENTORY_COLUMNS;
+        player.inventory.put(new Product(1, "skill0-0", 0), columns * 3);
+        gridText();
+        board.clicks.clear();
+        Screen screen = new TerminalScreen(new DefaultVirtualTerminal(Layout.TERMINAL_SIZE));
+        screen.startScreen();
+        tabs.draw(screen, player, board);
+        assertTrue(board.clicks.scroll(1, Layout.INVENTORY.x() + 3, Layout.INVENTORY.y() + 3));
+        assertEquals(columns, inventory.selectedIndex(), "down a row");
+        board.clicks.scroll(1, Layout.INVENTORY.x() + 3, Layout.INVENTORY.y() + 3);
+        board.clicks.scroll(1, Layout.INVENTORY.x() + 3, Layout.INVENTORY.y() + 3);
+        assertEquals(columns * 3 - 1, inventory.selectedIndex(), "not past the last");
+        board.clicks.scroll(-1, Layout.INVENTORY.x() + 3, Layout.INVENTORY.y() + 3);
+        assertEquals(columns * 2 - 1, inventory.selectedIndex(), "and back up");
     }
 }

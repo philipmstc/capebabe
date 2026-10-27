@@ -342,6 +342,7 @@ class Combat {
         server.removeMonster(monster);
         killer.say(Event.MessageKind.NOTICE, "You defeated " + type.name + "!");
         killer.count(Stat.MONSTERS_KILLED);
+        killer.kills.merge(type.id, 1L, Long::sum);
         if (server.random().nextInt(type.nextDropOneIn()) == 0) {
             if (killer.hasFreeSlot()) {
                 dropOneOfAKind(killer, type);
@@ -369,8 +370,17 @@ class Combat {
         Product product = server.world.content.product(productId);
         finder.changeInventory(product, 1);
         finder.saveSoon = true;
-        finder.say(Event.MessageKind.NOTICE, "You found " + product.name + " -- the only one there will ever be!");
-        server.tellOthers(finder, finder.name + " found " + product.name + ". There won't be another.");
+        int copies = MonsterType.copiesOf(type.dropProducts().indexOf(product));
+        int found = type.found(product);
+        if (copies == 1) {
+            finder.say(Event.MessageKind.NOTICE, "You found " + product.name + " -- the only one there will ever be!");
+            server.tellOthers(finder, finder.name + " found " + product.name + ". There won't be another.");
+        } else {
+            finder.say(Event.MessageKind.NOTICE, "You found " + product.name + " -- " + found + " of the " + copies
+                    + " there will ever be!");
+            server.tellOthers(finder, finder.name + " found " + product.name + " (" + found + " of " + copies + ")"
+                    + (found == copies ? ". There won't be another." : "."));
+        }
     }
 
     /** Down where you fell, at 0 hp, for {@link #DOWN_TICKS} (so the hit that did it can be seen), then {@link #wakeUp}. */
