@@ -4,9 +4,7 @@ _(Name is subject to change)_
 
 Java class files start with hex codes `CAFEBABE`. This is a Runescape inspired TUI multiplayer "number go up" game made in Java. 
 
-![](assets/release/v1.0.SNAPSHOT-screenshot.png)
-
-
+![](assets/release/v0.0.8-screenshot.png)
 
 # Playing
 
@@ -55,17 +53,7 @@ The game opens on a few short pages:
 A wrong name or password sends you back to page one; a wrong world password, or a host that can't be reached,
 keeps you on page 3.
 
-The connection is encrypted. The server's fingerprint is on the bottom line of the login screen; the first
-time you join a host it also says "first visit": check the fingerprint matches the one at the bottom of the
-host's login screen. Your game remembers it, and refuses to connect if it ever changes. One connection per
-address at a time, so two people in one house need the host to add `--max-per-ip 2`.
-
-In game, press `,` for settings and the list of controls. `i` and `1`-`4` jump to the inventory and tabs, `v` to
-the map, Esc goes back. Press `/` to chat with everyone in the world (`//` for debug commands).
-Your progress is saved on the host's machine (in `~/.capebabe`), so you keep it as long as you join the same host
-and world.
-
-## Hosting a world for friends
+## Hosting a world for friends (advanced)
 
 Hosting is still a command (you play in the same window):
 
@@ -104,6 +92,19 @@ On Windows without a bash shell, use `gradlew.bat`. To publish a release for eve
 (`.github/workflows/release.yml`) builds Windows and macOS (Apple Silicon) and attaches them, with the jar, to a release.
 
 # Change log
+
+## 0.0.8 - Oct 27 2026
+
+- Buildings added
+  - Bank: deposit and withdraw items
+  - Merch Ant: ????
+  - Trains Tation: fast travel between distant parts of the world
+  - Church: pray to RNGesus for new skills / actions
+  - Gym: train your combat without losing your health
+
+- UI overhaul, Items now appear the same in the UI as they do in the world map.
+- Mouse support (first class)
+- Scripted tutorial now runs players through an 5 minute gameplay loop the first time they login, if they like.
 
 ## 0.0.3 - Oct 22 2026
 
