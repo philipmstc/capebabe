@@ -34,6 +34,27 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StationTest {
+    @Test
+    void stationsThatOnlyHaveEachOtherGetALineToTheRest() {
+        World world = new World(1, "w", 7);
+        GameServer server = new GameServer(world);
+        for (Position at : List.of(new Position(100, 100), new Position(160, 100), new Position(220, 100),
+                new Position(700, 100), new Position(760, 100), new Position(820, 100))) {
+            server.applyContent(WorldGenerator.newBuildingAt(world, Building.Kind.STATION, at, 6, p -> false));
+        }
+        List<Building> line = Stations.all(world.content);
+        assertEquals(6, line.size());
+        assertTrue(Stations.connected(world.content, line.get(2), line.get(3)), "the shortest way across");
+        assertFalse(Stations.connected(world.content, line.get(0), line.get(5)), "and only that one");
+        java.util.Set<Building> reached = new java.util.HashSet<>(List.of(line.get(0)));
+        for (int step = 0; step < line.size(); step++) {
+            for (Building station : List.copyOf(reached)) {
+                reached.addAll(Stations.destinations(world.content, station));
+            }
+        }
+        assertEquals(6, reached.size(), "every station can get to every other");
+    }
+
     private final List<String> log = new ArrayList<>();
     private final Consumer<String> listener = log::add;
     private GameServer server;
@@ -180,9 +201,33 @@ class StationTest {
         assertTrue(shown.contains("tation0 (" + home.x() + ", " + home.y() + ")"));
         assertTrue(shown.contains("you're here"));
         assertTrue(shown.contains("> tation1 ("), "starts on the first one that isn't here:\n" + shown);
-        Product fare = Stations.fare(server.world.content, 1);
-        assertEquals("skill1-0", fare.name, "1 x skillN-0 for station N");
-        assertTrue(shown.contains("1 x skill1-0"));
+        assertEquals("skill1", Stations.fareSkill(server.world.content, 1).name, "station N: any of skill N's items");
+        assertTrue(shown.contains("1 x any skill1"), shown);
+    }
+
+    @Test
+    void anyTierOfTheFareSkillPays_theCheapestHeldGoes() {
+        player.send(new Intent.Admin("1", List.of("2")));
+        ticks(1);
+        Building far = discoverFrom(new Position(200, 40), Direction.RIGHT);
+        standAtTheDoorOf(station);
+        var line = Stations.fareSkill(server.world.content, 1).productLines.get(0).recipes;
+        Product tier1 = line.get(1).product, tier3 = line.get(3).product;
+        server.online(player.id).changeInventory(tier3, 1);
+        server.online(player.id).changeInventory(tier1, 1);
+        ticks(1);
+
+        player.rideTo(far.id());
+        ticks(1);
+        assertEquals("riding the train", player.currentAction.label(), "a tier 1 pays as well as a tier 0");
+        assertEquals(0, server.online(player.id).inventory.getOrDefault(tier1, 0), "the cheaper one went");
+        assertEquals(1, server.online(player.id).inventory.get(tier3));
+
+        // a prestige version pays too, but a plain one of the same tier goes first
+        Product prestige = new Product(9999, tier1.name + "+1", tier1.tier, tier1, 1);
+        assertEquals(tier1, Stations.fareFrom(server.world.content, 1, java.util.Map.of(prestige, 1, tier1, 1)));
+        assertEquals(prestige, Stations.fareFrom(server.world.content, 1, java.util.Map.of(prestige, 1, tier3, 1)));
+        assertNull(Stations.fareFrom(server.world.content, 1, java.util.Map.of(tier1, 0)), "none held");
     }
 
     @Test
@@ -191,11 +236,11 @@ class StationTest {
         ticks(1);
         Building far = discoverFrom(new Position(200, 40), Direction.RIGHT);
         standAtTheDoorOf(station);
-        Product fare = Stations.fare(server.world.content, 1);
+        Product fare = Stations.fareSkill(server.world.content, 1).productLines.get(0).recipes.get(0).product;
 
         player.rideTo(far.id());
         ticks(1);
-        assertTrue(log.contains("The fare to tation1 is 1 x " + fare.name + "."));
+        assertTrue(log.contains("The fare to tation1 is 1 of any skill1 item."), log.toString());
         assertNull(player.currentAction, "no fare, no ride");
 
         server.online(player.id).changeInventory(fare, 2);

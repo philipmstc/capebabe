@@ -103,6 +103,12 @@ public sealed interface Event {
     record MerchantCalls() implements Event {}
     /** Every node holds this many more just now, for how many are online ({@code Node.capacityBonus}). */
     record CapacityBonus(int bonus) implements Event {}
+
+    /**
+     * Your Gym standing (at login, and when it changes): inventory slots earned with trophies, Gym attacks left,
+     * and the trophies you've put on display there (product ids).
+     */
+    record GymChanged(int trophySlots, long gymAttacks, List<Integer> displayed) implements Event {}
     /**
      * The church's guess at the next new skill: in {@code minutes} (negative: it's late by that much), {@code fold}
      * times over what it should have taken so far; not {@code known}: no idea.
@@ -146,6 +152,16 @@ public sealed interface Event {
 
     /** Someone said something (everyone in the world hears it). */
     record Chat(String from, int colorIndex, String text) implements Event {}
+
+    /** A private message, to both ends. */
+    record Whisper(String from, String to, int colorIndex, String text) implements Event {}
+
+    /** A friend: their levels by skill id, and where they are if they're in the world (else null). */
+    record FriendInfo(String name, boolean online, int combatLevel, int totalLevel, Position position,
+                      Map<Integer, Integer> levels, Map<Integer, Integer> prestige) {}
+
+    /** Your friends, at login, when the list changes, and every few seconds so they stay current. */
+    record Friends(List<FriendInfo> friends) implements Event {}
 
     /** Your lifetime counts ({@link net.shchoo.scafe.scafe.model.Stat} names), sent when they change. */
     record StatsChanged(Map<String, Long> stats) implements Event {}

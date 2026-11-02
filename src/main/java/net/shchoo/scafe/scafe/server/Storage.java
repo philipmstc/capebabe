@@ -22,6 +22,11 @@ public interface Storage {
     /** The account's character in this world, created if it doesn't have one yet. */
     GameCharacter loadOrCreateCharacter(String accountName) throws Exception;
 
+    /** The character called {@code name}, or null if there isn't one. */
+    default GameCharacter loadCharacterNamed(String name) throws Exception {
+        return null;
+    }
+
     void saveCharacter(GameCharacter character) throws Exception;
 
     /** The account's stored password ({@link Passwords#hash}), or null if there's no account or it has none yet. */

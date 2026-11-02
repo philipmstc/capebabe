@@ -52,6 +52,8 @@ class GymTest {
         player.send(new Intent.Join("alice"));
         tick();
         alice = server.online(player.id);
+        // a membership: training takes one
+        alice.gymAttacks = 1_000;
     }
 
     @AfterEach

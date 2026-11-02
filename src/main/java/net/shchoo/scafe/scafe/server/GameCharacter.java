@@ -58,6 +58,20 @@ public class GameCharacter implements Walker.Mobile {
     Combat.Training training;
     /** The Merch Ant has asked for you (your first prestige): from then on it trades with you. Saved. */
     public boolean metMerchant;
+    /**
+     * Inventory slots earned by putting trophies on display at a Gym (Stacks#capacity). Saved; -1 until the first
+     * load after trophies stopped counting by themselves, when it's the trophies found by then (nobody loses space).
+     */
+    public int trophySlots = -1;
+    /** Gym membership: attacks at the dummy left (each trophy redeemed for it: {@link #GYM_ATTACKS_PER_TROPHY}). Saved. */
+    public long gymAttacks;
+    /** The trophies you've put on display at the Gym, in order. Saved. */
+    public final List<Product> displayedTrophies = new ArrayList<>();
+    public static final int GYM_ATTACKS_PER_TROPHY = 5_000;
+    /** The people you've added as friends, by name, in order. Saved. */
+    public final java.util.LinkedHashSet<String> friends = new java.util.LinkedHashSet<>();
+    /** Logged out while AFK: still in the world, carrying on, until the AFK stops (GameServer). */
+    boolean offline;
     public final LinkedHashMap<Product, Integer> inventory = new LinkedHashMap<>();
     /** What's in your bank (unlimited), in the order you first put things in. */
     public final LinkedHashMap<Product, Integer> bank = new LinkedHashMap<>();
@@ -73,6 +87,10 @@ public class GameCharacter implements Walker.Mobile {
     Combat.Fight currentFight;
     /** Doesn't come back by itself: a church (q) or getting knocked out fills it up. Saved. */
     int hp = Combat.maxHp(1);
+    /** Crafting heals: 1 hp every this many crafts. */
+    static final int CRAFTS_PER_HP = 20;
+    /** Crafts towards the next hp (not saved: logging out starts it over). */
+    private int craftsTowardsHp;
     /** On the train until this tick (-1: not riding), getting off at {@link #rideTo}; see {@link GameServer#ride}. */
     long ridingUntil = -1;
     Building rideTo;
@@ -109,6 +127,11 @@ public class GameCharacter implements Walker.Mobile {
     /** Other characters and monsters this one has been told about (within view range). */
     final Set<Integer> seen = new HashSet<>();
     private Consumer<Event> outbox = event -> {};
+
+    /** Also hands {@code tap} everything sent to this character (tests). */
+    void outboxTap(Consumer<Event> tap) {
+        outbox = outbox.andThen(tap);
+    }
     private NodeStates nodes = new NodeStates(event -> {});
     /** The world's content (for stack sizes), once connected. */
     private WorldContent content = new WorldContent();
@@ -126,6 +149,11 @@ public class GameCharacter implements Walker.Mobile {
         this.content = content;
         this.prestigeProduct = prestigeProduct;
         this.blessingProduct = blessingProduct;
+        // a save from before trophies had to go to the Gym: the slots it had from them, kept
+        if (trophySlots < 0) {
+            trophySlots = (int) content.trophies(name);
+            saveSoon = true;
+        }
         // drops used to be equippable: a save from then comes back with them put away
         if (weapon != null && content.droppedBy(weapon) != null) {
             weapon = null;
@@ -200,7 +228,7 @@ public class GameCharacter implements Walker.Mobile {
 
     /**
      * At the Merch Ant: up to {@code count} of a prestige item for 1 + its prestige of the plain one each
-     * (skill0{1}-2+3: 4 x skill0{1}-2).
+     * (skill0{1}-2+3: 4 x skill0{1}-2). What doesn't fit in the inventory goes to the bank.
      */
     void trade(Product item, int count) {
         if (!metMerchant) {
@@ -216,17 +244,17 @@ public class GameCharacter implements Walker.Mobile {
             return;
         }
         int back = n * (1 + item.prestige);
-        Map<Product, Integer> changes = new HashMap<>();
-        changes.put(item, -n);
-        changes.merge(item.root(), back, Integer::sum);
-        if (!Stacks.fits(content, inventory, changes, this::stackLevel, inventorySlots())) {
-            say("Your inventory is full.");
-            return;
-        }
         changeInventory(item, -n);
-        changeInventory(item.root(), back);
+        int kept = Math.min(back, Stacks.room(content, inventory, item.root(), this::stackLevel, inventorySlots()));
+        if (kept > 0) {
+            changeInventory(item.root(), kept);
+        }
+        if (kept < back) {
+            changeBank(item.root(), back - kept);
+        }
         saveSoon = true;
-        say("The Merch Ant takes " + n + " x " + item.name + " and gives you " + back + " x " + item.root().name + ".");
+        say("The Merch Ant takes " + n + " x " + item.name + " and gives you " + back + " x " + item.root().name
+                + (kept < back ? " (" + (back - kept) + " sent to your bank)." : "."));
     }
 
     void disconnect() {
@@ -313,14 +341,29 @@ public class GameCharacter implements Walker.Mobile {
     }
 
     public boolean canPerform(Node node) {
-        return !isLockedFor(node) && has(node.recipe.components) && roomToMake(node.recipe);
+        return canPerform(node, false);
+    }
+
+    /** {@code afk}: with room for it in half the inventory ({@link Stacks#afkCapacity}). */
+    boolean canPerform(Node node, boolean afk) {
+        return !isLockedFor(node) && has(node.recipe.components) && roomToMake(node.recipe, afk);
     }
 
     /** Making it (its components gone, the product in) wouldn't overfill the inventory. */
     boolean roomToMake(Recipe recipe) {
+        return roomToMake(recipe, false);
+    }
+
+    /** ...AFK: it'd leave the inventory no more than half full -- AFK crafting stops there. */
+    boolean roomToMake(Recipe recipe, boolean afk) {
         Map<Product, Integer> changes = new HashMap<>();
         recipe.components.forEach((part, count) -> changes.merge(part, -count, Integer::sum));
         changes.merge(made(recipe), madePerCraft(recipe), Integer::sum);
+        if (afk) {
+            Map<Product, Integer> after = new HashMap<>(inventory);
+            changes.forEach((product, delta) -> after.merge(product, delta, Integer::sum));
+            return Stacks.slots(content, after, this::stackLevel) <= Stacks.afkCapacity(inventorySlots());
+        }
         return Stacks.fits(content, inventory, changes, this::stackLevel, inventorySlots());
     }
 
@@ -339,9 +382,42 @@ public class GameCharacter implements Walker.Mobile {
         return slotsUsed() < inventorySlots();
     }
 
-    /** How many stacks your inventory holds: {@link Stacks#BASE_SLOTS}, and one a trophy you've found. */
+    /** How many stacks your inventory holds: {@link Stacks#BASE_SLOTS}, and one a trophy redeemed for a slot. */
     int inventorySlots() {
-        return Stacks.capacity(content.trophies(name));
+        return Stacks.capacity(Math.max(0, trophySlots));
+    }
+
+    /** Your Gym standing, for your client. */
+    Event.GymChanged gymStanding() {
+        return new Event.GymChanged(Math.max(0, trophySlots), gymAttacks, displayedTrophies.stream().map(p -> p.id).toList());
+    }
+
+    /**
+     * At a Gym: {@code item} (a monster drop you carry) goes on display for good, redeemed {@code forSlot} for a
+     * +1 inventory slot, else {@link #GYM_ATTACKS_PER_TROPHY} attacks of membership.
+     */
+    void displayTrophy(Product item, boolean forSlot) {
+        if (item == null || content.droppedBy(item) == null) {
+            say("Only trophies (monster drops) go on display at the Gym.");
+            return;
+        }
+        if (inventory.getOrDefault(item, 0) <= 0) {
+            say("You don't have that.");
+            return;
+        }
+        changeInventory(item, -1);
+        displayedTrophies.add(item);
+        if (forSlot) {
+            trophySlots = Math.max(0, trophySlots) + 1;
+            say(Event.MessageKind.NOTICE, item.name + " goes on display at the Gym: your inventory holds "
+                    + inventorySlots() + " stacks now.");
+        } else {
+            gymAttacks += GYM_ATTACKS_PER_TROPHY;
+            say(Event.MessageKind.NOTICE, item.name + " goes on display at the Gym: " + String.format(java.util.Locale.ROOT,
+                    "%,d", gymAttacks) + " attacks of membership.");
+        }
+        saveSoon = true;
+        emit(gymStanding());
     }
 
     /** At a church: all your hp back. */
@@ -357,12 +433,25 @@ public class GameCharacter implements Walker.Mobile {
         say(Event.MessageKind.NOTICE, "You pray, and feel restored (" + hp + "/" + hp + " hp).");
     }
 
+    private void healFromCrafting() {
+        if (++craftsTowardsHp < CRAFTS_PER_HP) {
+            return;
+        }
+        craftsTowardsHp = 0;
+        if (hp < maxHp()) {
+            hp++;
+            infoChanged = true;
+            saveSoon = true;
+            emit(new Event.HpChanged(hp, maxHp()));
+        }
+    }
+
     /** At a church: pay for a blessing on {@code recipe} ({@link Prayer}); it replaces any you had. */
     void pray(Recipe recipe, Product payment) {
         if (recipe == null || payment == null) {
             return;
         }
-        int cost = Prayer.cost(recipe, payment);
+        int cost = Prayer.cost(content, recipe, payment);
         if (inventory.getOrDefault(payment, 0) < cost) {
             say("Praying for that takes " + cost + " x " + payment.name + ".");
             return;
@@ -595,8 +684,8 @@ public class GameCharacter implements Walker.Mobile {
     private void startAction(Node node, long tick, boolean afk) {
         if (node == null) {
             say("Nothing to do here...");
-        } else if (!canPerform(node)) {
-            perform(node);
+        } else if (!canPerform(node, afk)) {
+            perform(node, afk);
         } else {
             String busy = afk && nodes.isDepleted(node) ? null : nodes.whyNot(node, id);
             // full, but someone's AFK on it: crafting for real bumps them off
@@ -665,8 +754,8 @@ public class GameCharacter implements Walker.Mobile {
             say("(press g to make it a goal)");
             return false;
         }
-        if (!roomToMake(recipe)) {
-            say("Your inventory is full.");
+        if (!roomToMake(recipe, afk)) {
+            say(afk ? "Your inventory's half full: that's as far as AFK crafting goes." : "Your inventory is full.");
             return false;
         }
         if (!attemptToUseAll(recipe.components)) {
@@ -678,6 +767,7 @@ public class GameCharacter implements Walker.Mobile {
         emit(new Event.HomeChanged(lastActionAt));
         say(Event.MessageKind.ROUTINE, "Made " + (made > 1 ? made + " x " : "") + recipe.product.name);
         triggers.add(Discovery.Trigger.MADE);
+        healFromCrafting();
         count(Stat.ITEMS_CRAFTED, made);
         if (afk) {
             count(Stat.ITEMS_CRAFTED_AFK, made);

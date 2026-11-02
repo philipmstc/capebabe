@@ -63,10 +63,15 @@ public class Discovery {
     /** Unlocked recipes are this many times likelier than locked ones to show up as a new node. */
     public static final int UNLOCKED_WEIGHT = 4;
     /**
-     * ...and by tier, low ones far likelier: with only tier 0 unlocked about 84% tier 0, 10% tier 1; with everything
-     * unlocked 57% / 28% / 7% / 4% / 4%.
+     * ...and by tier, leaning to the highest you can make in that skill (a row for each tier unlocked, Lv. 1, 20, 40,
+     * 60, 80): only tier 0 unlocked, about 84% tier 0, 10% tier 1; everything unlocked, 57% tier 4, 29% tier 3.
      */
-    static final int[] TIER_WEIGHTS = {16, 8, 2, 1, 1};
+    static final int[][] TIER_WEIGHTS = {
+            {16, 8, 2, 1, 1},
+            {8, 16, 8, 2, 1},
+            {2, 8, 16, 8, 2},
+            {1, 2, 8, 16, 8},
+            {1, 1, 2, 8, 16}};
     public static final double MONSTER_KIND_BACKOFF = 0.5;
     public static final double MONSTER_CROWD_BACKOFF = 0.5;
     /** Monsters within this many tiles count towards the spawn backoff. */
@@ -279,8 +284,14 @@ public class Discovery {
     /** How likely {@code recipe} is to be a new node's, for someone at {@code level} in its skill. */
     static int nodeWeight(Recipe recipe, int level) {
         int tier = Tiers.of(recipe);
-        int byTier = tier >= 0 && tier < TIER_WEIGHTS.length ? TIER_WEIGHTS[tier] : 1;
+        int[] weights = TIER_WEIGHTS[Math.min(TIER_WEIGHTS.length, tiersUnlocked(level)) - 1];
+        int byTier = tier >= 0 && tier < weights.length ? weights[tier] : 1;
         return (recipe.levelMet(level) ? UNLOCKED_WEIGHT : 1) * byTier;
+    }
+
+    /** How many tiers {@code level} can make (at least the first). */
+    private static int tiersUnlocked(int level) {
+        return Math.max(1, (int) java.util.Arrays.stream(Tiers.LEVEL_NEEDED).filter(needed -> level >= needed).count());
     }
 
     static int nodesNear(World world, Position around) {

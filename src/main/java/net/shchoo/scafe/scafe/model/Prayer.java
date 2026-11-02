@@ -5,11 +5,14 @@ package net.shchoo.scafe.scafe.model;
  * twice as likely to turn up near you, and the next one that does is that recipe's (then the blessing's spent).
  * It costs {@link #PER_TIER} x its tier of the tier below's item in its product line (tier 3: 300 of tier 2; a
  * prestige version of it, "+N", pays the same), or {@link #ANY_ITEM} of any one item (the only way for tier 0).
+ * For a recipe with no node anywhere yet it's cheaper: a flat {@link #UNFOUND_TIER_BELOW} or {@link #UNFOUND_ANY_ITEM}.
  */
 public final class Prayer {
     public static final int STEPS = 100;
     public static final int PER_TIER = 100;
     public static final int ANY_ITEM = 1000;
+    public static final int UNFOUND_TIER_BELOW = 100;
+    public static final int UNFOUND_ANY_ITEM = 500;
 
     private Prayer() {}
 
@@ -35,8 +38,16 @@ public final class Prayer {
         return below != null && below.equals(payment.root());
     }
 
-    /** How many of {@code payment} praying for {@code recipe} takes. */
+    /** How many of {@code payment} praying for {@code recipe} takes, in a world where it has a node. */
     public static int cost(Recipe recipe, Product payment) {
         return isTierBelow(recipe, payment) ? PER_TIER * tier(recipe) : ANY_ITEM;
+    }
+
+    /** How many of {@code payment} praying for {@code recipe} takes here: less if it has no node yet. */
+    public static int cost(WorldContent content, Recipe recipe, Product payment) {
+        if (content.nodes().stream().anyMatch(node -> node.recipe.equals(recipe))) {
+            return cost(recipe, payment);
+        }
+        return isTierBelow(recipe, payment) ? UNFOUND_TIER_BELOW : UNFOUND_ANY_ITEM;
     }
 }

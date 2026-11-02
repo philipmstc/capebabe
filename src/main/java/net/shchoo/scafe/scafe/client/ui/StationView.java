@@ -7,6 +7,7 @@ import net.shchoo.scafe.scafe.model.Building;
 import net.shchoo.scafe.scafe.model.Position;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.Recipe;
+import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.model.Stations;
 
 import com.googlecode.lanterna.SGR;
@@ -171,17 +172,16 @@ public class StationView extends Widget {
                 g.putString(x, y, "no direct line");
                 continue;
             }
-            Product fare = Stations.fare(player.content, i);
-            if (fare == null) {
+            Skill fareSkill = Stations.fareSkill(player.content, i);
+            if (fareSkill == null) {
                 g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
                 g.putString(x, y, "free");
                 continue;
             }
-            boolean affordable = player.inventory.getOrDefault(fare, 0) > 0;
-            Recipe recipe = player.content.madeBy(fare);
-            g.setForegroundColor(affordable && recipe != null ? SkillStyle.getColorForSkill(recipe.skill)
-                    : recipe != null ? SkillStyle.dim(SkillStyle.getColorForSkill(recipe.skill)) : TextColor.ANSI.DEFAULT);
-            g.putString(x, y, fit("1 x " + fare.name, box.right() - x - 1));
+            // bright if you've something of it to pay with, dim if not
+            boolean affordable = Stations.fareFrom(player.content, i, player.inventory) != null;
+            g.setForegroundColor(affordable ? SkillStyle.getColorForSkill(fareSkill) : SkillStyle.dim(SkillStyle.getColorForSkill(fareSkill)));
+            g.putString(x, y, fit("1 x any " + fareSkill.name, box.right() - x - 1));
         }
         g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         if (line.size() < 2) {

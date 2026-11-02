@@ -22,6 +22,9 @@ public class ProductLineFactory {
     private static final double[] INPUT_COUNT_WEIGHTS = {0.45, 0.40, 0.15};
     /** Chances of needing 1, 2 or 3 of an input. */
     private static final double[] AMOUNT_WEIGHTS = {0.6, 0.3, 0.1};
+    /** Each further line nothing uses yet joins a new crafted line's inputs this often, as far as the inputs go. */
+    private static final double UNUSED_INPUT_CHANCE = 0.7;
+    private static final int MAX_INPUTS = INPUT_COUNT_WEIGHTS.length;
     /** Each component unit past the first adds this much to the recipe's xp. */
     private static final double XP_PER_EXTRA_UNIT = 0.25;
 
@@ -63,8 +66,9 @@ public class ProductLineFactory {
     }
 
     /**
-     * The first input is the least-used line among {@code mainSkills} (so every line gets used by something); any
-     * further inputs are picked at random from both groups, less-used lines more likely.
+     * The first input is the least-used line among {@code mainSkills} (so every line gets used by something); other
+     * lines nothing uses yet likely join it (the main group's first), to close dead ends; any further inputs are picked
+     * at random from both groups, less-used lines more likely.
      */
     private static ProductLine createCraftedProductLine(WorldContent world, Skill skill, String productName,
                                                         Collection<Skill> mainSkills, Collection<Skill> extraSkills,
@@ -77,6 +81,12 @@ public class ProductLineFactory {
             }
         }
         List<ProductLine> inputs = new ArrayList<>(List.of(first));
+        for (ProductLine line : List.copyOf(others)) {
+            if (usage(line) == 0 && inputs.size() < MAX_INPUTS && rng.nextDouble() < UNUSED_INPUT_CHANCE) {
+                inputs.add(line);
+                others.remove(line);
+            }
+        }
         int wanted = 1 + pick(INPUT_COUNT_WEIGHTS, rng);
         while (inputs.size() < wanted && !others.isEmpty()) {
             inputs.add(others.remove(pickLeastUsedLeaning(others, rng)));
@@ -138,6 +148,11 @@ public class ProductLineFactory {
         return skill.productLines.stream()
                 .min(Comparator.comparingInt(ProductLineFactory::usage))
                 .orElseThrow(() -> new IllegalStateException("Skill " + skill.name + " has no product lines"));
+    }
+
+    /** Nothing's made from this skill's items yet: a dead end in the recipe graph. */
+    static boolean unused(Skill skill) {
+        return skill.productLines.stream().allMatch(line -> usage(line) == 0);
     }
 
     private static int usage(ProductLine productLine) {

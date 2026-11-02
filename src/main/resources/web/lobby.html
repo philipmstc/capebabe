@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="capebabe">
+<title>capebabe</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; color: #c0c0c0;
+               font: 16px/1.4 Consolas, "DejaVu Sans Mono", Menlo, "Liberation Mono", monospace; }
+  #lobby { position: fixed; inset: 0; display: grid; place-items: center; }
+  #box { border: 1px solid #c0c0c0; padding: 18px 22px; width: min(340px, calc(100vw - 32px)); box-sizing: border-box;
+         display: grid; gap: 10px; }
+  h1 { margin: 0 0 4px; font-size: 18px; font-weight: bold; color: #55ffff; }
+  #worlds { display: grid; gap: 10px; }
+  #worlds a { color: #55ff55; border: 1px solid #55ff55; padding: 6px; text-align: center; text-decoration: none;
+              overflow-wrap: anywhere; }
+  #worlds a:hover { background: #55ff55; color: #000; }
+  #status { color: #555; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="lobby">
+  <div id="box">
+    <h1>capebabe</h1>
+    <div id="worlds"></div>
+    <div id="status">Looking for worlds...</div>
+  </div>
+</div>
+<script>
+  // The running worlds, kept up to date; ?layout=phone and the like go along to the world's page.
+  const worlds = document.getElementById('worlds'), status = document.getElementById('status');
+  let shown = null;
+  async function refresh() {
+    try {
+      const text = await (await fetch('worlds.json')).text();
+      if (text === shown) return;
+      shown = text;
+      const list = JSON.parse(text);
+      worlds.replaceChildren(...list.map(world => {
+        const link = document.createElement('a');
+        link.href = world.path + location.search;
+        link.textContent = world.name;
+        return link;
+      }));
+      status.textContent = list.length ? 'Pick a world.' : 'No worlds are running just now.';
+    } catch (e) {
+      shown = null;
+      status.textContent = "Couldn't reach the server.";
+    }
+  }
+  refresh();
+  setInterval(refresh, 5000);
+</script>
+</body>
+</html>

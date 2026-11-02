@@ -10,6 +10,8 @@ import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.ui.*;
 import net.shchoo.scafe.scafe.model.World;
 import net.shchoo.scafe.scafe.net.NetworkServer;
+import net.shchoo.scafe.scafe.net.WebServer;
+import net.shchoo.scafe.scafe.net.WorldLobby;
 import net.shchoo.scafe.scafe.net.SocketConnection;
 import net.shchoo.scafe.scafe.net.Tls;
 import net.shchoo.scafe.scafe.persistence.AccountStore;
@@ -80,6 +82,10 @@ public class Main {
     }
 
     private static void run(Options options) throws Exception {
+        if (options.lobby()) {
+            runLobby(options);
+            return;
+        }
         if ((options.server() || options.host()) && options.worldPassword() == null && !options.noWorldPassword()) {
             System.err.println("Hosting needs a world password, so only people you've told it to can get in:");
             System.err.println("  --world-password <secret>   (or --no-world-password, e.g. on a home network)");
@@ -94,6 +100,7 @@ public class Main {
                     + (options.admin() ? " (admin commands on for everyone)"
                     : options.admins().isEmpty() ? "" : " (admin commands for " + String.join(", ", options.admins()) + ")"));
             System.out.println("Fingerprint (friends see this when they first connect): " + tls.fingerprint());
+            startWebServer(server, options, limits);
             network.acceptForever();
             return;
         }
@@ -108,6 +115,7 @@ public class Main {
             NetworkServer network = new NetworkServer(hosted, bindAddress(options), options.port(), options.admin(), hostTls, limits);
             network.startInBackground();
             System.out.println("Fingerprint (friends see this when they first connect): " + hostTls.fingerprint());
+            startWebServer(hosted, options, limits);
         }
         String server = options.connect() != null ? options.connect() : prefs.server() != null ? prefs.server() : "";
         // log in, play, and after a log out, back to the login (hosting: the world and its guests carry on meanwhile)
@@ -140,6 +148,18 @@ public class Main {
             }
             play(screen, login.connection().connection(), player, login.heard(), options.data(), null);
         }
+    }
+
+    /** {@code --lobby}: the web page that picks one of the worlds running from this data folder ({@link WorldLobby}). */
+    private static void runLobby(Options options) throws Exception {
+        if (options.webPort() <= 0) {
+            System.err.println("The lobby needs a port: --lobby --web-port <n>");
+            System.exit(2);
+        }
+        InetAddress bind = options.bind() != null ? InetAddress.getByName(options.bind()) : InetAddress.getLoopbackAddress();
+        WorldLobby lobby = new WorldLobby(options.data(), bind, options.webPort());
+        System.out.println("World lobby: http://" + (options.bind() != null ? options.bind() : "localhost") + ":" + lobby.port() + "/");
+        lobby.acceptForever();
     }
 
     /** The tutorial ({@link TutorialWorld}: on this computer, nothing saved) until you log out of it. */
@@ -192,6 +212,23 @@ public class Main {
     }
 
     /** {@code --bind}: the one address to listen on, or null for all of them. */
+    /**
+     * Hosting with {@code --web-port n}: the web client (a spike, {@link WebServer}) on that port. Plain HTTP, so it
+     * listens on {@code --bind}'s address if given, else only on this computer (put a TLS proxy in front to share it).
+     */
+    private static void startWebServer(GameServer server, Options options, NetworkServer.Limits limits) throws IOException {
+        if (options.webPort() <= 0) {
+            return;
+        }
+        InetAddress bind = options.bind() != null ? InetAddress.getByName(options.bind()) : InetAddress.getLoopbackAddress();
+        WebServer web = new WebServer(server, bind, options.webPort(), options.admin(), limits);
+        web.startInBackground();
+        System.out.println("Web client: http://" + (options.bind() != null ? options.bind() : "localhost") + ":" + web.port() + "/");
+        String id = options.world().matches("\\d+") ? options.world() : WorldStore.fileName(options.world());
+        Path announced = WorldLobby.announce(options.data(), id, server.world.name, bind, web.port());
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> announced.toFile().delete()));
+    }
+
     private static InetAddress bindAddress(Options options) throws IOException {
         return options.bind() == null ? null : InetAddress.getByName(options.bind());
     }
@@ -379,11 +416,13 @@ public class Main {
      * Hosting backs up the accounts and the world into {@code --backups dir} (default {@code <data>/backups}) at start
      * and every {@code --backup-hours h} (default 24; 0 = never), keeping the last {@code --keep-backups n} (7).
      * {@code --font name} picks the client's font, if it's installed. {@code --tutorial} offers the tutorial after
-     * every login (not just an account's first).
+     * every login (not just an account's first). {@code --web-port n} also serves the web client there (a spike).
+     * {@code --lobby --web-port n} runs no world, just a page there picking between the worlds running from this
+     * {@code --data} folder with a {@code --web-port} of their own, and passing each player on to theirs.
      */
     record Options(String name, String world, Path data, boolean server, boolean host, int port, boolean admin, String connect,
                    String worldPassword, boolean noWorldPassword, int maxPerIp, String bind, List<String> admins,
-                   String font, Path backups, int backupHours, int keepBackups, boolean tutorial) {
+                   String font, Path backups, int backupHours, int keepBackups, boolean tutorial, int webPort, boolean lobby) {
         static Options parse(String[] args) {
             String name = null;
             String world = "1";
@@ -400,6 +439,8 @@ public class Main {
             Path backups = null;
             int backupHours = 24, keepBackups = 7;
             boolean tutorial = false;
+            int webPort = 0;
+            boolean lobby = false;
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
                     case "--name" -> name = args[++i];
@@ -420,6 +461,8 @@ public class Main {
                     case "--backup-hours" -> backupHours = Math.max(0, Integer.parseInt(args[++i]));
                     case "--keep-backups" -> keepBackups = Math.max(1, Integer.parseInt(args[++i]));
                     case "--tutorial" -> tutorial = true;
+                    case "--web-port" -> webPort = Integer.parseInt(args[++i]);
+                    case "--lobby" -> lobby = true;
                     default -> throw new IllegalArgumentException("Unknown option " + args[i]);
                 }
             }
@@ -429,7 +472,7 @@ public class Main {
             return new Options(name, world, data, server, host, port, admin, connect,
                     worldPassword == null || worldPassword.isEmpty() ? null : worldPassword, noWorldPassword, maxPerIp,
                     bind, admins, font, backups == null ? data.resolve("backups") : backups, backupHours, keepBackups,
-                    tutorial);
+                    tutorial, webPort, lobby);
         }
 
         /** The OS user name, cleaned up to a valid game name: the login screen's name when nothing else is known. */

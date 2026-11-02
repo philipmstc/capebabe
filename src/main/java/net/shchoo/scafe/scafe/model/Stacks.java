@@ -10,12 +10,17 @@ import java.util.function.ToIntFunction;
  * Lv. 100 they keep growing). Callers pass that level in.
  */
 public final class Stacks {
-    /** How many stacks an inventory holds to start with; each trophy (a monster's drop you found) adds one. */
+    /** How many stacks an inventory holds to start with; each trophy redeemed for a slot at the Gym adds one. */
     public static final int BASE_SLOTS = 15;
 
-    /** How many stacks your inventory holds with {@code trophies} found. */
-    public static int capacity(long trophies) {
-        return BASE_SLOTS + (int) trophies;
+    /** How many stacks your inventory holds with {@code trophySlots} redeemed. */
+    public static int capacity(long trophySlots) {
+        return BASE_SLOTS + (int) trophySlots;
+    }
+
+    /** How many of them AFK crafting may fill: half (it stops there). */
+    public static int afkCapacity(int capacity) {
+        return capacity / 2;
     }
 
     private Stacks() {}

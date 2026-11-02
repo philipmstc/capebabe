@@ -61,8 +61,9 @@ public class ActionProgress {
             waiting = false;
             ticksDone = 0;
             character.emit(new Event.ActionStarted(node.id, label(node, true), tick, node.durationTicks()));
-            if (!character.canPerform(node)) {
-                character.say("Can't make any more " + node.label() + ".");
+            if (!character.canPerform(node, afk)) {
+                character.say(character.roomToMake(node.recipe, afk) || !afk ? "Can't make any more " + node.label() + "."
+                        : "Your inventory's half full: that's as far as AFK crafting goes.");
                 return false;
             }
             return true;
@@ -73,12 +74,17 @@ public class ActionProgress {
                 character.say("The " + node.label() + " ran out.");
                 return false;
             }
-            if (character.perform(node, afk) && nodes.consume(node) && !afk) {
+            boolean made = character.perform(node, afk);
+            if (made && nodes.consume(node) && !afk) {
                 character.say("The " + node.label() + " ran out.");
                 return false;
             }
-            if (!character.canPerform(node)) {
-                character.say("Can't make any more " + node.label() + ".");
+            if (!made && afk && !character.roomToMake(node.recipe, true)) {
+                return false;   // perform said: half full
+            }
+            if (!character.canPerform(node, afk)) {
+                character.say(character.roomToMake(node.recipe, afk) || !afk ? "Can't make any more " + node.label() + "."
+                        : "Your inventory's half full: that's as far as AFK crafting goes.");
                 return false;
             }
             ticksDone = 0;

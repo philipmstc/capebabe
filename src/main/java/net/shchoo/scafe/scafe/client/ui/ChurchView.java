@@ -192,7 +192,7 @@ public class ChurchView extends Widget {
                     });
                 }
                 player.inventory.forEach((item, count) -> {
-                    if (count >= Prayer.ANY_ITEM && !Prayer.isTierBelow(recipe, item)) {
+                    if (count >= Prayer.cost(player.content, recipe, item) && !Prayer.isTierBelow(recipe, item)) {
                         rows.add(payment(player, item));
                     }
                 });
@@ -207,13 +207,17 @@ public class ChurchView extends Widget {
         go(Step.MAIN);
     }
 
+    private boolean nodeless(Player player) {
+        return player.content.nodes().stream().noneMatch(node -> node.recipe.equals(recipe));
+    }
+
     private static TextColor colorOf(Player player, Product item) {
         Recipe madeBy = player.content.madeBy(item.root());
         return madeBy == null ? TextColor.ANSI.DEFAULT : SkillStyle.getColorForSkill(madeBy.skill);
     }
 
     private Row payment(Player player, Product item) {
-        int cost = Prayer.cost(recipe, item);
+        int cost = Prayer.cost(player.content, recipe, item);
         int have = player.inventory.getOrDefault(item, 0);
         TextColor color = colorOf(player, item);
         return new Row(cost + " x " + item.name + " (you have " + ShortNumbers.of(have) + ")", color, have < cost ? null : () -> {
@@ -292,8 +296,8 @@ public class ChurchView extends Widget {
                     bounds().width() - 4));
         } else if (step == Step.PAY && rows.stream().allMatch(r -> r.action() == null)) {
             Product below = Prayer.tierBelow(recipe);
-            notes.add("You need " + (below == null ? "" : Prayer.cost(recipe, below) + " x " + below.name + ", or ")
-                    + Prayer.ANY_ITEM + " of any one item.");
+            notes.add("You need " + (below == null ? "" : Prayer.cost(player.content, recipe, below) + " x " + below.name + ", or ")
+                    + (nodeless(player) ? Prayer.UNFOUND_ANY_ITEM : Prayer.ANY_ITEM) + " of any one item.");
         }
         return notes;
     }

@@ -115,9 +115,8 @@ public class Tutorial {
     public List<String> text(Player player) {
         if (dropShowing) {
             return List.of("A monster drop!",
-                    "Monster drops are uniqueish: each kind of monster drops each of its items only a few times in "
-                            + "the whole world (the first just once, the next twice...), to whoever's lucky.",
-                    "Every one you find is a trophy, and each trophy adds a slot to your inventory.");
+                    "Monster drops get less unique but rarer.",
+                    "Every one you find is a trophy: put it on display at a Gym for a slot in your inventory, or for 5,000 attacks of Gym membership.");
         }
         String primary = skill(player, SkillType.PRIMARY).map(s -> s.name).orElse("a skill");
         String secondary = skill(player, SkillType.SECONDARY).map(s -> s.name).orElse("a secondary skill");
@@ -131,7 +130,7 @@ public class Tutorial {
                     " " + symbol(player, item) + "     <-- the skill that makes it (" + primary + ").",
                     "." + symbol(player, item) + ":    <-- dots either side are the item's tier: none at tier 0, up to :"
                             + symbol(player, item) + ": at tier 4. Higher tiers need a higher level to make, but are more useful.",
-                    "x" + player.inventory.getOrDefault(item, 0) + "    <-- how many in this stack. A stack holds as many as your "
+                    "x" + Math.min(player.inventory.getOrDefault(item, 0), player.stackSize(item)) + "    <-- how many in this stack. A stack holds as many as your "
                             + "level in that skill, so it grows as you level up.")).orElse(List.of());
             case KEEP_CRAFTING -> List.of("Keep crafting.",
                     "Making things levels you up -- and levelling up turns up new skills and nodes.");

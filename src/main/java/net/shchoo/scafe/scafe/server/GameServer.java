@@ -96,6 +96,11 @@ public class GameServer {
     private final Storage store;
     private final List<Session> sessions = new CopyOnWriteArrayList<>();
     private final Map<Integer, GameCharacter> online = new LinkedHashMap<>();
+    /** How often your friends list is brought up to date. */
+    private static final int FRIENDS_TICKS = 8;
+    private static final int MAX_FRIENDS = 100;
+    /** Friends who aren't in the world, as last seen (so the store's asked once). */
+    private final Map<String, Event.FriendInfo> loggedOutFriends = new HashMap<>();
     private final NodeStates nodes = new NodeStates(this::broadcast);
     private Discovery discovery = new Discovery(new Random());
     private final Monsters monsters = new Monsters(this::passable);
@@ -254,7 +259,7 @@ public class GameServer {
 
     /**
      * All aboard for {@code stationId} (picked from the station menu, which the client opened on q), paying the
-     * fare ({@link Stations#fare}): one of skillN{0}-0 for station N.
+     * fare ({@link Stations#fareFrom}): one item made by skill N for station N, any tier or prestige -- the cheapest held.
      */
     void ride(GameCharacter character, int stationId) {
         Building from = Stations.near(world.content, character.position());
@@ -277,9 +282,10 @@ public class GameServer {
             character.say("There's no direct line from " + Stations.name(line.indexOf(from)) + " to " + Stations.name(index) + ".");
             return;
         }
-        Product fare = Stations.fare(world.content, index);
-        if (fare != null && character.inventory.getOrDefault(fare, 0) < 1) {
-            character.say("The fare to " + Stations.name(index) + " is 1 x " + fare.name + ".");
+        Skill fareSkill = Stations.fareSkill(world.content, index);
+        Product fare = Stations.fareFrom(world.content, index, character.inventory);
+        if (fareSkill != null && fare == null) {
+            character.say("The fare to " + Stations.name(index) + " is 1 of any " + fareSkill.name + " item.");
             return;
         }
         if (fare != null) {
@@ -348,6 +354,77 @@ public class GameServer {
     }
 
     /** A bank right next to (or under) {@code position}, or null. */
+    private GameCharacter onlineNamed(String name) {
+        return online.values().stream().filter(c -> c.name.equals(name)).findFirst().orElse(null);
+    }
+
+    private void addFriend(GameCharacter character, String name) {
+        GameCharacter friend = onlineNamed(name);
+        if (friend == null || friend == character) {
+            character.say("You can only friend someone who's playing.");
+        } else if (character.friends.size() >= MAX_FRIENDS) {
+            character.say("Your friends list is full.");
+        } else if (character.friends.add(name)) {
+            character.saveSoon = true;
+            character.say(Event.MessageKind.NOTICE, name + " is on your friends list.");
+            emitFriends(character);
+        }
+    }
+
+    private void whisper(GameCharacter character, String name, String raw) {
+        String text = raw == null ? "" : raw.replaceAll("\\p{Cntrl}", "").strip();
+        if (text.isEmpty() || !character.friends.contains(name)) {
+            return;
+        }
+        GameCharacter friend = onlineNamed(name);
+        if (friend == null || friend.offline) {
+            character.say(name + " isn't online.");
+            return;
+        }
+        Event.Whisper event = new Event.Whisper(character.name, name, character.colorIndex,
+                text.length() > MAX_CHAT ? text.substring(0, MAX_CHAT) : text);
+        character.emit(event);
+        friend.emit(event);
+    }
+
+    private void emitFriends(GameCharacter character) {
+        character.emit(new Event.Friends(character.friends.stream().map(this::friendInfo).toList()));
+    }
+
+    private Event.FriendInfo friendInfo(String name) {
+        GameCharacter live = onlineNamed(name);
+        return live != null ? friendInfo(live, !live.offline, live.position()) : loggedOutFriends.computeIfAbsent(name, this::savedFriend);
+    }
+
+    private Event.FriendInfo friendInfo(GameCharacter character, boolean on, Position at) {
+        Map<Integer, Integer> levels = new HashMap<>(), prestige = new HashMap<>();
+        int total = 0;
+        for (Skill skill : world.content.skills) {
+            levels.put(skill.id, character.getLevel(skill));
+            total += character.getLevel(skill);
+        }
+        character.prestige.forEach((skill, times) -> prestige.put(skill.id, times));
+        return new Event.FriendInfo(character.name, on, character.combatLevel(), total, at, levels, prestige);
+    }
+
+    /** Someone logged out: as saved, or nothing known if they can't be found. */
+    private Event.FriendInfo savedFriend(String name) {
+        try {
+            GameCharacter saved = store == null ? null : store.loadCharacterNamed(name);
+            if (saved != null) {
+                return friendInfo(saved, false, null);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return new Event.FriendInfo(name, false, 1, 0, null, Map.of(), Map.of());
+    }
+
+    private Building gymNear(Position position) {
+        return world.content.buildings().stream()
+                .filter(b -> b.kind() == Building.Kind.GYM && b.withinSolid(position, 1)).findFirst().orElse(null);
+    }
+
     private Building bankNear(Position position) {
         return world.content.buildings().stream()
                 .filter(b -> b.kind() == Building.Kind.BANK && b.within(position, 1)).findFirst().orElse(null);
@@ -477,6 +554,15 @@ public class GameServer {
         }
         combat.tick(tick);
         combat.training(tick);
+        if (tick % FRIENDS_TICKS == 0) {
+            online.values().stream().filter(c -> !c.friends.isEmpty() && !c.offline).forEach(this::emitFriends);
+        }
+        // logged out AFK, and the AFK's over (half full, nothing left to make with, the membership used up): gone
+        for (GameCharacter character : List.copyOf(online.values())) {
+            if (character.offline && !character.afk()) {
+                logOut(character);
+            }
+        }
         for (GameCharacter character : online.values()) {
             if (character.pendingUse != null) {
                 character.arrive(world.content.nodeAt(character.pendingUse), tick);
@@ -633,7 +719,8 @@ public class GameServer {
         if (character == null) {
             return;
         }
-        if ((character.isDown() || character.isRiding()) && !(intent instanceof Intent.Chat)) {
+        if ((character.isDown() || character.isRiding()) && !(intent instanceof Intent.Chat || intent instanceof Intent.Whisper
+                || intent instanceof Intent.AddFriend || intent instanceof Intent.RemoveFriend)) {
             // knocked out or on the train: nothing to do but wait (and talk); undo any steps the client guessed at
             if (intent instanceof Intent.Move) {
                 character.emit(new Event.StepsCleared(character.position(), character.facing));
@@ -665,6 +752,16 @@ public class GameServer {
                 broadcast(new Event.Chat(character.name, character.colorIndex,
                         text.length() > MAX_CHAT ? text.substring(0, MAX_CHAT) : text));
             }
+        } else if (intent instanceof Intent.AddFriend add) {
+            addFriend(character, add.name());
+        } else if (intent instanceof Intent.RemoveFriend remove) {
+            if (character.friends.remove(remove.name())) {
+                character.saveSoon = true;
+                character.say(remove.name() + " is off your friends list.");
+                emitFriends(character);
+            }
+        } else if (intent instanceof Intent.Whisper whisper) {
+            whisper(character, whisper.name(), whisper.text());
         } else if (intent instanceof Intent.SetColor setColor) {
             if (setColor.colorIndex() >= 0 && setColor.colorIndex() < Intent.PLAYER_COLORS) {
                 character.colorIndex = setColor.colorIndex();
@@ -764,6 +861,12 @@ public class GameServer {
             } else {
                 character.withdraw(world.content.product(withdraw.productId()), withdraw.count());
             }
+        } else if (intent instanceof Intent.DisplayTrophy display) {
+            if (gymNear(character.position()) == null) {
+                character.say("Trophies go on display at a Gym.");
+            } else {
+                character.displayTrophy(world.content.product(display.productId()), display.forSlot());
+            }
         } else if (intent instanceof Intent.Discard discard) {
             character.discard(world.content.product(discard.productId()), discard.count());
         } else if (intent instanceof Intent.Unequip unequip) {
@@ -802,10 +905,6 @@ public class GameServer {
         String name = login.name();
         if (!isValidName(name)) {
             refuse(session, "Names are 1-20 letters, digits, - or _.");
-            return;
-        }
-        if (online.values().stream().anyMatch(c -> c.name.equals(name))) {
-            refuse(session, name + " is already playing in this world.");
             return;
         }
         String password = login.password() == null ? "" : login.password();
@@ -896,13 +995,11 @@ public class GameServer {
             session.events.add(new Event.Message("Names are 1-20 letters, digits, - or _."));
             return;
         }
-        if (online.values().stream().anyMatch(c -> c.name.equals(name))) {
-            session.events.add(new Event.Message(name + " is already playing in this world."));
-            return;
-        }
+        GameCharacter replaced = logOutElsewhere(name);
         GameCharacter character;
         try {
-            character = loadOrCreate(name);
+            // still in the world (playing elsewhere, or logged out AFK): carry on with it as it is
+            character = replaced != null ? replaced : loadOrCreate(name);
         } catch (Exception e) {
             e.printStackTrace();
             session.events.add(new Event.Message("Couldn't load " + name + ": " + e.getMessage()));
@@ -929,12 +1026,50 @@ public class GameServer {
         }
         tellOthers(character, Event.MessageKind.NOTICE, name + " logged in.");
         character.emit(new Event.CapacityBonus(nodes.bonus()));
+        character.emit(character.gymStanding());
+        loggedOutFriends.remove(character.name);
+        emitFriends(character);
+        // taken over mid-way: what it's doing goes on, on the new screen
+        if (character.currentAction != null) {
+            ActionProgress action = character.currentAction;
+            character.emit(new Event.ActionStarted(action.node.id, ActionProgress.label(action.node, action.afk), tick,
+                    action.node.durationTicks()));
+        } else if (character.training != null) {
+            character.emit(new Event.ActionStarted(-1, Combat.TRAINING, tick, Combat.SWING_TICKS));
+        }
         // prestiged before the Merch Ant traded: it asks for you now
         character.meetMerchantIfDue();
         for (GameCharacter other : nearby) {
             other.seen.add(character.id);
             other.emit(new Event.EntityEntered(character.info()));
         }
+    }
+
+    /**
+     * Logging in as someone still in the world: the new login takes the character over as it is -- mid-craft, AFK,
+     * wherever -- and any other login of it is told why and hung up (at your computer, then on your phone: the
+     * phone plays, the computer stops). Returns that character, out of {@link #online} for join to put back, or
+     * null if they weren't in the world.
+     */
+    private GameCharacter logOutElsewhere(String name) {
+        GameCharacter character = online.values().stream().filter(c -> c.name.equals(name)).findFirst().orElse(null);
+        if (character == null) {
+            return null;
+        }
+        for (Session other : sessions) {
+            if (other.character == character && !other.closed) {
+                String why = "You logged in somewhere else, so you've been logged out here.";
+                other.events.add(new Event.Message(why, Event.MessageKind.NOTICE));
+                other.events.add(new Event.LoginRefused(why));
+                other.character = null;
+                other.closed = true;
+            }
+        }
+        character.disconnect();
+        character.offline = false;
+        character.seen.clear();
+        online.remove(character.id);
+        return character;
     }
 
     private void leave(Session session) {
@@ -947,7 +1082,23 @@ public class GameServer {
         if (character == null) {
             return;
         }
+        if (character.afk() && !character.isDown()) {
+            // AFK (crafting, or training at the Gym): it stays in the world and carries on until that stops
+            character.disconnect();
+            character.offline = true;
+            save(character);
+            tellOthers(character, Event.MessageKind.NOTICE, character.name + " logged out (still AFK).");
+            return;
+        }
+        logOut(character);
+    }
+
+    /** Out of the world: whatever it was doing stopped, saved, and everyone told. */
+    private void logOut(GameCharacter character) {
+        loggedOutFriends.put(character.name, friendInfo(character, false, null));
+        character.offline = false;
         character.stopAction(null);
+        combat.stopTraining(character, null);
         combat.endFight(character, null);
         if (character.isDown()) {
             combat.wakeUp(character);

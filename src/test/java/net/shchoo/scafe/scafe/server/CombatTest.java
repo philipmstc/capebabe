@@ -493,7 +493,7 @@ class CombatTest {
         assertEquals(2, alice.inventory.get(item), "one swing, one used");
         assertEquals(item, alice.weapon, "still equipped: there are more");
 
-        double strength = 3 * DamageColor.multiplier(DamageColor.of(alice.content, item), type.colorIndex);
+        double strength = 3 * DamageColor.hueMultiplier(DamageColor.hue(alice.content, item), DamageColor.hueOf(type.colorIndex));
         int hit = Math.min(monster.hp(), (int) Math.ceil(strength - 1e-9));
         assertEquals(monster.hp() - hit, alice.others.get(monster.id()).hp(), "tier 2 = 3 base, rounded up by the rigged dice");
     }
@@ -512,7 +512,7 @@ class CombatTest {
             tick();
         }
         assertEquals(3, alice.inventory.get(item), "one monster swing at you, one used");
-        double taken = DamageColor.multiplier(type.colorIndex, DamageColor.of(alice.content, item));
+        double taken = DamageColor.hueMultiplier(DamageColor.hueOf(type.colorIndex), DamageColor.hue(alice.content, item));
         assertEquals(hp - (int) Math.ceil(taken - 1e-9), alice.hp, "its 1 damage times its colour against the armour's");
     }
 

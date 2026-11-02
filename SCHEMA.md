@@ -1,6 +1,6 @@
 # Database schema
 
-Generated from fresh databases made by the current code (accounts v2, worlds v25). The source of truth is the
+Generated from fresh databases made by the current code (accounts v2, worlds v27). The source of truth is the
 `MIGRATIONS` lists in `persistence/AccountStore.java` and `persistence/WorldStore.java`: each entry is one
 schema version, applied in order and tracked with `PRAGMA user_version`, so old files upgrade in place.
 
@@ -79,7 +79,7 @@ CREATE TABLE node (id integer primary key, content_version integer not null, ord
                    capacity integer not null, max_charges integer not null, respawn_ticks integer not null);
 CREATE TABLE game_character (id integer primary key autoincrement, account_id integer not null unique,
                              name text not null, x integer not null, y integer not null,
-                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, weapon_product_id integer references product(id), armor_product_id integer references product(id), hp integer, blessing_recipe_id integer references recipe(id), blessing_left integer not null default 0, blessing_strength integer not null default 1, met_merchant integer not null default 0);
+                             last_action_x integer, last_action_y integer, facing text not null default 'DOWN', color_index integer not null default 0, running integer not null default 0, auto_investigate integer not null default 0, weapon_product_id integer references product(id), armor_product_id integer references product(id), hp integer, blessing_recipe_id integer references recipe(id), blessing_left integer not null default 0, blessing_strength integer not null default 1, met_merchant integer not null default 0, trophy_slots integer not null default -1, gym_attacks integer not null default 0);
 CREATE TABLE "character_skill_xp" (character_id integer not null references game_character(id),
                                      skill_id integer not null, xp integer not null,
                                      primary key (character_id, skill_id));
@@ -112,6 +112,12 @@ CREATE TABLE bank_item (character_id integer not null references game_character(
                         primary key (character_id, ordinal));
 CREATE TABLE character_stat (character_id integer not null references game_character(id), stat text not null,
                              value integer not null, primary key (character_id, stat));
+CREATE TABLE character_friend (character_id integer not null references game_character(id),
+                               ordinal integer not null, friend_name text not null,
+                               primary key (character_id, ordinal));
+CREATE TABLE character_trophy (character_id integer not null references game_character(id),
+                               ordinal integer not null, product_id integer not null references product(id),
+                               primary key (character_id, ordinal));
 ```
 
 When the schema changes, regenerate the Tables section from a fresh data folder (run the game once with

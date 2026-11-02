@@ -131,6 +131,22 @@ class MerchantTest {
     }
 
     @Test
+    void whatDoesntFitGoesToTheBank() {
+        Product plus = server.prestigeProduct(base(), 3);
+        alice.metMerchant = true;
+        alice.changeInventory(plus, 5);
+        atTheMerchant();
+        tick();
+        player.trade(player.content.product(plus.id), 5);
+        tick();
+        // Lv. 1: stacks of 1, so 15 of the 20 fit
+        assertEquals(15, alice.inventory.get(base()));
+        assertEquals(5, alice.bank.get(base()));
+        assertTrue(log.contains("The Merch Ant takes 5 x " + plus.name + " and gives you 20 x " + base().name
+                + " (5 sent to your bank)."), log.toString());
+    }
+
+    @Test
     void throughItsWindow() {
         Product plus = server.prestigeProduct(base(), 1);
         // Lv. 50: stacks of 50, so it all fits in 15 slots

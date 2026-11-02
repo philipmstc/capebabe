@@ -137,27 +137,27 @@ class WorldGeneratorTest {
     }
 
     @Test
-    void dropsComeInOrder_dropKDropsKPlus1Times_withHalvingChances() {
+    void dropsComeInOrder_eachDropTwiceAsManyTimesAsTheLast_withHalvingChances() {
         World world = new World(1, "w", 4);
         world.content.apply(WorldGenerator.newMonsterType(world));
         MonsterType monster = world.content.monsters.get(0);
         assertEquals(2, monster.nextDropOneIn());
         List<Integer> newProducts = new java.util.ArrayList<>();
-        for (int find = 0; find < 6; find++) {
+        for (int find = 0; find < 7; find++) {
             ContentBatch batch = WorldGenerator.newDrop(world, monster.id, "p" + find);
             assertEquals(1, batch.drops().size());
             newProducts.add(batch.products().size());
             world.content.apply(batch);
         }
-        assertEquals(List.of("monster0-drop0", "monster0-drop1", "monster0-drop1", "monster0-drop2", "monster0-drop2", "monster0-drop2"),
-                monster.drops.stream().map(d -> d.product().name).toList(), "once, twice, three times");
-        assertEquals(List.of(1, 1, 0, 1, 0, 0), newProducts, "a copy is the same item, not a new one");
-        assertEquals(List.of(2, 4, 4, 8, 8, 8), monster.drops.stream().map(MonsterType.Drop::oneIn).toList());
+        assertEquals(List.of("monster0-drop0", "monster0-drop1", "monster0-drop1", "monster0-drop2", "monster0-drop2", "monster0-drop2", "monster0-drop2"),
+                monster.drops.stream().map(d -> d.product().name).toList(), "once, twice, four times");
+        assertEquals(List.of(1, 1, 0, 1, 0, 0, 0), newProducts, "a copy is the same item, not a new one");
+        assertEquals(List.of(2, 4, 4, 8, 8, 8, 8), monster.drops.stream().map(MonsterType.Drop::oneIn).toList());
         assertEquals(16, monster.nextDropOneIn(), "drop 3 next");
         assertEquals(2, monster.found(monster.dropProducts().get(1)));
         WorldContent replay = new WorldContent();
         world.content.history().forEach(replay::apply);
-        assertEquals(6, replay.monsters.get(0).drops.size(), "and replayed the same");
+        assertEquals(7, replay.monsters.get(0).drops.size(), "and replayed the same");
     }
 
     @Test

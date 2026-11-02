@@ -253,6 +253,9 @@ public class Player {
             oracleAt = System.currentTimeMillis();
         } else if (event instanceof Event.CapacityBonus bonus) {
             capacityBonus = bonus.bonus();
+        } else if (event instanceof Event.GymChanged gym) {
+            trophySlots = gym.trophySlots();
+            gymAttacks = gym.gymAttacks();
         } else if (event instanceof Event.MerchantCalls) {
             metMerchant = true;
             merchantCalling = true;
@@ -753,9 +756,13 @@ public class Player {
         return serverTick <= bankSentAt;
     }
 
-    /** How many stacks your inventory holds: {@link Stacks#BASE_SLOTS}, and one a trophy you've found. */
+    /** Inventory slots earned with trophies at the Gym, and Gym attacks left (Event.GymChanged). */
+    public int trophySlots;
+    public long gymAttacks;
+
+    /** How many stacks your inventory holds: {@link Stacks#BASE_SLOTS}, and one a trophy redeemed for a slot. */
     public int inventorySlots() {
-        return Stacks.capacity(trophies());
+        return Stacks.capacity(trophySlots);
     }
 
     /** Inventory slots in use, out of {@link #inventorySlots}. */

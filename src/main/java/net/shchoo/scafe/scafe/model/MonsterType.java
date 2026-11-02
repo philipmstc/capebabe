@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * A kind of monster in a world (content, like a skill). Its drops come in order, each a limited run: drop k
- * (from 0) drops k + 1 times in all ({@link #copiesOf}), to anyone, then never again in this world; each kill has a
+ * (from 0) drops 2^k times in all ({@link #copiesOf}), to anyone, then never again in this world; each kill has a
  * 1 in 2^(k+1) chance of dropping the next copy of the drop that's due. {@link #drops} is every find, in order.
  */
 public class MonsterType {
@@ -44,9 +44,9 @@ public class MonsterType {
         return oneInForDrop(nextDropIndex());
     }
 
-    /** How many times drop {@code index} drops in all: the first once, the second twice, ... */
+    /** How many times drop {@code index} drops in all: the first once, then twice, four times, eight... */
     public static int copiesOf(int index) {
-        return index + 1;
+        return 1 << index;
     }
 
     /** The different drops found so far, in order. */

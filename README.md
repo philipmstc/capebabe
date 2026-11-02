@@ -78,6 +78,15 @@ listens on one address only, and backups of the accounts and the world go to `<d
 (see HOSTING.md, Phase 2). Players can pick their font with `--font "Font Name"`. A new account is offered a tutorial on its first
 login; `--tutorial` offers it after every login.
 
+Experimental: hosting with `--web-port 8080` also serves a browser client at `http://localhost:8080/`: the same
+screen as the terminal client, with pixel-art pictures for skills and monsters and smooth movement. It's plain HTTP
+on this computer only (or `--bind`'s address); to share it, put a proxy that does TLS (e.g. Caddy) in front of it.
+Working on it: `CAPEBABE_WEB_DIR=src/main/resources/web` serves the page's files from there instead of the jar.
+
+Running several worlds? Each needs its own `--port` and `--web-port`, and `--lobby --web-port 8000` gives them one
+address: its page lists the worlds running from the same `--data` folder and passes each player on to the one they
+pick, at `/w/<world>/`. Over Tailscale, point the default address at it with `tailscale serve --bg --https=443 8000`.
+
 ## Building from source
 
 Use `git clone` (a GitHub zip download loses `gradlew`'s permission to run on macOS/Linux), then:

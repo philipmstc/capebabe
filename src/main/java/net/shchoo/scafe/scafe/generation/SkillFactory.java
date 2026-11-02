@@ -18,6 +18,11 @@ public class SkillFactory {
 
     private static final double TOLERANCE = 0.33;
 
+    /** With a primary skill nothing uses yet, the next skill is a secondary (which takes it) this often. */
+    private static final double SECONDARY_FOR_UNUSED_PRIMARY = 0.95;
+    /** With 2 or more secondaries nothing uses, the next is a tertiary: 1 - this^(unused - 1): 50%, 75%, 88%... */
+    private static final double TERTIARY_FOR_UNUSED_SECONDARIES = 0.5;
+
     static class WeightedSkillTypeChoice {
         SkillType type;
         double weight;
@@ -108,6 +113,14 @@ public class SkillFactory {
 
     public static Skill createRandomSkill(WorldContent world, Random rng) {
         List<Skill> crafting = world.craftingSkills();
+        boolean unusedPrimary = crafting.stream().anyMatch(s -> s.type == PRIMARY && ProductLineFactory.unused(s));
+        if (crafting.size() >= 2 && unusedPrimary && rng.nextDouble() < SECONDARY_FOR_UNUSED_PRIMARY) {
+            return createSkill(world, rng, world.nextSkillName(), SECONDARY);
+        }
+        long unusedSecondaries = crafting.stream().filter(s -> s.type == SECONDARY && ProductLineFactory.unused(s)).count();
+        if (unusedSecondaries >= 2 && rng.nextDouble() >= Math.pow(TERTIARY_FOR_UNUSED_SECONDARIES, unusedSecondaries - 1)) {
+            return createSkill(world, rng, world.nextSkillName(), TERTIARY);
+        }
         SkillType type = typeInNeedOfLove(
                 crafting,
                 rng,

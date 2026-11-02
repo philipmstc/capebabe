@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="capebabe">
+<title>capebabe</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; color: #c0c0c0; overflow: hidden;
+               font: 16px/1.4 Consolas, "DejaVu Sans Mono", Menlo, "Liberation Mono", monospace; }
+  canvas { display: block; touch-action: none; -webkit-user-select: none; user-select: none; }
+  #login { position: fixed; inset: 0; display: grid; place-items: center; background: #000; }
+  #login form { border: 1px solid #c0c0c0; padding: 18px 22px; width: min(340px, calc(100vw - 32px)); box-sizing: border-box;
+                display: grid; gap: 10px; }
+  #login h1 { margin: 0 0 4px; font-size: 18px; font-weight: bold; color: #55ffff; }
+  #login label { display: grid; gap: 2px; color: #555; }
+  #login input { background: #000; color: #fff; border: 0; border-bottom: 1px solid #555; padding: 4px 0; font: inherit; outline: none; }
+  #login input:focus { border-bottom-color: #55ffff; }
+  #login button { background: #000; color: #55ff55; border: 1px solid #55ff55; padding: 6px; font: inherit; cursor: pointer; }
+  #login button:hover { background: #55ff55; color: #000; }
+  #error { color: #ff5555; min-height: 1.4em; }
+  #login p { margin: 0; color: #555; font-size: 13px; }
+  #login a { color: #55ffff; }
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<!-- what chat types into (drawn on the canvas as the log's last line) -->
+<input id="chat-input" autocomplete="off" maxlength="200" aria-label="Chat" style="position: fixed; left: -1000px; top: 0; opacity: 0;">
+<div id="login">
+  <form id="login-form" action="javascript:void 0">
+    <h1>capebabe</h1>
+    <label>Name <input id="name" autocomplete="username" required maxlength="20"></label>
+    <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
+    <label>World password (if it has one) <input id="world-password" type="password" autocomplete="off"></label>
+    <button type="submit">[ Log in ]</button>
+    <div id="error"></div>
+    <p>New here? Pick a name and a password: that makes your account.</p>
+    <p><a href="#" id="tutorial-link">Play the tutorial</a> (a world of your own, nothing kept)</p>
+  </form>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>

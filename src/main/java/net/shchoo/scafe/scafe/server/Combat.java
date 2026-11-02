@@ -176,6 +176,11 @@ class Combat {
             stopTraining(character, "You stop training.");
             return;
         }
+        if (character.gymAttacks <= 0) {
+            character.say("Training here takes a membership: put a trophy (a monster drop) on display at the Gym for "
+                    + String.format(java.util.Locale.ROOT, "%,d", GameCharacter.GYM_ATTACKS_PER_TROPHY) + " attacks.");
+            return;
+        }
         character.stopAction(null);
         endFight(character, null);
         if (character.armor != null) {
@@ -222,6 +227,12 @@ class Combat {
             if (tick < training.nextSwing) {
                 continue;
             }
+            if (character.gymAttacks <= 0) {
+                stopTraining(character, "Your Gym membership's used up: put another trophy on display for more.");
+                continue;
+            }
+            character.gymAttacks--;
+            character.emit(character.gymStanding());
             training.nextSwing = tick + SWING_TICKS;
             int damage = server.random().nextDouble() < PLAYER_ACCURACY
                     ? round(weaponBase(character.weapon) + character.combatLevel() / 4.0) : 0;
@@ -302,8 +313,8 @@ class Combat {
     double hitStrength(GameCharacter character, MonsterType type) {
         Product weapon = character.weapon;
         int base = weaponBase(weapon);
-        int color = weapon == null ? DamageColor.FISTS : DamageColor.of(server.world.content, weapon);
-        return (base + character.combatLevel() / 4) * DamageColor.multiplier(color, type.colorIndex);
+        double hue = weapon == null ? DamageColor.hueOf(DamageColor.FISTS) : DamageColor.hue(server.world.content, weapon);
+        return (base + character.combatLevel() / 4) * DamageColor.hueMultiplier(hue, DamageColor.hueOf(type.colorIndex));
     }
 
     /**
@@ -313,7 +324,7 @@ class Combat {
         int raw = 1 + server.random().nextInt(Math.max(1, type.maxHit));
         Product armor = character.armor;
         return armor == null ? raw
-                : raw * DamageColor.multiplier(type.colorIndex, DamageColor.of(server.world.content, armor));
+                : raw * DamageColor.hueMultiplier(DamageColor.hueOf(type.colorIndex), DamageColor.hue(server.world.content, armor));
     }
 
     /**

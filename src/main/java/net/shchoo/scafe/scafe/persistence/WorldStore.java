@@ -216,6 +216,22 @@ public class WorldStore extends SqliteStore implements Storage {
             insert into character_prestige_v25 select character_id, skill_id, prestige, banked_xp from character_prestige;
             drop table character_prestige;
             alter table character_prestige_v25 rename to character_prestige;
+            """,
+            // v26: trophies don't add slots by themselves any more: they go on display at a Gym, each for a slot or
+            // for Gym membership (attacks). trophy_slots -1: not worked out yet (the first load sets it to the
+            // trophies found by then, so nobody loses space)
+            """
+            alter table game_character add column trophy_slots integer not null default -1;
+            alter table game_character add column gym_attacks integer not null default 0;
+            create table character_trophy (character_id integer not null references game_character(id),
+                                           ordinal integer not null, product_id integer not null references product(id),
+                                           primary key (character_id, ordinal));
+            """,
+            // v27: friends, by name
+            """
+            create table character_friend (character_id integer not null references game_character(id),
+                                           ordinal integer not null, friend_name text not null,
+                                           primary key (character_id, ordinal));
             """
     );
 
@@ -518,6 +534,16 @@ public class WorldStore extends SqliteStore implements Storage {
         return rs.wasNull() ? null : world.content.product(id);
     }
 
+    /** The character called {@code name} in this world, or null. */
+    public GameCharacter loadCharacterNamed(String name) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement("select account_id from game_character where name = ?")) {
+            ps.setString(1, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? loadCharacter(rs.getInt(1)) : null;
+            }
+        }
+    }
+
     /** The account's character in this world, or null if it doesn't have one yet. */
     public GameCharacter loadCharacter(int accountId) throws SQLException {
         GameCharacter character;
@@ -541,6 +567,8 @@ public class WorldStore extends SqliteStore implements Storage {
                 character.weapon = product(rs, "weapon_product_id");
                 character.armor = product(rs, "armor_product_id");
                 character.metMerchant = rs.getInt("met_merchant") != 0;
+                character.trophySlots = rs.getInt("trophy_slots");
+                character.gymAttacks = rs.getLong("gym_attacks");
                 int blessing = rs.getInt("blessing_recipe_id");
                 if (!rs.wasNull()) {
                     character.blessing = world.content.recipe(blessing);
@@ -555,6 +583,13 @@ public class WorldStore extends SqliteStore implements Storage {
         }
         WorldContent content = world.content;
         int id = character.id;
+        query("select * from character_friend where character_id = ? order by ordinal", id, rs -> character.friends.add(rs.getString("friend_name")));
+        query("select * from character_trophy where character_id = ? order by ordinal", id, rs -> {
+            Product trophy = content.product(rs.getInt("product_id"));
+            if (trophy != null) {
+                character.displayedTrophies.add(trophy);
+            }
+        });
         query("select * from character_skill_xp where character_id = ?", id, rs ->
                 character.xp.put(content.skill(rs.getInt("skill_id")), rs.getLong("xp")));
         query("select * from character_prestige where character_id = ?", id, rs -> {
@@ -610,19 +645,33 @@ public class WorldStore extends SqliteStore implements Storage {
     public void saveCharacter(GameCharacter character) throws SQLException {
         transaction(() -> {
             try (PreparedStatement ps = connection.prepareStatement(
-                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ?, weapon_product_id = ?, armor_product_id = ?, hp = ?, blessing_recipe_id = ?, blessing_left = ?, blessing_strength = ?, met_merchant = ? where id = ?")) {
+                    "update game_character set x = ?, y = ?, last_action_x = ?, last_action_y = ?, facing = ?, color_index = ?, running = ?, auto_investigate = ?, weapon_product_id = ?, armor_product_id = ?, hp = ?, blessing_recipe_id = ?, blessing_left = ?, blessing_strength = ?, met_merchant = ?, trophy_slots = ?, gym_attacks = ? where id = ?")) {
                 Position last = character.lastActionAt;
                 set(ps, character.x, character.y, last == null ? null : last.x(), last == null ? null : last.y(),
                         character.facing.name(), character.colorIndex, character.running ? 1 : 0,
                         character.autoInvestigate ? 1 : 0, character.weapon == null ? null : character.weapon.id,
                         character.armor == null ? null : character.armor.id,
                         character.currentHp(), character.blessing == null ? null : character.blessing.id,
-                        character.blessingLeft, Math.max(1, character.blessingStrength), character.metMerchant ? 1 : 0, character.id);
+                        character.blessingLeft, Math.max(1, character.blessingStrength), character.metMerchant ? 1 : 0,
+                        character.trophySlots, character.gymAttacks, character.id);
                 ps.executeUpdate();
             }
-            for (String table : List.of("character_skill_xp", "character_prestige", "inventory", "bank_item", "goal", "character_tried_node", "character_stat")) {
+            for (String table : List.of("character_skill_xp", "character_prestige", "inventory", "bank_item", "goal", "character_tried_node", "character_stat", "character_trophy", "character_friend")) {
                 try (PreparedStatement ps = connection.prepareStatement("delete from " + table + " where character_id = ?")) {
                     ps.setInt(1, character.id);
+                    ps.executeUpdate();
+                }
+            }
+            try (PreparedStatement ps = connection.prepareStatement("insert into character_friend values (?, ?, ?)")) {
+                int ordinal = 0;
+                for (String friend : character.friends) {
+                    set(ps, character.id, ordinal++, friend);
+                    ps.executeUpdate();
+                }
+            }
+            try (PreparedStatement ps = connection.prepareStatement("insert into character_trophy values (?, ?, ?)")) {
+                for (int i = 0; i < character.displayedTrophies.size(); i++) {
+                    set(ps, character.id, i, character.displayedTrophies.get(i).id);
                     ps.executeUpdate();
                 }
             }

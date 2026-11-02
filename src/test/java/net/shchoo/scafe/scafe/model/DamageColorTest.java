@@ -56,6 +56,31 @@ class DamageColorTest {
     }
 
     @Test
+    void everySkillHasAHueOfItsOwn_inTheBiggestGapLeft() {
+        double[] expected = {0, 60, 120, 180, 240, 300, 30, 90, 150, 210, 270, 330, 15, 75, 135, 195, 255, 315,
+                45, 105, 165, 225, 285, 345, 7.5, 67.5, 127.5, 187.5, 247.5, 307.5, 37.5};
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], skillHue(i), 1e-9, "skill colour " + i);
+        }
+        java.util.Set<Double> seen = new java.util.HashSet<>();
+        for (int i = 0; i < 60; i++) {
+            assertTrue(seen.add(skillHue(i)), "no two the same: " + i);
+        }
+    }
+
+    @Test
+    void anyTwoHuesFight_bySmoothlyHowFarApartTheyAre() {
+        assertEquals(2, hueMultiplier(30, 150), 1e-9, "120 degrees on");
+        assertEquals(0.5, hueMultiplier(150, 30), 1e-9);
+        assertEquals(1, hueMultiplier(45, 225), 1e-9, "opposite");
+        double near = hueMultiplier(0, 100), nearer = hueMultiplier(0, 110), peak = hueMultiplier(0, 120);
+        assertTrue(near < nearer && nearer < peak, near + " < " + nearer + " < " + peak);
+        assertEquals(hueMultiplier(350, 110), hueMultiplier(0, 120), 1e-9, "round the wheel");
+        assertEquals(2, hueMultiplier(hueOf(WHITE), 222), 1e-9);
+        assertEquals(1, hueMultiplier(222, hueOf(BLACK)), 1e-9);
+    }
+
+    @Test
     void whiteBeatsColourBlackBeatsTheColourless() {
         for (int hue = 0; hue < HUES; hue++) {
             x(2, WHITE, hue);

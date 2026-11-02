@@ -38,8 +38,8 @@ public record Building(int id, Kind kind, Position corner) {
                 "\u2502TRAINS\u2502\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
                 "\u2502TATION\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502\u2502",
                 "\u2514\u2500\u2500[ ]\u2500\u2518\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"),
-        /** A barbell in a white frame. q trains combat AFK against a dummy that never falls or hits back. */
-        GYM("Gym", "[q] train combat AFK (no armour; 1 xp a damage)",
+        /** A barbell in a white frame. Trophies go on display here; a membership trains combat AFK against a dummy. */
+        GYM("Gym", "[q] trophies; train combat AFK",
                 new String[]{"GG     GG",
                         "G       G",
                         "GGGGGGGGG"},
@@ -84,6 +84,16 @@ public record Building(int id, Kind kind, Position corner) {
             this.keeper = keeper;
             this.paint = paint;
             this.picture = picture;
+        }
+
+        /** Its picture's rows (see {@link #picture}), for clients that draw it themselves. */
+        public List<String> picture() {
+            return List.of(picture);
+        }
+
+        /** Its paint's rows (see {@link #paint}), or an empty list for none. */
+        public List<String> paint() {
+            return paint == null ? List.of() : List.of(paint);
         }
 
         /** In tiles. */

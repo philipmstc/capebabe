@@ -12,16 +12,22 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class NodeTiersAndSlotsTest {
     @Test
-    void newNodesAreMostlyLowTiers() {
+    void newNodesLeanToTheHighestTierYouCanMake() {
         World world = new World(1, "w", 3);
         world.content.apply(WorldGenerator.newSkills(world, 1));
         List<Recipe> tiers = world.content.craftingSkills().get(0).productLines.get(0).recipes;
         double[] fresh = shares(tiers, 1), maxed = shares(tiers, 100);
         assertEquals(0.84, fresh[0], 0.01, "Lv. 1: mostly tier 0");
         assertEquals(0.10, fresh[1], 0.01);
-        assertEquals(0.57, maxed[0], 0.01, "everything unlocked: still mostly tier 0");
-        assertEquals(0.28, maxed[1], 0.01);
-        assertTrue(maxed[4] < 0.05, "tier 4 rare");
+        assertEquals(0.57, maxed[4], 0.01, "everything unlocked: mostly the top tier");
+        assertEquals(0.29, maxed[3], 0.01);
+        assertTrue(maxed[0] < 0.05, "tier 0 rare");
+        for (int unlocked = 1; unlocked < 5; unlocked++) {
+            double[] mid = shares(tiers, 20 * unlocked);
+            for (int tier = 0; tier < 5; tier++) {
+                assertTrue(mid[tier] <= mid[unlocked], "Lv. " + 20 * unlocked + ": tier " + unlocked + " likeliest");
+            }
+        }
     }
 
     private static double[] shares(List<Recipe> tiers, int level) {

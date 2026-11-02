@@ -18,7 +18,7 @@ public sealed interface Intent {
      * Bump whenever an Intent or Event changes shape (fields added/renamed, types added), so a client and server
      * from different builds refuse each other with a clear message instead of misbehaving.
      */
-    int PROTOCOL_VERSION = 30;
+    int PROTOCOL_VERSION = 32;
 
     /** Step 1 of joining: who you are. Answered with LoginAccepted or LoginRefused. */
     record Login(int protocolVersion, String name, String password) implements Intent {}
@@ -51,6 +51,20 @@ public sealed interface Intent {
 
     /** At Lv. 100: start the skill over from Lv. 1, banking its xp; what you make with it hits harder. */
     record Prestige(int skillId) implements Intent {}
+
+    /** Add someone playing to your friends. */
+    record AddFriend(String name) implements Intent {}
+
+    record RemoveFriend(String name) implements Intent {}
+
+    /** A private message to a friend who's on. */
+    record Whisper(String name, String text) implements Intent {}
+
+    /**
+     * At a Gym: put a trophy (any monster drop you carry) on display there for good, redeemed {@code forSlot} for a
+     * +1 inventory slot, or else for {@code GameCharacter.GYM_ATTACKS_PER_TROPHY} attacks of Gym membership.
+     */
+    record DisplayTrophy(int productId, boolean forSlot) implements Intent {}
 
     /** From the station you're at to the one with this id (see {@code Stations}), paying the fare. */
     record Ride(int stationId) implements Intent {}

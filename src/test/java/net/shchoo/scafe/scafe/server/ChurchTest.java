@@ -143,6 +143,35 @@ class ChurchTest {
         tick();
     }
 
+    /** A node for every tier, so prayers cost the full price. */
+    private void withNodes() {
+        for (int tier = 0; tier < 5; tier++) {
+            Recipe wanted = recipe(tier);
+            server.applyContent(WorldGenerator.newNode(server.world, new Position(100 + 2 * tier, 100), 1, 1, 1,
+                    r -> r.equals(wanted) ? 1 : 0));
+        }
+        tick();
+    }
+
+    @Test
+    void noNodeAnywhereYet_aPrayerCostsLess() {
+        withSkills();
+        Recipe tier3 = recipe(3);
+        Product below = recipe(2).product, other = recipe(0).product;
+        assertEquals(100, Prayer.cost(server.world.content, tier3, below), "a flat hundred of the tier below");
+        assertEquals(500, Prayer.cost(server.world.content, tier3, other), "five hundred of anything else");
+        alice.changeInventory(below, 150);
+        atTheChurch();
+        player.send(new Intent.Pray(tier3.id, below.id));
+        tick();
+        assertEquals(50, alice.inventory.get(below));
+        assertEquals(1, alice.inventory.get(server.world.content.blessing(tier3)));
+
+        withNodes();
+        assertEquals(300, Prayer.cost(server.world.content, tier3, below), "found: the usual price");
+        assertEquals(1000, Prayer.cost(server.world.content, tier3, other));
+    }
+
     @Test
     void qOpensTheChurchWindowAndHealHealsYou() {
         alice.hp = 3;
@@ -166,6 +195,7 @@ class ChurchTest {
     @Test
     void prayingForATierCostsAHundredATierOfTheTierBelow() {
         withSkills();
+        withNodes();
         Recipe tier2 = recipe(2);
         Product tier1 = recipe(1).product;
         alice.changeInventory(tier1, 250);
@@ -199,6 +229,7 @@ class ChurchTest {
     @Test
     void aPrestigeVersionOfTheTierBelowPaysTheSame() {
         withSkills();
+        withNodes();
         Product plus = server.prestigeProduct(recipe(1).product, 2);
         alice.changeInventory(plus, 230);
         atTheChurch();
@@ -224,6 +255,7 @@ class ChurchTest {
     @Test
     void anyOneItemAThousandOfIt_theOnlyWayForTierZero() {
         withSkills();
+        withNodes();
         Product any = recipe(3).product;
         alice.changeInventory(any, 999);
         atTheChurch();
