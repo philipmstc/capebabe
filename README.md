@@ -4,6 +4,11 @@ _(Name is subject to change)_
 
 Java class files start with hex codes `CAFEBABE`. This is a Runescape inspired TUI multiplayer "number go up" game made in Java. 
 
+v.0.1.0
+![](assets/release/v0.1.0-screenshot.png)
+
+v.0.0.8
+
 ![](assets/release/v0.0.8-screenshot.png)
 
 # Playing
