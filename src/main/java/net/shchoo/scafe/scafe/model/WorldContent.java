@@ -207,7 +207,7 @@ public class WorldContent {
                 next = Math.max(next, Integer.parseInt(m.group(1)) + 1);
             }
         }
-        return "skill" + next;
+        return "skill " + next;
     }
 
     /** Generators add skills and nodes through these; product lines/recipes/products hang off the skills. */
