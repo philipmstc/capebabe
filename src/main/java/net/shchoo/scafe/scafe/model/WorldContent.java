@@ -46,7 +46,7 @@ public class WorldContent {
         }
         for (ContentBatch.SkillDef def : batch.skills()) {
             // an old world: a skill split off earlier (below) may have taken this name first -- it moves on
-            Skill clash = skills.stream().filter(s -> splitFrom.containsKey(s) && s.name.equals(def.name())).findFirst().orElse(null);
+            Skill clash = skills.stream().filter(s -> splitFrom.containsKey(s) && spaced(s.name).equals(spaced(def.name()))).findFirst().orElse(null);
             Skill skill = new Skill(def.id(), def.name(), def.type(), def.colorIndex(), def.symbol());
             skills.add(skill);
             skillsById.put(def.id(), skill);
@@ -196,9 +196,9 @@ public class WorldContent {
         return splitFrom.get(skill);
     }
 
-    private static final java.util.regex.Pattern NUMBERED = java.util.regex.Pattern.compile("skill(\\d+)");
+    private static final java.util.regex.Pattern NUMBERED = java.util.regex.Pattern.compile("skill ?(\\d+)");
 
-    /** "skillN" with N one past the highest any skill has. */
+    /** "skill N" with N one past the highest any skill has. */
     public String nextSkillName() {
         int next = 0;
         for (Skill skill : skills) {
@@ -207,7 +207,12 @@ public class WorldContent {
                 next = Math.max(next, Integer.parseInt(m.group(1)) + 1);
             }
         }
-        return "skill" + next;
+        return "skill " + next;
+    }
+
+    /** "skill3" (as named before 2026-11-09), and products made from it ("skill3-1"), read "skill 3" ("skill 3-1"). */
+    public static String spaced(String name) {
+        return name.replaceAll("\\bskill(\\d+)", "skill $1");
     }
 
     /** Generators add skills and nodes through these; product lines/recipes/products hang off the skills. */
@@ -300,10 +305,8 @@ public class WorldContent {
             }
         }
         for (Product product : productsById.values()) {
-            // products not reached through recipes or drops: prestige versions, blessings
-            if (product.base != null || product.blesses != null) {
-                addIfNew(original, product, newProducts);
-            }
+            // products not reached through recipes or drops: prestige versions, blessings, the ticket to anywhere
+            addIfNew(original, product, newProducts);
         }
         List<ContentBatch.ProductDef> products = new ArrayList<>(newProducts.values());
         products.sort(Comparator.comparingInt(ContentBatch.ProductDef::id));
@@ -383,6 +386,10 @@ public class WorldContent {
     /** Whose action made this skill / node / monster kind and when, or null if that wasn't recorded. */
     public ContentBatch.Origin origin(int id) {
         return origins.get(id);
+    }
+
+    public Collection<Product> products() {
+        return productsById.values();
     }
 
     public Collection<Node> nodes() {

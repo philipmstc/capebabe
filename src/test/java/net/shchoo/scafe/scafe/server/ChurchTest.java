@@ -493,7 +493,7 @@ class ChurchTest {
             node.append(screen.getBackCharacter(x, 0).getCharacterString());
             assertEquals(SkillStyle.getColorForSkill(skill), screen.getBackCharacter(x, 0).getForegroundColor());
         }
-        assertEquals("." + SkillStyle.getSymbolForSkill(skill) + ":", node.toString(), "tier 3, as the map draws it, then the name");
+        assertEquals(":" + SkillStyle.getSymbolForSkill(skill) + ".", node.toString(), "tier 3, as the map draws it, then the name");
         StringBuilder border = new StringBuilder();
         for (int x = Layout.MAP.x(); x < Layout.MAP.right(); x++) {
             border.append(screen.getBackCharacter(x, Layout.MAP.y()).getCharacterString());

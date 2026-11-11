@@ -85,7 +85,7 @@ class DiscoveryTest {
         Player alice = join(server, "alice");
         walk(server, alice, 1);
         assertEquals(1, alice.content.craftingSkills().size());
-        assertTrue(log.stream().anyMatch(m -> m.startsWith("You discovered a new skill: skill0")));
+        assertTrue(log.stream().anyMatch(m -> m.startsWith("You discovered a new skill: skill 0")));
         assertEquals(1L, alice.stats.get(Stat.SKILLS_DISCOVERED));
         assertEquals(1L, alice.stats.get(Stat.MONSTERS_DISCOVERED));
         assertEquals(1L, alice.stats.get(Stat.STEPS));
@@ -107,7 +107,7 @@ class DiscoveryTest {
         Player bob = join(server, "bob");
         server.setDiscovery(new Discovery(new Lucky()));
         walk(server, alice, 1, bob);
-        assertTrue(log.contains("alice discovered a new skill: skill0."));
+        assertTrue(log.contains("alice discovered a new skill: skill 0."));
         assertEquals(1, bob.content.craftingSkills().size());
     }
 

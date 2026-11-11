@@ -22,8 +22,32 @@ import java.util.Objects;
  */
 class Combat {
     static final int SWING_TICKS = 2;
+    /** How often you land a hit on a monster your own combat level ({@link #playerAccuracy}). */
     static final double PLAYER_ACCURACY = 0.8;
+    /** ...and it on you. */
     static final double MONSTER_ACCURACY = 0.6;
+    /** How quickly accuracy moves towards its limits a level of difference (bigger: sooner). */
+    static final double ACCURACY_UP = 0.1, PLAYER_ACCURACY_DOWN = 0.1, MONSTER_ACCURACY_DOWN = 0.25;
+
+    /**
+     * How often you hit a monster, by how many levels your combat level is above its ({@code lead}, below if
+     * negative): {@link #PLAYER_ACCURACY} level with it, rising towards 0.9 above it and falling towards 0.5 below,
+     * a little less each level and never reaching either. (10 above: 0.86; 10 below: 0.61.)
+     */
+    static double playerAccuracy(int lead) {
+        return lead >= 0 ? 0.9 - (0.9 - PLAYER_ACCURACY) * Math.exp(-ACCURACY_UP * lead)
+                : 0.5 + (PLAYER_ACCURACY - 0.5) * Math.exp(PLAYER_ACCURACY_DOWN * lead);
+    }
+
+    /**
+     * How often a monster hits you, by how many levels it's above your combat level ({@code lead}): {@link
+     * #MONSTER_ACCURACY} level with you, towards 0.9 above you (like yours), and falling off quicker towards 0.1 below.
+     * (10 above: 0.79; 5 below: 0.24; 10 below: 0.14.)
+     */
+    static double monsterAccuracy(int lead) {
+        return lead >= 0 ? 0.9 - (0.9 - MONSTER_ACCURACY) * Math.exp(-ACCURACY_UP * lead)
+                : 0.1 + (MONSTER_ACCURACY - 0.1) * Math.exp(MONSTER_ACCURACY_DOWN * lead);
+    }
     static final int XP_PER_DAMAGE = 4;
     /** At the gym: a quarter of a real fight's. */
     static final int GYM_XP_PER_DAMAGE = 1;
@@ -235,7 +259,7 @@ class Combat {
             character.emit(character.gymStanding());
             training.nextSwing = tick + SWING_TICKS;
             int damage = server.random().nextDouble() < PLAYER_ACCURACY
-                    ? round(weaponBase(character.weapon) + character.combatLevel() / 4.0) : 0;
+                    ? round(Product.weaponBase(server.world.content, character.weapon) + character.combatLevel() / 4.0) : 0;
             character.useUp(EquipSlot.WEAPON);
             Event hit = new Event.Hit(-1, damage, character.ahead(), character.position());
             character.emit(hit);
@@ -275,7 +299,8 @@ class Combat {
     }
 
     private void swing(GameCharacter character, Monster monster) {
-        int damage = server.random().nextDouble() < PLAYER_ACCURACY
+        int lead = character.combatLevel() - monster.type.level;
+        int damage = server.random().nextDouble() < playerAccuracy(lead)
                 ? Math.min(monster.hp, round(hitStrength(character, monster.type))) : 0;
         character.useUp(EquipSlot.WEAPON);
         monster.hp -= damage;
@@ -291,7 +316,7 @@ class Combat {
             return;
         }
         if (Objects.equals(monster.target(), character.id)) {
-            int hit = server.random().nextDouble() < MONSTER_ACCURACY
+            int hit = server.random().nextDouble() < monsterAccuracy(-lead)
                     ? Math.min(character.hp, round(hitTaken(character, monster.type))) : 0;
             character.useUp(EquipSlot.ARMOR);
             character.hp -= hit;
@@ -307,12 +332,12 @@ class Combat {
     }
 
     /**
-     * A landed hit: (the weapon's tier + 1, or 1 for fists, plus combat level / 4) times the colour multiplier of
+     * A landed hit: (the weapon's base damage ({@link Product#weaponBase}), plus combat level / 4) times the colour multiplier of
      * the weapon (fists are black) against the monster ({@link DamageColor}).
      */
     double hitStrength(GameCharacter character, MonsterType type) {
         Product weapon = character.weapon;
-        int base = weaponBase(weapon);
+        int base = Product.weaponBase(server.world.content, weapon);
         double hue = weapon == null ? DamageColor.hueOf(DamageColor.FISTS) : DamageColor.hue(server.world.content, weapon);
         return (base + character.combatLevel() / 4) * DamageColor.hueMultiplier(hue, DamageColor.hueOf(type.colorIndex));
     }
@@ -327,13 +352,6 @@ class Combat {
                 : raw * DamageColor.hueMultiplier(DamageColor.hueOf(type.colorIndex), DamageColor.hue(server.world.content, armor));
     }
 
-    /**
-     * A weapon's base damage: its tier + 1, plus {@link Product#PRESTIGE_DAMAGE} a prestige level -- a level
-     * outdoes a whole line of tiers (tier 0 prestige 1: 6, tier 4: 5). Fists: 1.
-     */
-    static int weaponBase(Product weapon) {
-        return weapon == null ? 1 : Product.PRESTIGE_DAMAGE * weapon.prestige + Math.max(0, weapon.tier) + 1;
-    }
 
     /** Down or up at random, by the fraction (2.5 = 3 half the time), so weak hits still add up. */
     private int round(double strength) {

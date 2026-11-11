@@ -99,6 +99,16 @@ try { $('name').value = localStorage.getItem('capebabe.name') || ''; } catch (e)
 // big enough to read (rows at least 16 css pixels), so its map is as big as the screen allows.
 function resize() {
   const ratio = devicePixelRatio || 1;
+  // what's actually on screen: on iOS, innerHeight can include the part under the browser's own bars (Chrome
+  // held sideways), which hid the bottom rows of buttons
+  const vv = window.visualViewport;
+  const fullWidth = vv ? Math.round(vv.width) : window.innerWidth, fullHeight = vv ? Math.round(vv.height) : window.innerHeight;
+  // ...less the edges the phone keeps (iOS's home bar along the bottom held sideways covered the bottom buttons)
+  const probe = document.getElementById('safe-area');   // (missing from a page cached before it was added)
+  const safe = probe ? getComputedStyle(probe) : {};
+  const inset = side => parseFloat(safe['padding' + side]) || 0;
+  const insetLeft = inset('Left'), insetTop = inset('Top');   // (not "top": that's the top layer)
+  const innerWidth = fullWidth - insetLeft - inset('Right'), innerHeight = fullHeight - insetTop - inset('Bottom');
   const w = innerWidth * ratio, h = innerHeight * ratio;
   if (phone) {
     // rows at least 16 css pixels; upright there's room for more of them
@@ -112,18 +122,21 @@ function resize() {
     ch = Math.round(cw * 2.1);
   }
   fontPx = Math.round(cw * 1.75);
-  canvas.width = Math.round(w);
-  canvas.height = Math.round(h);
-  canvas.style.width = innerWidth + 'px';
-  canvas.style.height = innerHeight + 'px';
-  offsetX = Math.floor((w - cw * cols) / 2);
-  offsetY = Math.floor((h - ch * rows) / 2);
+  canvas.width = Math.round(fullWidth * ratio);
+  canvas.height = Math.round(fullHeight * ratio);
+  canvas.style.width = fullWidth + 'px';
+  canvas.style.height = fullHeight + 'px';
+  offsetX = Math.floor(insetLeft * ratio + (w - cw * cols) / 2);
+  offsetY = Math.floor(insetTop * ratio + (h - ch * rows) / 2);
   if (base.cols !== cols || base.rows !== rows) {
     base = new Layer(false, cols, rows);
     top = new Layer(true, cols, rows);
   }
 }
 addEventListener('resize', resize);
+if (window.visualViewport) visualViewport.addEventListener('resize', resize);
+// iOS reports the new size a moment after turning
+addEventListener('orientationchange', () => { resize(); setTimeout(resize, 300); });
 resize();
 
 // ---- input ---------------------------------------------------------------------------------------------------------
@@ -272,12 +285,12 @@ function frame(now) {
   // what's under the mouse lights up, if it's something to click
   const hovered = clicks.at(mouse.x, mouse.y);
   if (hovered && hovered.option) {
-    const layer = hovered.layer > 0 ? top : base;
     for (let y = hovered.y; y < hovered.y + hovered.h; y++) {
       for (let x = hovered.x; x < hovered.x + hovered.w; x++) {
         if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
         const i = y * cols + x;
-        if (layer.ch[i] == null) layer.ch[i] = ' ';
+        // on whichever layer has what's there: a modal's option can be over the base's cells (the bank's inventory)
+        const layer = hovered.layer > 0 && top.ch[i] != null ? top : base;
         layer.bg[i] = 'BLACK_BRIGHT';
       }
     }
@@ -301,6 +314,56 @@ function frame(now) {
   }
   paint(top);
   for (const icon of ui.topIcons) drawSprite(g, icon.sprite, (icon.x + 1) * cw, icon.y * ch + ch / 2, scale);
+  for (const map of ui.lineMaps) drawLineMap(map);
+}
+
+/**
+ * A line map's lines in pixels (UI.lineMap, routeLanes): through the middle of the cells, lanes a line's width
+ * apart, the half nearer each end in that end's fare colour; lines from here over the rest, then the
+ * stations' labels over their line ends.
+ */
+function drawLineMap(map) {
+  const lw = Math.max(2, Math.round(cw / 4)), gap = 2 * lw;
+  g.save();
+  g.beginPath();
+  g.rect(map.clip.x * cw, map.clip.y * ch, map.clip.w * cw, map.clip.h * ch);
+  g.clip();
+  g.lineWidth = lw;
+  g.lineCap = 'square';
+  g.lineJoin = 'miter';
+  const stroke = (points, fg) => {
+    g.strokeStyle = color(fg);
+    g.beginPath();
+    points.forEach(([x, y], k) => k ? g.lineTo(x, y) : g.moveTo(x, y));
+    g.stroke();
+  };
+  for (const link of [...map.links].sort((a, b) => a.lit - b.lit)) {
+    const at = link.points.map(p => [Math.round((p.x + 0.5) * cw + p.ox * gap), Math.round((p.y + 0.5) * ch + p.oy * gap)]);
+    const length = (p, q) => Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1]);
+    let left = at.slice(1).reduce((sum, q, k) => sum + length(at[k], q), 0) / 2;
+    const first = [at[0]];
+    let k = 1;
+    for (; k < at.length; k++) {
+      const step = length(at[k - 1], at[k]);
+      if (step >= left) break;
+      left -= step;
+      first.push(at[k]);
+    }
+    const [p, q] = [at[k - 1], at[Math.min(k, at.length - 1)]], t = length(p, q) ? left / length(p, q) : 0;
+    const middle = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+    stroke([...first, middle], link.colors[0]);
+    stroke([middle, ...at.slice(k)], link.colors[1]);
+  }
+  g.font = 'bold ' + fontPx + 'px ' + FONT;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  for (const label of map.labels) {
+    g.fillStyle = color(label.bg);
+    g.fillRect(label.x * cw, label.y * ch, cw, ch);
+    g.fillStyle = color(label.fg);
+    g.fillText(label.text, label.x * cw + cw / 2, label.y * ch + ch / 2 + 1);
+  }
+  g.restore();
 }
 
 function paint(layer) {

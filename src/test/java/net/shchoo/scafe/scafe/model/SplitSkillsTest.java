@@ -27,7 +27,7 @@ class SplitSkillsTest {
         ContentBatch batch = oldTwoLineSkill();
         WorldContent content = new WorldContent();
         content.apply(batch);
-        assertEquals(List.of("skill0", "skill1"), content.craftingSkills().stream().map(s -> s.name).toList());
+        assertEquals(List.of("skill0", "skill 1"), content.craftingSkills().stream().map(s -> s.name).toList());
         Skill original = content.craftingSkills().get(0), split = content.craftingSkills().get(1);
         assertEquals(1, original.productLines.size());
         assertEquals(1, split.productLines.size());
@@ -36,11 +36,11 @@ class SplitSkillsTest {
         assertEquals(original.type, split.type);
         for (Recipe recipe : split.productLines.get(0).recipes) {
             assertSame(split, recipe.skill, "its recipes are its own");
-            assertTrue(recipe.product.name.startsWith("skill1-"), "the items are named after their new skill");
+            assertTrue(recipe.product.name.startsWith("skill 1-"), "the items are named after their new skill");
         }
         WorldContent replay = new WorldContent();
         content.history().forEach(replay::apply);
-        assertEquals("skill1", replay.skill(split.id).name, "the same every time (server, clients)");
+        assertEquals("skill 1", replay.skill(split.id).name, "the same every time (server, clients)");
     }
 
     @Test
@@ -52,7 +52,7 @@ class SplitSkillsTest {
         SkillFactory.createSkill(next, new Random(2), "skill1", SkillType.PRIMARY);
         content.apply(next.diff(content));
         assertEquals("skill1", content.craftingSkills().get(2).name, "the saved name stands");
-        assertEquals("skill2", split.name, "the split one takes the next free");
+        assertEquals("skill 2", split.name, "the split one takes the next free");
     }
 
     @Test
@@ -61,7 +61,7 @@ class SplitSkillsTest {
         content.apply(oldTwoLineSkill());
         WorldContent next = content.copy();
         Skill made = SkillFactory.createRandomSkill(next, new Random(3));
-        assertEquals("skill2", made.name);
+        assertEquals("skill 2", made.name);
         assertEquals(1, made.productLines.size());
     }
 }

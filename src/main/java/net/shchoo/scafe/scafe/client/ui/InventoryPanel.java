@@ -33,7 +33,7 @@ import static net.shchoo.scafe.scafe.client.ui.Layout.*;
  * Use (on a node), Unequip (when it's equipped), Drop stack (asks first: the stack's gone for good), Cancel.
  */
 public class InventoryPanel extends Menu {
-    private static final Pattern SKILL_PRODUCT = Pattern.compile("skill(\\d+)");
+    private static final Pattern SKILL_PRODUCT = Pattern.compile("skill ?(\\d+)");
     private static final Pattern MONSTER_DROP = Pattern.compile("monster(\\d+)-drop(\\d+)");
 
     /** One cell: up to a stack of one item. */
@@ -455,7 +455,7 @@ public class InventoryPanel extends Menu {
 
     /**
      * Three cells from {@code x}: the item's skill's symbol, bright, with its tier marks either side as the map draws
-     * them, dim ({@code .#:}); a drop: a trophy mark and its monster's symbol ({@code \u03a8M}).
+     * them, dim ({@code :#.}); a drop: a trophy mark and its monster's symbol ({@code \u03a8M}).
      */
     static void drawSymbol(TextGraphics g, int x, int y, Product product, Player player) {
         Recipe recipe = product.blesses != null ? product.blesses : player.content.madeBy(product);
@@ -491,7 +491,7 @@ public class InventoryPanel extends Menu {
      * <pre>
      * \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u252c
      * \u2502       \u2502      \u2502
-     * \u2502 .%: +2\u2502.#.   \u2502
+     * \u2502 :%. +2\u2502.#.   \u2502
      * \u2502    x12\u2502 x1.1k\u2502
      * \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u253c
      * </pre>
@@ -584,7 +584,7 @@ public class InventoryPanel extends Menu {
             g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
         }
         g.putString(textX(), y + 1, fit("as a weapon: hits for "
-                + (Product.PRESTIGE_DAMAGE * item.prestige + Math.max(0, item.tier) + 1) + " (fists: 1), one used per swing",
+                + Product.weaponBase(player.content, item) + " (fists: 1), one used per swing",
                 textWidth()));
         g.putString(textX(), y + 2, fit("as armor: its colour takes the hits, one used per hit at you", textWidth()));
         g.putString(textX(), hintRow(),

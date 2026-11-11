@@ -87,7 +87,7 @@ public class GameCharacter implements Walker.Mobile {
     Combat.Fight currentFight;
     /** Doesn't come back by itself: a church (q) or getting knocked out fills it up. Saved. */
     int hp = Combat.maxHp(1);
-    /** Crafting heals: 1 hp every this many crafts. */
+    /** Crafting heals: 1 hp every this many crafts, at any nodes, AFK ones not counting. */
     static final int CRAFTS_PER_HP = 20;
     /** Crafts towards the next hp (not saved: logging out starts it over). */
     private int craftsTowardsHp;
@@ -573,7 +573,7 @@ public class GameCharacter implements Walker.Mobile {
         }
     }
 
-    private void changeBank(Product product, int delta) {
+    void changeBank(Product product, int delta) {
         int count = bank.merge(product, delta, Integer::sum);
         if (count <= 0) {
             bank.remove(product);
@@ -767,10 +767,11 @@ public class GameCharacter implements Walker.Mobile {
         emit(new Event.HomeChanged(lastActionAt));
         say(Event.MessageKind.ROUTINE, "Made " + (made > 1 ? made + " x " : "") + recipe.product.name);
         triggers.add(Discovery.Trigger.MADE);
-        healFromCrafting();
         count(Stat.ITEMS_CRAFTED, made);
         if (afk) {
             count(Stat.ITEMS_CRAFTED_AFK, made);
+        } else {
+            healFromCrafting();
         }
         gainExperience(recipe.skill, afk ? Math.max(1, recipe.expGained / 2) : recipe.expGained);
         return true;

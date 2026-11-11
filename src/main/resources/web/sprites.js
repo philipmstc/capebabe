@@ -56,9 +56,14 @@ function inside(type, x, y) {
  * skill's colours, or the greys of an empty node).
  */
 const drawEdges = true;
+/** What a skill's picture grows from: its name as it was first saved ("skill3", before names got a space), so pictures don't change. */
+function seedName(skill) {
+  return skill.name.replace(/^skill (\d+)$/, 'skill$1');
+}
+
 export function skillSprite(world, skill, bright, dark) {
-  return picture(['skill', world, skill.id, skill.name, bright, dark].join('/'), SIZE, set => {
-    let pattern = bits(world + '/skill/' + skill.id + '/' + skill.name, 15);
+  return picture(['skill', world, skill.id, seedName(skill), bright, dark].join('/'), SIZE, set => {
+    let pattern = bits(world + '/skill/' + skill.id + '/' + seedName(skill), 15);
     if (pattern.filter(Boolean).length < 4) pattern = pattern.map(b => 1 - b);
     for (let y = 0; y < SIZE; y++) {
       for (let x = 0; x < SIZE; x++) {

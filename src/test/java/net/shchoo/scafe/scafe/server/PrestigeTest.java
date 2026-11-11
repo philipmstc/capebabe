@@ -169,11 +169,11 @@ class PrestigeTest {
         Product tier0 = primary.productLines.get(0).recipes.get(0).product;
         Product tier4 = primary.productLines.get(0).recipes.get(4).product;
         Product tier0Prestige1 = server.prestigeProduct(tier0, 1);
-        assertEquals(1, Combat.weaponBase(tier0));
-        assertEquals(5, Combat.weaponBase(tier4));
-        assertEquals(6, Combat.weaponBase(tier0Prestige1));
-        assertTrue(Combat.weaponBase(tier0Prestige1) > Combat.weaponBase(tier4));
-        assertEquals(1, Combat.weaponBase(null), "fists");
+        assertEquals(1, Product.weaponBase(server.world.content, tier0));
+        assertEquals(5, Product.weaponBase(server.world.content, tier4));
+        assertEquals(6, Product.weaponBase(server.world.content, tier0Prestige1));
+        assertTrue(Product.weaponBase(server.world.content, tier0Prestige1) > Product.weaponBase(server.world.content, tier4));
+        assertEquals(1, Product.weaponBase(server.world.content, null), "fists");
     }
 
     @Test

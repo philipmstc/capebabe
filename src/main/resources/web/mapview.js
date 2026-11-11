@@ -126,7 +126,10 @@ export class MapView {
     // buildings: their pictures, a character a tile and one in each gap
     for (const b of c.buildings) {
       if (b.x + b.width < x0 - 2 || b.x > x1 + 2 || b.y + b.height < y0 - 1 || b.y > y1 + 1) continue;
-      const picture = b.info.picture;
+      // a station's top row from content.glyph: its number on the roof (Stations.roof)
+      const picture = b.kind === 'STATION'
+        ? [[...b.info.picture[0]].map((_, col) => c.glyph(b, b.x + (col >> 1), b.y, col % 2)).join(''), ...b.info.picture.slice(1)]
+        : b.info.picture;
       for (let row = 0; row < picture.length; row++) {
         for (let col = 0; col < picture[row].length; col++) {
           let ch2 = picture[row][col];

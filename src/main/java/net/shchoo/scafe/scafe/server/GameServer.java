@@ -254,12 +254,16 @@ public class GameServer {
         return variant == null ? base : variant;
     }
 
-    /** Ticks on the train, end to end. */
-    static final int TRAIN_TICKS = 5;
+    /** Ticks on the train a stop ({@link Stations#route}). */
+    static final int TRAIN_TICKS = Stations.TRAIN_TICKS;
+    /** ...and a stop that's town to town (free, however far: {@link Stations#betweenTowns}). */
+    static final int TOWN_TRAIN_TICKS = Stations.TOWN_TRAIN_TICKS;
 
     /**
-     * All aboard for {@code stationId} (picked from the station menu, which the client opened on q), paying the
-     * fare ({@link Stations#fareFrom}): one item made by skill N for station N, any tier or prestige -- the cheapest held.
+     * All aboard for {@code stationId} (picked from the station menu, which the client opened on q), along the
+     * lines however many stops it takes ({@link Stations#route}), paying each stop's fare: one item made by skill N
+     * for station N, any tier or prestige -- the cheapest held -- or else a ticket to anywhere (from the inventory,
+     * then the bank). Town to town is free. The longer the trip, the longer the ride.
      */
     void ride(GameCharacter character, int stationId) {
         Building from = Stations.near(world.content, character.position());
@@ -277,31 +281,90 @@ public class GameServer {
             character.say("You're already here.");
             return;
         }
-        int index = line.indexOf(to);
-        if (!Stations.connected(world.content, from, to)) {
-            character.say("There's no direct line from " + Stations.name(line.indexOf(from)) + " to " + Stations.name(index) + ".");
+        String name = Stations.name(line.indexOf(to));
+        Stations.Route route = Stations.route(world.content, from, to);
+        if (route == null) {
+            character.say("There's no way to " + name + " from here.");
             return;
         }
-        Skill fareSkill = Stations.fareSkill(world.content, index);
-        Product fare = Stations.fareFrom(world.content, index, character.inventory);
-        if (fareSkill != null && fare == null) {
-            character.say("The fare to " + Stations.name(index) + " is 1 of any " + fareSkill.name + " item.");
+        Product ticket = Stations.ticket(world.content);
+        int tickets = ticket == null ? 0 : character.inventory.getOrDefault(ticket, 0) + character.bank.getOrDefault(ticket, 0);
+        Stations.Payment payment = Stations.payment(world.content, route, character.inventory, tickets);
+        if (!payment.paid()) {
+            StringBuilder short_ = new StringBuilder();
+            payment.missing().forEach((skill, n) -> short_.append(short_.length() > 0 ? ", " : "").append(n).append(" x any ").append(skill.name));
+            character.say("The fare to " + name + " is " + describe(route) + ": you're short " + short_
+                    + " (a ticket to anywhere pays any one).");
             return;
         }
-        if (fare != null) {
-            character.changeInventory(fare, -1);
+        payment.items().forEach((item, n) -> character.changeInventory(item, -n));
+        int fromInventory = Math.min(payment.tickets(), ticket == null ? 0 : character.inventory.getOrDefault(ticket, 0));
+        if (fromInventory > 0) {
+            character.changeInventory(ticket, -fromInventory);
+        }
+        if (payment.tickets() > fromInventory) {
+            character.changeBank(ticket, -(payment.tickets() - fromInventory));
         }
         character.stopAction(null);
         character.stopWalking();
         character.rideTo = to;
-        character.ridingUntil = tick + TRAIN_TICKS;
-        character.emit(new Event.ActionStarted(-1, "riding the train", tick, TRAIN_TICKS));
-        character.say(Event.MessageKind.NOTICE, "All aboard for " + Stations.name(index) + "! The train pulls out...");
+        character.ridingUntil = tick + route.ticks();
+        character.emit(new Event.ActionStarted(-1, "riding the train", tick, route.ticks()));
+        int stops = route.stops().size();
+        character.say(Event.MessageKind.NOTICE, "All aboard for " + name + "!" + (stops > 1 ? " (" + stops + " stops)" : "")
+                + (payment.tickets() > 0 ? " " + payment.tickets() + " ticket" + (payment.tickets() > 1 ? "s" : "") + " used." : "")
+                + " The train pulls out...");
+    }
+
+    /** "free", or "2 x any skill 3 + 1 x any skill 5". */
+    static String describe(Stations.Route route) {
+        if (route.fares().isEmpty()) {
+            return "free";
+        }
+        StringBuilder text = new StringBuilder();
+        route.fares().forEach((skill, n) -> text.append(text.length() > 0 ? " + " : "").append(n).append(" x any ").append(skill.name));
+        return text.toString();
+    }
+
+    /** Most tickets to anywhere bought at once. */
+    static final int MAX_TICKETS_AT_ONCE = 1000;
+
+    /**
+     * At a station: {@code count} tickets to anywhere, each for one of every skill's items (the cheapest of each)
+     * out of the bank ({@link Stations#ticketPrice}). The tickets go into the bank, where fares can use them.
+     */
+    void buyTickets(GameCharacter character, int count) {
+        if (Stations.near(world.content, character.position()) == null) {
+            character.say("You need to be at a station.");
+            return;
+        }
+        if (count <= 0 || count > MAX_TICKETS_AT_ONCE) {
+            return;
+        }
+        Map<Product, Integer> price = Stations.ticketPrice(world.content, character.bank, count);
+        if (price == null) {
+            character.say("A ticket to anywhere costs 1 item of every skill, from your bank: you've enough for "
+                    + Stations.ticketsAffordable(world.content, character.bank) + ".");
+            return;
+        }
+        Product ticket = Stations.ticket(world.content);
+        if (ticket == null) {
+            applyContent(WorldGenerator.newNamedProduct(world, Stations.TICKET));
+            ticket = Stations.ticket(world.content);
+        }
+        price.forEach((item, n) -> character.changeBank(item, -n));
+        character.changeBank(ticket, count);
+        character.say(Event.MessageKind.NOTICE, "Bought " + count + " ticket" + (count > 1 ? "s" : "") + " to anywhere ("
+                + character.bank.get(ticket) + " in your bank).");
     }
 
     /** Far from every station you might come across a new one ({@link Discovery}); just inside your view, ahead. */
     void discoverStation(GameCharacter character) {
         Position wanted = edgeOfView(Building.Kind.STATION, character.position(), character.facing);
+        // not inside the line's outline, where you'd be (Stations.insideLine): the line only grows outwards
+        if (Stations.insideLine(world.content, new Position(wanted.x() + 2, wanted.y() + Building.Kind.STATION.height()))) {
+            return;
+        }
         int before = Stations.all(world.content).size();
         applyContent(WorldGenerator.newBuildingAt(world, Building.Kind.STATION, wanted, 6, this::taken), character);
         List<Building> line = Stations.all(world.content);
@@ -311,10 +374,25 @@ public class GameServer {
         Building found = line.get(line.size() - 1);
         Position at = found.platform();
         String name = Stations.name(line.size() - 1);
-        character.say(Event.MessageKind.NOTICE, "You spot a train station ahead: " + name + " (" + at.x() + ", " + at.y() + ")!");
-        tellOthers(character, Event.MessageKind.NOTICE, character.name + " found a new train station: " + name
-                + " (" + at.x() + ", " + at.y() + ").");
+        // far enough from every town, it comes with a town of its own round it
+        boolean town = Stations.farFromTowns(world.content, at);
+        if (town) {
+            for (Building.Kind kind : TOWN_KINDS) {
+                applyContent(WorldGenerator.newBuildingNear(world, kind, at, TOWN_CLEAR, TOWN_SPREAD, this::taken), character);
+            }
+            town = Stations.isTown(world.content, found);
+        }
+        String what = town ? "a new town, with a train station: " : "a train station ahead: ";
+        character.say(Event.MessageKind.NOTICE, "You spot " + what + name + " (" + at.x() + ", " + at.y() + ")!");
+        tellOthers(character, Event.MessageKind.NOTICE, character.name + " found " + (town ? "a new town, with a train station: "
+                : "a new train station: ") + name + " (" + at.x() + ", " + at.y() + ").");
     }
+
+    /** What a new town has round its station (the bank first: it's what makes it a town, {@link Stations#towns}). */
+    static final List<Building.Kind> TOWN_KINDS = List.of(Building.Kind.BANK, Building.Kind.CHURCH, Building.Kind.GYM,
+            Building.Kind.MERCHANT);
+    /** A new town's buildings go between these many tiles from its platform (either axis). */
+    static final int TOWN_CLEAR = 4, TOWN_SPREAD = 20;
 
     /**
      * Where a building found by someone at {@code at} facing {@code facing} goes: just inside the edge of their
@@ -849,6 +927,8 @@ public class GameServer {
             character.prestige(world.content.skill(prestige.skillId()));
         } else if (intent instanceof Intent.Ride ride) {
             ride(character, ride.stationId());
+        } else if (intent instanceof Intent.BuyTickets buy) {
+            buyTickets(character, buy.count());
         } else if (intent instanceof Intent.Deposit deposit) {
             if (bankNear(character.position()) == null) {
                 character.say("You need to be at a bank.");

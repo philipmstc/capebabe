@@ -5,6 +5,7 @@ import net.shchoo.scafe.scafe.client.Player;
 import net.shchoo.scafe.scafe.client.Popup;
 import net.shchoo.scafe.scafe.client.SkillStyle;
 import net.shchoo.scafe.scafe.model.Building;
+import net.shchoo.scafe.scafe.model.Stations;
 import net.shchoo.scafe.scafe.model.Direction;
 import net.shchoo.scafe.scafe.model.MonsterType;
 import net.shchoo.scafe.scafe.model.Node;
@@ -231,11 +232,11 @@ public class MapView extends Widget {
 
     /**
      * What's either side of a node of this tier (Contrast tiers), and of an item's symbol in the inventory and a
-     * skill's tier table: 1 ". ", 2 "..", 3 ".:", 4 "::".
+     * skill's tier table: 1 ". ", 2 "..", 3 ":.", 4 "::".
      */
     static String tierMarks(int tier) {
-        char left = tier > 3 ? ':' : tier > 0 ? '.' : ' ';
-        char right = tier > 2 ? ':' : tier > 1 ? '.' : ' ';
+        char left = tier > 2 ? ':' : tier > 0 ? '.' : ' ';
+        char right = tier > 3 ? ':' : tier > 1 ? '.' : ' ';
         return "" + left + right;
     }
 
@@ -269,6 +270,16 @@ public class MapView extends Widget {
             }
             leftOfBuilding = building.leftOf(at);
             rightOfBuilding = building.rightOf(at);
+            if (building.kind() == Building.Kind.STATION && worldY == building.corner().y()) {
+                // its number on the roof (Stations.roof)
+                String roof = Stations.roof(Stations.all(player.content).indexOf(building));
+                int column = 2 * (worldX - building.corner().x());
+                if (column < roof.length()) {
+                    result = roof.charAt(column);
+                    leftOfBuilding = column > 0 ? roof.charAt(column - 1) : ' ';
+                    rightOfBuilding = column + 1 < roof.length() ? roof.charAt(column + 1) : ' ';
+                }
+            }
         }
         if (!isPlayerPosition) {
             List<Event.EntityInfo> here = player.othersAt(new Position(worldX, worldY));

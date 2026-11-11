@@ -12,7 +12,7 @@ import com.googlecode.lanterna.screen.Screen;
 /**
  * Under the inventory: what you fight with and wear, and how many are left (every stack of it).
  * <pre>
- * Weapon .#: +2 x123
+ * Weapon :#. +2 x123
  * Armor   %  x321
  * </pre>
  * Clicking a piece takes it off.

@@ -78,6 +78,10 @@ public class Discovery {
     public static final int MONSTER_CROWD_RADIUS = 10;
     public static final int MONSTER_SPAWN_MIN_DISTANCE = 3;
     public static final int MONSTER_SPAWN_MAX_DISTANCE = 6;
+    /** Further than this many tiles (either axis) from every station and town building, monsters show up... */
+    public static final int WILDS_DISTANCE = 30;
+    /** ...this many times as often. */
+    public static final double WILDS_SPAWN_FACTOR = 3;
     /** Monster kinds at most this many levels above your combat level are this much likelier to show up. */
     public static final int FAIR_FIGHT_LEVELS = 3;
     public static final int FAIR_FIGHT_WEIGHT = 4;
@@ -159,22 +163,37 @@ public class Discovery {
         rollMonsterSpawn(server, character, trigger);
     }
 
-    /** A known kind of monster might show up near you (fewer, the more there already are). */
+    /** A known kind of monster might show up near you (fewer, the more there already are; more out in the wilds). */
     void rollMonsterSpawn(GameServer server, GameCharacter character, Trigger trigger) {
         World world = server.world;
-        if (!world.content.monsters.isEmpty() && random.nextDouble() < chance(trigger.monsterSpawnChance,
-                MONSTER_CROWD_BACKOFF, server.monsters().near(character.position(), MONSTER_CROWD_RADIUS))) {
+        if (!world.content.monsters.isEmpty() && random.nextDouble() < spawnChance(world, character.position(),
+                trigger, server.monsters().near(character.position(), MONSTER_CROWD_RADIUS))) {
             spawnMonsterNear(server, character, pickKind(world.content.monsters, character.combatLevel()));
         }
     }
 
     /**
+     * The chance a monster shows up near {@code at}: the trigger's, halved for each of the {@code crowd} monsters
+     * already near, and {@link #WILDS_SPAWN_FACTOR} times that in the wilds ({@link #inTheWilds}).
+     */
+    static double spawnChance(World world, Position at, Trigger trigger, int crowd) {
+        double base = chance(trigger.monsterSpawnChance, MONSTER_CROWD_BACKOFF, crowd);
+        return Math.min(1, inTheWilds(world, at) ? WILDS_SPAWN_FACTOR * base : base);
+    }
+
+    /** Further than {@link #WILDS_DISTANCE} from every building: every station, and every town's bank, church... */
+    static boolean inTheWilds(World world, Position at) {
+        return world.content.buildings().stream().noneMatch(b -> b.within(at, WILDS_DISTANCE));
+    }
+
+    /**
      * There's a line (the station by the origin) and you're further than {@link #STATION_LONELY_DISTANCE} (either
-     * axis) from every station on it.
+     * axis) from every station on it, and outside its outline ({@link Stations#insideLine}).
      */
     static boolean farFromStations(World world, Position at) {
         List<Building> line = Stations.all(world.content);
-        return !line.isEmpty() && line.stream().noneMatch(b -> b.within(at, STATION_LONELY_DISTANCE));
+        return !line.isEmpty() && line.stream().noneMatch(b -> b.within(at, STATION_LONELY_DISTANCE))
+                && !Stations.insideLine(world.content, at);
     }
 
     void discoverMonsterKind(GameServer server, GameCharacter character) {

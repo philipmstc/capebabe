@@ -7,6 +7,12 @@ export const key = (x, y) => x + ',' + y;
 // Tiers.OLD_LEVEL_NEEDED: defaults old worlds were made with, moved to today's levels as the history is applied
 const OLD_LEVEL_NEEDED = [[0], [20], [35, 40], [50, 60], [70, 85]];
 
+/** A station's roof with its number on it, "┌─ 3 ──┐" (Stations.roof). */
+function roof(index) {
+  const label = (' ' + index + ' ').slice(0, 6), left = (6 - label.length) >> 1;
+  return '┌' + '─'.repeat(left) + label + '─'.repeat(6 - label.length - left) + '┐';
+}
+
 export class Content {
   constructor(meta) {
     this.meta = meta;
@@ -34,7 +40,8 @@ export class Content {
       for (const def of [...list('skills'), ...list('nodes'), ...list('monsters')]) this.origins.set(def.id, batch.origin);
     }
     for (const def of list('skills')) {
-      const clash = this.skills.find(s => this.splitFrom.has(s) && s.name === def.name);
+      const spaced = name => name.replace(/\bskill(\d+)/g, 'skill $1');   // "skill3" and "skill 3" are one name
+      const clash = this.skills.find(s => this.splitFrom.has(s) && spaced(s.name) === spaced(def.name));
       const skill = { id: def.id, name: def.name, type: def.type, colorIndex: def.colorIndex, symbol: def.symbol, line: null };
       this.skills.push(skill);
       this.skillsById.set(def.id, skill);
@@ -106,10 +113,10 @@ export class Content {
   nextSkillName() {
     let next = 0;
     for (const s of this.skills) {
-      const m = /^skill(\d+)$/.exec(s.name);
+      const m = /^skill ?(\d+)$/.exec(s.name);
       if (m) next = Math.max(next, +m[1] + 1);
     }
-    return 'skill' + next;
+    return 'skill ' + next;
   }
 
   // "skill3-2" whatever it was saved as, and its prestige versions and blessing to match
@@ -142,7 +149,10 @@ export class Content {
 
   /** The character drawn at a building's tile ({@code offset} 0), or in the gap left (-1) / right (1) of it. */
   glyph(building, x, y, offset) {
-    const row = building.info.picture[y - building.y];
+    // a station has its number on its roof (Stations.roof)
+    const row = building.kind === 'STATION' && y === building.y
+      ? roof(this.buildings.filter(b => b.kind === 'STATION').indexOf(building)) + building.info.picture[0].slice(8)
+      : building.info.picture[y - building.y];
     const c = 2 * (x - building.x) + offset;
     return c < 0 || c >= row.length ? ' ' : row[c];
   }
@@ -246,10 +256,10 @@ export class Content {
   }
 }
 
-// The tier marks either side of a symbol, as the map draws them: 1 ". ", 2 "..", 3 ".:", 4 "::"
+// The tier marks either side of a symbol, as the map draws them: 1 ". ", 2 "..", 3 ":.", 4 "::"
 export function tierMarks(tier) {
-  const left = tier > 3 ? ':' : tier > 0 ? '.' : ' ';
-  const right = tier > 2 ? ':' : tier > 1 ? '.' : ' ';
+  const left = tier > 2 ? ':' : tier > 0 ? '.' : ' ';
+  const right = tier > 3 ? ':' : tier > 1 ? '.' : ' ';
   return left + right;
 }
 

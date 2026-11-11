@@ -85,14 +85,10 @@ public class TabBar extends Widget {
         return map;
     }
 
-    /** The hotkey shown before a tab's title: "i", then "1", "2"... */
-    private static String hotkey(int index) {
-        return index == 0 ? "i" : String.valueOf(index);
-    }
 
     @Override
     public void draw(Screen screen, Player player, Board board) {
-        header(screen, INVENTORY.x() + 1, hotkey(0), inventory.title(), selection == 0 && !map.isFocused());
+        header(screen, INVENTORY.x() + 1, "i", inventory.title(), selection == 0 && !map.isFocused());
         board.clicks.option(Clicks.BASE, INVENTORY.x() + 1, HEADER_ROW, 2 + inventory.title().length(), 1,
                 (button, cx, cy) -> pick(0, player, board));
         header(screen, MAP.x() + 1, "v", "Map", map.isFocused());
@@ -103,11 +99,12 @@ public class TabBar extends Widget {
         int x = MAP.right() + 2;
         for (int i = 1; i < tabs.size(); i++) {
             String title = tabs.get(i).title();
-            header(screen, x, hotkey(i), title, i == selection && !map.isFocused());
+            // their number keys still work; just not shown
+            header(screen, x, "", title, i == selection && !map.isFocused());
             int tab = i;
-            board.clicks.option(Clicks.BASE, x, HEADER_ROW, hotkey(i).length() + 1 + title.length(), 1,
+            board.clicks.option(Clicks.BASE, x, HEADER_ROW, title.length(), 1,
                     (button, cx, cy) -> pick(tab, player, board));
-            x += hotkey(i).length() + 1 + title.length() + HEADER_GAP;
+            x += title.length() + HEADER_GAP;
         }
         inventory.drawGrid(screen, player);
         Clicks.Handler onItem = (button, cx, cy) -> {
@@ -160,7 +157,7 @@ public class TabBar extends Widget {
             g.setBackgroundColor(TextColor.ANSI.BLACK_BRIGHT);
             g.enableModifiers(SGR.BOLD);
         }
-        g.putString(x + key.length() + 1, HEADER_ROW, title);
+        g.putString(key.isEmpty() ? x : x + key.length() + 1, HEADER_ROW, title);
     }
 
     @Override

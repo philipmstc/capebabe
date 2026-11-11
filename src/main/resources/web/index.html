@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -29,6 +29,9 @@
 </head>
 <body>
 <canvas id="screen"></canvas>
+<!-- how much of the screen the phone keeps for itself (the notch, iOS's home bar): main.js keeps the game out of it -->
+<div id="safe-area" style="position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top)
+  env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);"></div>
 <!-- what chat types into (drawn on the canvas as the log's last line) -->
 <input id="chat-input" autocomplete="off" maxlength="200" aria-label="Chat" style="position: fixed; left: -1000px; top: 0; opacity: 0;">
 <div id="login">

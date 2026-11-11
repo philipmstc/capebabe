@@ -78,6 +78,7 @@ export class UI {
     this.topIcons = [];
     if (this.chat == null) this.chatTo = null;
     this.bars = [];
+    this.lineMaps = [];
     this.invGrid = null;
     this.cols = base.cols;
     this.rows = base.rows;
@@ -384,17 +385,19 @@ export class UI {
   tabHeaders(p) {
     const header = (x, k, title, selected, onClick) => {
       p.fg = 'BLACK_BRIGHT'; p.bg = null; p.put(x, HEADER_ROW, k);
+      const prefix = k ? k.length + 1 : 0;
       if (selected) { p.fg = 'DEFAULT'; p.bg = 'BLACK_BRIGHT'; p.bold = true; }
-      p.put(x + k.length + 1, HEADER_ROW, title);
+      p.put(x + prefix, HEADER_ROW, title);
       p.bg = null; p.bold = false;
-      this.clicks.option(BASE, x, HEADER_ROW, k.length + 1 + title.length, 1, onClick);
+      this.clicks.option(BASE, x, HEADER_ROW, prefix + title.length, 1, onClick);
     };
     header(INVENTORY.x + 1, 'i', 'Inventory', this.tab === 'INVENTORY' && !this.mapTab, () => this.pick('INVENTORY'));
     header(MAP.x + 1, 'v', 'Map', this.mapTab, () => { this.mapTab = true; });
     let x = MAP.right + 2;
     for (const tab of TABS_LIST.slice(1)) {
-      header(x, tab.key, tab.title, this.tab === tab.id && !this.mapTab, () => this.pick(tab.id));
-      x += tab.key.length + 1 + tab.title.length + HEADER_GAP;
+      // their number keys still work; just not shown
+      header(x, '', tab.title, this.tab === tab.id && !this.mapTab, () => this.pick(tab.id));
+      x += tab.title.length + HEADER_GAP;
     }
   }
 
@@ -426,7 +429,7 @@ export class UI {
   }
 
   /**
-   * The inventory grid. {@code compact} (a phone sideways): 4 x 2 cells, ".#:" over a 3-wide count ("100", "10k"),
+   * The inventory grid. {@code compact} (a phone sideways): 4 x 2 cells, ":#." over a 3-wide count ("100", "10k"),
    * no "+P" (a prestige version's count is yellow instead, a blessing's white) -- three across in 16 columns.
    */
   inventory(p, r, compact) {
@@ -499,7 +502,7 @@ export class UI {
     p.bold = false;
   }
 
-  /** A compact cell: ".#:" over the count right-aligned in 3 ("100", "10k"). */
+  /** A compact cell: ":#." over the count right-aligned in 3 ("100", "10k"). */
   compactCell(p, x, y, product, count, selected) {
     p.bold = selected;
     p.fg = 'DEFAULT'; p.put(x, y, '    '); p.put(x, y + 1, '    ');
@@ -709,6 +712,13 @@ export class UI {
     if (item.prestige > 0) {
       p.fg = 'YELLOW_BRIGHT';
       p.put(textX(r), y++, fit('prestige ' + item.prestige + ': +' + game.meta.prestigeDamage * item.prestige + ' damage as a weapon', textWidth(r)));
+    }
+    if (recipe && item.tier >= 0) {
+      // as a weapon: tier + 1, prestige, and +2 / +5 made by a secondary / tertiary skill (Product.weaponBase)
+      const bonus = recipe.skill.type === 'SECONDARY' ? game.meta.secondaryDamage : recipe.skill.type === 'TERTIARY' ? game.meta.tertiaryDamage : 0;
+      p.fg = 'BLACK_BRIGHT';
+      p.put(textX(r), y++, fit('as a weapon: hits for ' + (game.meta.prestigeDamage * item.prestige + item.tier + 1 + bonus)
+        + (bonus ? ' (+' + bonus + ' ' + recipe.skill.type.toLowerCase() + ')' : '') + ', fists 1', textWidth(r)));
     }
     if (item === game.weapon || item === game.armor) {
       p.fg = 'YELLOW'; p.put(textX(r), y++, 'equipped as your ' + (item === game.weapon ? 'weapon' : '') + (item === game.weapon && item === game.armor ? ' and ' : '') + (item === game.armor ? 'armor' : ''));
@@ -1583,7 +1593,8 @@ export class UI {
   bankWindow(p) {
     const game = this.game, r = this.phone ? this.map.rect : BANK;
     const BANK_COLUMNS = Math.max(1, Math.floor((r.w - 4) / BANK_STEP_X));
-    const INVENTORY_ROWS = Math.max(1, Math.min(5, Math.floor((r.h - 5) / CELL_STEP_Y)));
+    // each row's 2 lines and the line under it, with the top line, the two hints and the frame round them
+    const INVENTORY_ROWS = Math.max(1, Math.min(5, Math.floor((r.h - 3) / CELL_STEP_Y)));
     this.clicks.addClickOff(MODAL, () => { game.bankOpen = false; });
     p.bg = 'BLACK'; p.fg = 'DEFAULT';
     p.fill(r.x, r.y, r.w, r.h);
@@ -1687,7 +1698,14 @@ export class UI {
       bridges.push([line[best.i], line[best.j]]);
       join(piece[best.i], piece[best.j]);
     }
-    const connected = (a, b) => a !== b && (neighbours(a).includes(b) || neighbours(b).includes(a)
+    // towns (Stations.towns): each bank's nearest station, within 40 either axis; town to town is a line, free
+    const towns = new Set(c.buildings.filter(b => b.kind === 'BANK').map(bank => {
+      const near = line.map(b => ({ b, d: (platform(b).x - bank.x) ** 2 + (platform(b).y - bank.y) ** 2 }))
+        .sort((p, q) => p.d - q.d || line.indexOf(p.b) - line.indexOf(q.b))[0];
+      return near && Math.max(Math.abs(platform(near.b).x - bank.x), Math.abs(platform(near.b).y - bank.y)) <= 40 ? near.b : null;
+    }).filter(Boolean));
+    const betweenTowns = (a, b) => a !== b && towns.has(a) && towns.has(b);
+    const connected = (a, b) => a !== b && (neighbours(a).includes(b) || neighbours(b).includes(a) || betweenTowns(a, b)
       || bridges.some(pair => pair.includes(a) && pair.includes(b)));
     const from = line.find(b => b.tiles.some(t => !t.walkable && Math.max(Math.abs(t.x - game.x), Math.abs(t.y - game.y)) <= 1));
     // the fare to station N: one item made by skill N, any tier or prestige (Stations.fareSkill)
@@ -1699,31 +1717,149 @@ export class UI {
       }
       return null;
     };
-    const holds = skill => [...game.inventory.entries()].some(([item, n]) => {
+    // trips (Stations.route): fewest stops, then fewest fares; a fare a stop unless it's town to town
+    const route = (a, b) => {
+      const n = line.length, start = line.indexOf(a), end = line.indexOf(b);
+      if (start < 0 || end < 0 || start === end) return null;
+      const cost = new Array(n).fill(Infinity), previous = new Array(n).fill(-1), done = new Array(n).fill(false);
+      cost[start] = 0;
+      for (let round = 0; round < n; round++) {
+        let at = -1;
+        for (let i = 0; i < n; i++) if (!done[i] && cost[i] < Infinity && (at < 0 || cost[i] < cost[at])) at = i;
+        if (at < 0) break;
+        done[at] = true;
+        for (let next = 0; next < n; next++) {
+          if (done[next] || !connected(line[at], line[next])) continue;
+          const step = n + 1 + (betweenTowns(line[at], line[next]) || !fareSkill(next) ? 0 : 1);
+          if (cost[at] + step < cost[next]) { cost[next] = cost[at] + step; previous[next] = at; }
+        }
+      }
+      if (previous[end] < 0) return null;
+      const stops = [];
+      for (let at = end; at !== start; at = previous[at]) stops.unshift(line[at]);
+      const fares = new Map();
+      let last = a;
+      for (const stop of stops) {
+        const skill = betweenTowns(last, stop) ? null : fareSkill(line.indexOf(stop));
+        if (skill) fares.set(skill, (fares.get(skill) || 0) + 1);
+        last = stop;
+      }
+      return { stops, fares };
+    };
+    // paying (Stations.payment): each fare skill's items from the inventory, then tickets (inventory, then bank)
+    const ticket = [...c.products.values()].find(item => item.name === 'ticket to anywhere' && !item.base);
+    const tickets = ticket ? (game.inventory.get(ticket) || 0) + (game.bank.get(ticket) || 0) : 0;
+    const held = (skill, items) => [...items.entries()].reduce((sum, [item, n]) => {
       const recipe = n > 0 && c.madeBy(item);
-      return recipe && recipe.skill === skill;
-    });
-    const rows = line.map((b, index) => {
-      const name = 'tation' + index;
-      if (b === from) return { text: '  ' + name.padEnd(14) + "you're here" };
-      if (!from || !connected(from, b)) return { text: '  ' + name.padEnd(14) + 'no direct line' };
-      const skill = fareSkill(index);
-      return { text: '  ' + name.padEnd(14) + (skill ? '1 x any ' + skill.name : 'free'),
-        color: skill ? game.skillColor(skill, !holds(skill)) : null, action: () => { game.ride(b.id); close(); } };
-    });
-    this.simpleWindow(p, 'Train station', [
-      { text: 'Choose destination' },
-      ...(line.length > 1 ? rows : [{ text: 'No other stations yet: wander far from the line and you may come across one.' }]),
-      { text: '  Close', action: close, color: 'BLACK_BRIGHT' }], close);
-    this.lineMap(p, this.phone ? this.menuRect : TABS, line, connected, from);
+      return sum + (recipe && recipe.skill === skill ? n : 0);
+    }, 0);
+    const payment = trip => {
+      let ticketsLeft = tickets, used = 0;
+      const missing = new Map();
+      for (const [skill, due] of trip.fares) {
+        const rest = Math.max(0, due - held(skill, game.inventory)), byTicket = Math.min(rest, ticketsLeft);
+        ticketsLeft -= byTicket; used += byTicket;
+        if (rest > byTicket) missing.set(skill, rest - byTicket);
+      }
+      return { tickets: used, missing };
+    };
+    const describe = trip => trip.fares.size ? [...trip.fares].map(([skill, n]) => n + ' x ' + skill.name).join(' + ') : 'free';
+    // a ticket to anywhere: one item of every skill that makes things, out of the bank (Stations.ticketPrice)
+    const ticketSkills = c.craftingSkills().filter(skill => skill.line && skill.line.recipes.length);
+    const canBuy = ticketSkills.length ? Math.min(...ticketSkills.map(skill => held(skill, game.bank))) : 0;
+
+    const s = this.station || (this.station = { top: 0, picked: null });
+    if (s.picked && !line.includes(s.picked)) s.picked = null;
+    const trips = from ? line.filter(b => b !== from).map(b => ({ b, trip: route(from, b) })).filter(t => t.trip) : [];
+    const affordable = trips.filter(t => !payment(t.trip).missing.size);
+
+    // the window: like simpleWindow, but the whole map, its list of destinations scrolling
+    const M = this.map.rect;
+    const r = R(M.x + 1, M.y + 1, M.w - 2, M.h - 2);
+    this.clicks.addClickOff(MODAL, close);
+    p.bg = 'BLACK'; p.fg = 'DEFAULT';
+    p.fill(r.x, r.y, r.w, r.h);
+    p.rect(r);
+    p.fg = 'YELLOW_BRIGHT'; p.bold = true; p.put(r.x + 2, r.y, 'Train station'); p.bold = false;
+    this.clicks.add(MODAL, r.x, r.y, r.w, r.h, () => {});
+    const width = r.w - 4;
+    let y = r.y + 2;
+    const text = (t, fg, x = r.x + 2, w = width) => { p.fg = fg; p.put(x, y, fit(t, w)); };
+    const button = (x, label, action) => {
+      p.fg = 'DEFAULT'; p.put(x, y, label);
+      this.clicks.option(MODAL, x, y, label.length, 1, action);
+      return x + label.length + 1;
+    };
+    // tickets: how many, and buying more
+    text('Tickets to anywhere: ' + tickets, 'DEFAULT');
+    y++;
+    if (canBuy > 0) {
+      let x = button(r.x + 4, '[buy 1]', () => game.buyTickets(1));
+      if (canBuy >= 10) x = button(x, '[buy 10]', () => game.buyTickets(10));
+      if (canBuy > 1) x = button(x, '[buy ' + canBuy + ']', () => game.buyTickets(canBuy));
+      text('each: 1 of every skill, from your bank', 'BLACK_BRIGHT', x + 1, r.x + r.w - 2 - (x + 1));
+    } else {
+      text('  each: 1 of every skill, from your bank', 'BLACK_BRIGHT');
+    }
+    y += 2;
+    // the one picked on the map: its trip, and riding it if you can pay
+    const listBottom = r.y + r.h - (s.picked ? 5 : 3);
+    if (!from) {
+      text('Stand at the station to ride.', 'BLACK_BRIGHT');
+    } else if (line.length < 2) {
+      text('No other stations yet: wander far from the line and you may come across one.', 'BLACK_BRIGHT');
+    } else {
+      text(affordable.length ? 'Where to? (or pick one on the line map)' : 'Nowhere you can pay for: pick one on the line map', 'BLACK_BRIGHT');
+      y++;
+      const visible = Math.max(1, listBottom - y);
+      s.top = Math.max(0, Math.min(s.top, affordable.length - visible));
+      const listTop = y;
+      affordable.slice(s.top, s.top + visible).forEach(({ b, trip }) => {
+        const pay = payment(trip), stops = trip.stops.length, first = trip.fares.keys().next().value;
+        const label = ('tation' + line.indexOf(b)).padEnd(9) + (stops + (stops > 1 ? ' stops' : ' stop')).padEnd(8)
+          + describe(trip) + (pay.tickets ? ' (' + pay.tickets + ' ticket' + (pay.tickets > 1 ? 's' : '') + ')' : '');
+        text('  ' + label, first ? game.skillColor(first) : 'DEFAULT');
+        this.clicks.option(MODAL, r.x + 2, y, width, 1, () => { game.ride(b.id); close(); });
+        y++;
+      });
+      this.clicks.addScroll(MODAL, r.x, listTop, r.w, visible, step => { s.top = Math.max(0, s.top + step); });
+      scrollbar(p, r.x + r.w - 1, listTop - 1, listTop + visible, s.top, visible, affordable.length);
+      if (s.picked) {
+        y = listBottom + 1;
+        const index = line.indexOf(s.picked), trip = s.picked === from ? null : route(from, s.picked);
+        if (!trip) {
+          text('tation' + index + ": you're here", 'YELLOW_BRIGHT');
+        } else {
+          const pay = payment(trip), stops = trip.stops.length;
+          text('tation' + index + ': ' + stops + (stops > 1 ? ' stops, ' : ' stop, ') + describe(trip), 'WHITE_BRIGHT');
+          y++;
+          if (pay.missing.size) {
+            text('  short ' + [...pay.missing].map(([skill, n]) => n + ' x ' + skill.name).join(', ') + ' (or a ticket each)', 'RED_BRIGHT');
+          } else {
+            button(r.x + 4, '[ride' + (pay.tickets ? ', using ' + pay.tickets + ' ticket' + (pay.tickets > 1 ? 's' : '') : '') + ']',
+              () => { game.ride(s.picked.id); close(); });
+          }
+        }
+      }
+    }
+    y = r.y + r.h - 2;
+    button(r.x + 2, 'Close', close);
+    p.bg = null;
+    // the line map: the picked station's trip lit, else the lines from here; click a station to pick it
+    const pickedTrip = from && s.picked && s.picked !== from ? route(from, s.picked) : null;
+    const lit = pickedTrip ? (a, b) => [from, ...pickedTrip.stops].some((stop, k, all) => k > 0
+      && ((all[k - 1] === a && stop === b) || (all[k - 1] === b && stop === a))) : (a, b) => a === from || b === from;
+    this.lineMap(p, this.phone ? this.menuRect : TABS, line, connected, from, fareSkill, towns, lit,
+      station => { s.picked = s.picked === station ? null : station; }, s.picked);
   }
 
   /**
    * The line map over the tabs (a phone: over the menu) while the station's open (StationView.drawLineMap): every
    * station as its number where it is, scaled to fit, lines between connected ones metro-map style -- each an L, the
-   * way round that runs through fewer stations, joined where they meet. Here bright yellow, where you can go white.
+   * way round that runs through fewer stations, side by side where they share a stretch, coloured by fare. Here
+   * bright yellow, where you can go white.
    */
-  lineMap(p, box, line, connected, here) {
+  lineMap(p, box, line, connected, here, fareSkill, towns, lit, pick, picked) {
     p.bg = 'BLACK'; p.fg = 'DEFAULT';
     p.fill(box.x, box.y, box.w, box.h);
     p.rect(box);
@@ -1758,23 +1894,38 @@ export class UI {
     const path = (a, b, alongFirst) => lPath(cols[a], rows[a], cols[b], rows[b], alongFirst);
     const crossings = (a, b, alongFirst) => path(a, b, alongFirst).filter(([x, y]) =>
       cols.some((cx, i) => i !== a && i !== b && cx === x && rows[i] === y)).length;
-    const paths = [];
+    const links = [];
     for (let a = 0; a < line.length; a++) {
       for (let b = a + 1; b < line.length; b++) {
         if (connected(line[a], line[b])) {
-          paths.push({ cells: path(a, b, crossings(a, b, true) <= crossings(a, b, false)), lit: line[a] === here || line[b] === here });
+          const alongFirst = crossings(a, b, true) <= crossings(a, b, false);
+          links.push({ a, b, lit: lit(line[a], line[b]),
+            corners: [[cols[a], rows[a]], alongFirst ? [cols[b], rows[a]] : [cols[a], rows[b]], [cols[b], rows[b]]] });
         }
       }
     }
-    drawTracks(p, paths, 'WHITE', (x, y) => x > box.x && x < box.right && y > box.y && y < box.bottom);
+    // drawn in pixels over the box (main.js drawLineMap), each line in a lane of its own where it runs alongside
+    // others (routeLanes); each half in the colour of the fare to the station at its end (bright on lines from here,
+    // dark on the rest; grey where it's free)
+    const fareColor = (i, lit) => { const skill = i < 0 ? null : fareSkill(i); return skill ? this.game.skillColor(skill, !lit) : lit ? 'WHITE' : 'BLACK_BRIGHT'; };
+    const map = { clip: { x: box.x + 1, y: box.y + 1, w: box.w - 2, h: box.h - 2 }, labels: [],
+      links: routeLanes(links).map(l => {
+        const free = towns.has(line[l.a]) && towns.has(line[l.b]);   // town to town
+        return { points: l.points, lit: l.lit, colors: free ? [fareColor(-1, l.lit), fareColor(-1, l.lit)] : [fareColor(l.a, l.lit), fareColor(l.b, l.lit)] };
+      }) };
+    this.lineMaps.push(map);
     const label = i => i < 10 ? String(i) : i < 36 ? String.fromCharCode(97 + i - 10) : '*';
     line.forEach((station, i) => {
-      p.fg = station === here ? 'YELLOW_BRIGHT' : here && connected(here, station) ? 'WHITE_BRIGHT' : 'BLACK_BRIGHT';
+      p.fg = station === here ? 'YELLOW_BRIGHT' : station === picked ? 'BLACK' : here && connected(here, station) ? 'WHITE_BRIGHT' : 'BLACK_BRIGHT';
       p.bold = true; p.set(cols[i], rows[i], label(i)); p.bold = false;
+      // a click (anywhere in the 3 cells round it) picks it
+      this.clicks.option(MODAL, cols[i] - 1, rows[i], 3, 1, () => pick(station));
+      map.labels.push({ x: cols[i], y: rows[i], text: label(i), fg: p.fg, bg: station === picked ? 'WHITE_BRIGHT' : towns.size > 1 && towns.has(station) ? 'BLUE' : 'BLACK' });
     });
     const you = here ? line.indexOf(here) : -1;
     p.fg = 'BLACK_BRIGHT';
-    p.put(box.x + 2, box.bottom - 1, fit((you >= 0 ? "you're at " + label(you) + '  ' : '') + 'N = tationN', box.w - 4));
+    p.put(box.x + 2, box.bottom - 1, fit((you >= 0 ? "you're at " + label(you) + '  ' : '') + 'N = tationN  [click] pick'
+      + (towns.size > 1 ? '  blue = town' : ''), box.w - 4));
     p.bg = null;
   }
 
@@ -2187,6 +2338,63 @@ function lPath(ax, ay, bx, by, alongFirst) {
   while (x !== ex || y !== ey) { x += Math.sign(ex - x); y += Math.sign(ey - y); cells.push([x, y]); }
   while (x !== bx || y !== by) { x += Math.sign(bx - x); y += Math.sign(by - y); cells.push([x, y]); }
   return cells;
+}
+
+/**
+ * The line map's lanes: each link ({corners: [start, elbow, end]} in cells, an L) gets, for each of its two legs, a
+ * lane among the legs running along the same row (or column) over the same stretch, so lines sharing a stretch run
+ * side by side instead of merging; a leg on its own stays in the middle. A leg that turns off towards one side takes
+ * a lane on that side where it can, so it doesn't cut across the others to turn. Returns the links with
+ * {points: [{x, y, ox, oy}]}: cells, and offsets in lanes (main.js scales them to pixels).
+ */
+export function routeLanes(links) {
+  const legs = [], groups = new Map();
+  links.forEach(link => {
+    const c = link.corners.filter((p, k) => k === 0 || p[0] !== link.corners[k - 1][0] || p[1] !== link.corners[k - 1][1]);
+    link.points = c.map(([x, y]) => ({ x, y, ox: 0, oy: 0 }));
+    for (let k = 1; k < c.length; k++) {
+      const [px, py] = c[k - 1], [qx, qy] = c[k], across = py === qy;   // along a row
+      const at = across ? 1 : 0, along = across ? 0 : 1;
+      // the way the line goes off across this one at either end: which side it'd rather be on
+      const turn = k + 1 < c.length ? Math.sign(c[k + 1][at] - c[k][at]) : k > 1 ? Math.sign(c[k - 2][at] - c[k - 1][at]) : 0;
+      const leg = { link, k, across, side: turn, lo: Math.min(c[k - 1][along], c[k][along]), hi: Math.max(c[k - 1][along], c[k][along]) };
+      legs.push(leg);
+      const key = (across ? 'r' : 'c') + c[k][at];
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(leg);
+    }
+  });
+  for (const group of groups.values()) {
+    group.sort((a, b) => a.lo - b.lo || a.side - b.side || a.hi - b.hi);
+    // stretches of legs that overlap (more than at an end), each laid out on its own
+    let cluster = [], reach = -Infinity;
+    const settle = () => {
+      const ends = [];   // per lane, where its last leg ends
+      for (const leg of cluster) {
+        let lane = ends.findIndex(end => end <= leg.lo);
+        if (lane < 0) { lane = ends.length; ends.push(0); }
+        ends[lane] = leg.hi;
+        leg.lane = lane;
+      }
+      // lanes in order of the side their legs turn off to
+      const side = ends.map((_, lane) => cluster.filter(l => l.lane === lane).reduce((s, l) => s + l.side, 0));
+      const order = ends.map((_, lane) => lane).sort((a, b) => side[a] - side[b] || a - b);
+      for (const leg of cluster) leg.offset = order.indexOf(leg.lane) - (ends.length - 1) / 2;
+      cluster = [];
+    };
+    for (const leg of group) {
+      if (leg.lo >= reach) settle();
+      cluster.push(leg);
+      reach = Math.max(reach, leg.hi);
+    }
+    settle();
+  }
+  for (const leg of legs) {
+    for (const point of [leg.link.points[leg.k - 1], leg.link.points[leg.k]]) {
+      if (leg.across) point.oy = leg.offset; else point.ox = leg.offset;
+    }
+  }
+  return links;
 }
 
 /** A scrollbar thumb on a frame's right border (Widget.drawScrollbar). */

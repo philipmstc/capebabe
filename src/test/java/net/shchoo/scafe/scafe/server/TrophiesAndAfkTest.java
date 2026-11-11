@@ -144,6 +144,36 @@ class TrophiesAndAfkTest {
     }
 
     @Test
+    void afkCraftsDontHeal_orCountTowardsIt() {
+        Node node = server.world.content.nodes().iterator().next();
+        alice.hp = 3;
+        for (int craft = 0; craft < GameCharacter.CRAFTS_PER_HP * 2; craft++) {
+            assertTrue(alice.perform(node, true));
+            alice.changeInventory(raw.product, -alice.inventory.getOrDefault(raw.product, 0));
+        }
+        assertEquals(3, alice.hp);
+        for (int craft = 1; craft < GameCharacter.CRAFTS_PER_HP; craft++) {
+            alice.perform(node, false);
+            alice.changeInventory(raw.product, -alice.inventory.getOrDefault(raw.product, 0));
+        }
+        assertEquals(3, alice.hp, "one short: the AFK ones didn't count");
+    }
+
+    @Test
+    void craftsCountAcrossNodes() {
+        server.applyContent(WorldGenerator.newNode(server.world, new Position(4, 0), Node.UNLIMITED, Node.UNLIMITED, 0,
+                r -> r.equals(raw) ? 1 : 0));
+        List<Node> nodes = List.copyOf(server.world.content.nodes());
+        assertEquals(2, nodes.size());
+        alice.hp = 3;
+        for (int craft = 0; craft < GameCharacter.CRAFTS_PER_HP; craft++) {
+            assertTrue(alice.perform(nodes.get(craft % 2), false));
+            alice.inventory.clear();
+        }
+        assertEquals(4, alice.hp);
+    }
+
+    @Test
     void anOldSavesTrophiesFoundStillCountAsSlots() {
         MonsterType monster = server.world.content.monsters.get(0);
         monster.drops.add(new MonsterType.Drop(drop, 2, "bob"));

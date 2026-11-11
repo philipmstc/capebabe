@@ -167,7 +167,7 @@ class WorldGeneratorTest {
         world.content.apply(WorldGenerator.newMonsterType(world));
         world.content.apply(WorldGenerator.newSkills(world, 1));
         assertTrue(world.content.combatSkill().productLines.isEmpty());
-        assertEquals(List.of("skill0", "skill1", "skill2"), world.content.craftingSkills().stream().map(s -> s.name).toList());
+        assertEquals(List.of("skill 0", "skill 1", "skill 2"), world.content.craftingSkills().stream().map(s -> s.name).toList());
     }
 
     @Test

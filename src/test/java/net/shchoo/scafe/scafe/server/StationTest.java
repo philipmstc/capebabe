@@ -8,6 +8,7 @@ import net.shchoo.scafe.scafe.client.ui.StationView;
 import net.shchoo.scafe.scafe.model.Product;
 import net.shchoo.scafe.scafe.model.View;
 import net.shchoo.scafe.scafe.model.Stations;
+import net.shchoo.scafe.scafe.model.Skill;
 import net.shchoo.scafe.scafe.client.Board;
 import net.shchoo.scafe.scafe.client.GameLog;
 import net.shchoo.scafe.scafe.client.Player;
@@ -53,6 +54,26 @@ class StationTest {
             }
         }
         assertEquals(6, reached.size(), "every station can get to every other");
+    }
+
+    @Test
+    void newStationsAreOnlyFoundOutsideTheLinesOutline() {
+        World world = new World(1, "w", 7);
+        GameServer server = new GameServer(world);
+        Consumer<Position> build = at -> server.applyContent(WorldGenerator.newBuildingAt(world, Building.Kind.STATION, at, 6, p -> false));
+        build.accept(new Position(100, 100));
+        build.accept(new Position(500, 100));
+        Position middle = new Position(300, 233);
+        assertFalse(Stations.insideLine(world.content, middle), "two stations: no inside yet");
+        assertTrue(Discovery.farFromStations(world, middle));
+        build.accept(new Position(300, 500));
+        assertTrue(Stations.insideLine(world.content, middle), "a triangle");
+        assertFalse(Discovery.farFromStations(world, middle), "far from every station, but inside: none to find");
+        assertTrue(Discovery.farFromStations(world, new Position(300, -33)), "outside it");
+        assertFalse(Stations.insideLine(world.content, Stations.all(world.content).get(0).platform()), "a corner's not inside");
+        build.accept(new Position(300, 200));
+        assertEquals(3, Stations.outline(Stations.all(world.content).stream().map(Building::platform).toList()).size(),
+                "one inside doesn't change the outline");
     }
 
     private final List<String> log = new ArrayList<>();
@@ -108,7 +129,7 @@ class StationTest {
         new MapView(Layout.MAP).draw(screen, player, new Board(player.content));
         int x = Layout.tileScreenX(station.corner().x(), player.x), y = Layout.tileScreenY(station.corner().y(), player.y);
         String[] expected = {
-                "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2510\u2022 \u2022 \u2022",
+                "\u250c\u2500 0 \u2500\u2500\u2510\u2022 \u2022 \u2022",   // its number on the roof
                 "\u2502TRAINS\u2502\u2550\u2550\u2550\u2550\u2550",
                 "\u2502TATION\u2502\u2502\u2502\u2502\u2502\u2502",
                 "\u2514\u2500\u2500[ ]\u2500\u2518\u2550\u2550\u2550\u2550\u2550"};
@@ -160,6 +181,20 @@ class StationTest {
     }
 
     @Test
+    void monstersShowUpThreeTimesAsOftenAwayFromStationsAndTowns() {
+        World world = server.world;
+        Position near = station.platform();
+        Position wilds = new Position(near.x() + Discovery.WILDS_DISTANCE + 40, near.y());
+        Building bank = world.content.buildings().stream().filter(b -> b.kind() == Building.Kind.BANK).findFirst().orElseThrow();
+        assertEquals(0.06, Discovery.spawnChance(world, near, Discovery.Trigger.MOVED, 0), 1e-9);
+        assertEquals(0.06, Discovery.spawnChance(world, bank.corner(), Discovery.Trigger.MOVED, 0), 1e-9, "by the town's bank");
+        assertTrue(Discovery.inTheWilds(world, wilds));
+        assertEquals(0.18, Discovery.spawnChance(world, wilds, Discovery.Trigger.MOVED, 0), 1e-9);
+        assertEquals(0.09, Discovery.spawnChance(world, wilds, Discovery.Trigger.MOVED, 1), 1e-9, "a monster near still halves it");
+        assertEquals(0, Discovery.spawnChance(world, wilds, Discovery.Trigger.MADE, 0), 1e-9, "still only on the move");
+    }
+
+    @Test
     void farFromEveryStationYouMightComeAcrossOne() {
         Position near = station.platform();
         assertFalse(Discovery.farFromStations(server.world, near));
@@ -201,8 +236,8 @@ class StationTest {
         assertTrue(shown.contains("tation0 (" + home.x() + ", " + home.y() + ")"));
         assertTrue(shown.contains("you're here"));
         assertTrue(shown.contains("> tation1 ("), "starts on the first one that isn't here:\n" + shown);
-        assertEquals("skill1", Stations.fareSkill(server.world.content, 1).name, "station N: any of skill N's items");
-        assertTrue(shown.contains("1 x any skill1"), shown);
+        assertEquals("skill 1", Stations.fareSkill(server.world.content, 1).name, "station N: any of skill N's items");
+        assertTrue(shown.contains("1 x any skill 1"), shown);
     }
 
     @Test
@@ -240,7 +275,7 @@ class StationTest {
 
         player.rideTo(far.id());
         ticks(1);
-        assertTrue(log.contains("The fare to tation1 is 1 of any skill1 item."), log.toString());
+        assertTrue(log.contains("The fare to tation1 is 1 x any skill 1: you're short 1 x any skill 1 (a ticket to anywhere pays any one)."), log.toString());
         assertNull(player.currentAction, "no fare, no ride");
 
         server.online(player.id).changeInventory(fare, 2);
@@ -261,6 +296,34 @@ class StationTest {
         ticks(GameServer.TRAIN_TICKS);
         assertEquals(far.platform(), player.position());
         assertTrue(log.contains("The train pulls in at tation1."));
+    }
+
+    @Test
+    void farEnoughOutAStationComesWithATown_andTownsRideFreeToEachOtherButSlower() {
+        player.send(new Intent.Admin("1", List.of("2")));
+        ticks(1);
+        assertEquals(List.of(station), Stations.towns(server.world.content), "the one by the origin");
+        Building near = discoverFrom(new Position(200, 40), Direction.RIGHT);
+        assertFalse(Stations.isTown(server.world.content, near), "only a station");
+        Building far = discoverFrom(new Position(1300, 40), Direction.RIGHT);
+        assertTrue(Stations.isTown(server.world.content, far), "a town: " + server.world.content.buildings());
+        for (Building.Kind kind : List.of(Building.Kind.BANK, Building.Kind.CHURCH, Building.Kind.GYM, Building.Kind.MERCHANT)) {
+            assertEquals(2, server.world.content.buildings().stream().filter(b -> b.kind() == kind).count(), kind.label);
+        }
+        assertTrue(log.stream().anyMatch(m -> m.startsWith("You spot a new town, with a train station: tation2")), log.toString());
+        assertFalse(Stations.farFromTowns(server.world.content, new Position(1300 + Stations.TOWN_DISTANCE - 50, 40)), "too near the new one");
+        assertTrue(Stations.connected(server.world.content, station, far), "town to town, however far");
+        assertTrue(Stations.betweenTowns(server.world.content, station, far));
+        assertFalse(Stations.betweenTowns(server.world.content, station, near));
+
+        standAtTheDoorOf(station);
+        player.rideTo(far.id());
+        ticks(1);
+        assertEquals("riding the train", player.currentAction.label(), "free: " + log);
+        ticks(GameServer.TRAIN_TICKS);
+        assertNotEquals(far.platform(), player.position(), "not yet");
+        ticks(GameServer.TOWN_TRAIN_TICKS - GameServer.TRAIN_TICKS);
+        assertEquals(far.platform(), player.position());
     }
 
     @Test
@@ -372,15 +435,59 @@ class StationTest {
     }
 
     @Test
-    void youCanOnlyRideWhereThereIsALine() {
+    void aTripOfSeveralStopsPaysEachStopsFare_withItemsThenTickets_andTakesLonger() {
+        player.send(new Intent.Admin("1", List.of("2")));
+        ticks(1);
+        List<Building> line = aLine();
+        WorldContent content = server.world.content;
+        Building two = line.get(2), three = line.get(3);
+        assertFalse(Stations.connected(content, two, three), "no line between them");
+        Stations.Route route = Stations.route(content, two, three);
+        assertEquals(List.of(line.get(0), three), route.stops(), "by way of 0");
+        assertEquals(2 * GameServer.TRAIN_TICKS, route.ticks(), "a stop's time a stop");
+        Skill skill0 = Stations.fareSkill(content, 0), skill1 = Stations.fareSkill(content, 3);
+        assertEquals(java.util.Map.of(skill0, 1, skill1, 1), route.fares());
+
+        standAtTheDoorOf(two);
+        player.rideTo(three.id());
+        ticks(1);
+        assertTrue(log.stream().anyMatch(m -> m.startsWith("The fare to tation3 is 1 x any skill 0 + 1 x any skill 1: you're short")), log.toString());
+        assertNull(player.currentAction);
+
+        // tickets: one of every skill's items each, out of the bank
+        GameCharacter alice = server.online(player.id);
+        Product item0 = skill0.productLines.get(0).recipes.get(0).product, item1 = skill1.productLines.get(0).recipes.get(0).product;
+        alice.changeBank(item0, 2);
+        alice.changeBank(item1, 3);
+        assertEquals(2, Stations.ticketsAffordable(content, alice.bank));
+        player.send(new Intent.BuyTickets(3));
+        ticks(1);
+        assertTrue(log.stream().anyMatch(m -> m.contains("you've enough for 2")), log.toString());
+        player.send(new Intent.BuyTickets(2));
+        ticks(1);
+        Product ticket = Stations.ticket(content);
+        assertEquals(2, alice.bank.get(ticket));
+        assertNull(alice.bank.get(item0), "all spent");
+        assertEquals(1, alice.bank.get(item1));
+
+        alice.changeInventory(item0, 1);
+        player.rideTo(three.id());
+        ticks(1);
+        assertEquals("riding the train", player.currentAction.label(), log.toString());
+        assertEquals(0, alice.inventory.getOrDefault(item0, 0), "skill 0's fare paid with its item");
+        assertEquals(1, alice.bank.get(ticket), "skill 1's with a ticket");
+        assertTrue(log.contains("All aboard for tation3! (2 stops) 1 ticket used. The train pulls out..."), log.toString());
+        ticks(GameServer.TRAIN_TICKS);
+        assertNotEquals(three.platform(), player.position(), "two stops take longer than one");
+        ticks(GameServer.TRAIN_TICKS);
+        assertEquals(three.platform(), player.position());
+    }
+
+    @Test
+    void theTerminalMenuPicksOnlyStationsWithALineFromHere() {
         List<Building> line = aLine();
         Building two = line.get(2);
         standAtTheDoorOf(two);
-        player.rideTo(line.get(3).id());
-        ticks(1);
-        assertTrue(log.contains("There's no direct line from tation2 to tation3."), log.toString());
-        assertNull(player.currentAction);
-
         player.perform();
         StationView view = new StationView();
         Board board = new Board(player.content);

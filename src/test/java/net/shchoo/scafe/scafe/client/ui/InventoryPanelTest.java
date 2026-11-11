@@ -97,14 +97,14 @@ class InventoryPanelTest {
         press(KeyType.ArrowRight);
         press(KeyType.ArrowDown);
         assertEquals(1 + columns, inventory.selectedIndex());
-        assertFalse(gridText().contains(".?:"), "the last item (tier 3) is below the fold");
+        assertFalse(gridText().contains(":?."), "the last item (tier 3) is below the fold");
 
         for (int i = 0; i < Layout.INVENTORY_ROWS + 1; i++) {
             press(KeyType.ArrowDown);
         }
         assertEquals(fits, inventory.selectedIndex(), "stops at the last item");
         String grid = gridText();
-        assertTrue(grid.contains(".?:"), "scrolled down to it:\n" + grid);
+        assertTrue(grid.contains(":?."), "scrolled down to it:\n" + grid);
         assertTrue(grid.contains(String.valueOf(fits + 1)), "item count on the border");
 
         press(KeyType.Escape);

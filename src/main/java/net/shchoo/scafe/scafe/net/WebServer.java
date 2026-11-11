@@ -245,6 +245,8 @@ public class WebServer implements AutoCloseable {
         meta.put("playerColorNames", SkillStyle.PLAYER_COLOR_NAMES);
         meta.put("stats", stats);
         meta.put("prestigeDamage", Product.PRESTIGE_DAMAGE);
+        meta.put("secondaryDamage", Product.SECONDARY_DAMAGE);
+        meta.put("tertiaryDamage", Product.TERTIARY_DAMAGE);
         return new Gson().toJson(meta);
     }
 

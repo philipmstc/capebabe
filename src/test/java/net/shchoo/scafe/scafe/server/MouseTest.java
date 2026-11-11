@@ -338,9 +338,9 @@ class MouseTest {
 
     @Test
     void clickingATabHeaderShowsIt() {
-        clickText(Clicks.Button.LEFT, "2 Monsters");
+        clickText(Clicks.Button.LEFT, "Monsters");
         assertEquals("Monsters", tabs.selected().title());
-        clickText(Clicks.Button.LEFT, "1 Skills");
+        clickText(Clicks.Button.LEFT, "Skills");
         assertEquals("Skills", tabs.selected().title());
         assertTrue(tabs.menuFocused());
     }
@@ -348,7 +348,7 @@ class MouseTest {
     @Test
     void onASkillsPageLeftClickingATierSetsAWaypointAndRightClickOffersMarking() {
         node(new Position(5, 5));
-        clickText(Clicks.Button.LEFT, "1 Skills");
+        clickText(Clicks.Button.LEFT, "Skills");
         clickText(Clicks.Button.LEFT, raw.skill.name);
         SkillsMenu skills = (SkillsMenu) tabs.selected();
         assertTrue(skills.skillOpen(), "a row opens its page");
@@ -392,7 +392,7 @@ class MouseTest {
 
     @Test
     void clickingASettingChangesIt() {
-        clickText(Clicks.Button.LEFT, "4 Settings");
+        clickText(Clicks.Button.LEFT, "Settings");
         boolean running = player.running;
         clickText(Clicks.Button.LEFT, "Running");
         assertEquals(!running, player.running);
@@ -400,7 +400,7 @@ class MouseTest {
 
     @Test
     void theArrowsStepASettingThatWay() {
-        clickText(Clicks.Button.LEFT, "4 Settings");
+        clickText(Clicks.Button.LEFT, "Settings");
         int[] color = find("Color");
         StringBuilder row = new StringBuilder();
         for (int x = 0; x < Layout.TERMINAL_SIZE.getColumns(); x++) {
@@ -441,7 +441,7 @@ class MouseTest {
 
     @Test
     void anOptionUnderTheMouseLightsUp() {
-        int[] at = find("4 Settings");
+        int[] at = find("Settings");
         board.clicks.highlight(screen, at[0], at[1]);
         assertEquals(Clicks.HOVER, screen.getBackCharacter(at[0], at[1]).getBackgroundColor());
         int[] map = {Layout.MAP.x() + 3, Layout.MAP.y() + 3};

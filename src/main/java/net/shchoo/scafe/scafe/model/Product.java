@@ -31,6 +31,23 @@ public class Product {
 
     /** How much more a prestige level adds to a weapon's base damage than the tiers do: one line's worth. */
     public static final int PRESTIGE_DAMAGE = 5;
+    /** What a weapon made by a secondary / tertiary skill adds to its base damage (primary: nothing). */
+    public static final int SECONDARY_DAMAGE = 2, TERTIARY_DAMAGE = 5;
+
+    /**
+     * A weapon's base damage: its tier + 1, plus {@link #PRESTIGE_DAMAGE} a prestige level -- a level outdoes a whole
+     * line of tiers (tier 0 prestige 1: 6, tier 4: 5) -- plus {@link #SECONDARY_DAMAGE} or {@link #TERTIARY_DAMAGE}
+     * if the skill that makes it is one. Fists (null): 1.
+     */
+    public static int weaponBase(WorldContent content, Product weapon) {
+        if (weapon == null) {
+            return 1;
+        }
+        Recipe recipe = content.madeBy(weapon);
+        SkillType type = recipe == null ? null : recipe.skill.type;
+        int bonus = type == SkillType.SECONDARY ? SECONDARY_DAMAGE : type == SkillType.TERTIARY ? TERTIARY_DAMAGE : 0;
+        return PRESTIGE_DAMAGE * weapon.prestige + Math.max(0, weapon.tier) + 1 + bonus;
+    }
 
     /** The plain item this is a prestige version of, or null if it's plain. */
     public final Product base;

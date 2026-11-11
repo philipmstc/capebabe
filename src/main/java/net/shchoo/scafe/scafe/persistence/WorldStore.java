@@ -468,10 +468,10 @@ public class WorldStore extends SqliteStore implements Storage {
         List<List<ContentBatch.BuildingDef>> buildings = buckets(version);
 
         all("select * from skill order by content_version, ordinal", rs ->
-                skills.get(rs.getInt("content_version") - 1).add(new ContentBatch.SkillDef(rs.getInt("id"), rs.getString("name"),
+                skills.get(rs.getInt("content_version") - 1).add(new ContentBatch.SkillDef(rs.getInt("id"), WorldContent.spaced(rs.getString("name")),
                         SkillType.valueOf(rs.getString("type")), rs.getInt("color_index"), rs.getString("symbol").charAt(0))));
         all("select * from product order by content_version, ordinal", rs ->
-                products.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductDef(rs.getInt("id"), rs.getString("name"),
+                products.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductDef(rs.getInt("id"), WorldContent.spaced(rs.getString("name")),
                         tierOf(rs), rs.getInt("base_id"), rs.getInt("prestige"), rs.getInt("blesses_recipe_id"))));
         all("select * from product_line order by content_version, ordinal", rs ->
                 productLines.get(rs.getInt("content_version") - 1).add(new ContentBatch.ProductLineDef(rs.getInt("id"), rs.getInt("skill_id"))));

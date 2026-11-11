@@ -153,10 +153,41 @@ public final class WorldGenerator {
         });
     }
 
+    /**
+     * A building of {@code kind} at a random spot (from the world's seed) round {@code centre}: every tile further
+     * than {@code clear} and at most {@code max} tiles from it (either axis), clear all round, on no {@code occupied}
+     * tile. Looks further out if there's no room. Empty if there's nowhere. For a new town's buildings round its station.
+     */
+    public static ContentBatch newBuildingNear(World world, Building.Kind kind, Position centre, int clear, int max,
+                                               java.util.function.Predicate<Position> occupied) {
+        return generate(world, (content, rng) -> {
+            List<Position> spots = new ArrayList<>();
+            for (int radius = max; spots.isEmpty() && radius <= 4 * max; radius += 10) {
+                for (int y = centre.y() - radius; y <= centre.y() + radius - kind.height() + 1; y++) {
+                    for (int x = centre.x() - radius; x <= centre.x() + radius - kind.width() + 1; x++) {
+                        Building candidate = new Building(0, kind, new Position(x, y));
+                        if (candidate.tiles().stream().allMatch(t -> Math.max(Math.abs(t.x() - centre.x()), Math.abs(t.y() - centre.y())) > clear)
+                                && clearAround(content, candidate) && candidate.tiles().stream().noneMatch(occupied)) {
+                            spots.add(candidate.corner());
+                        }
+                    }
+                }
+            }
+            if (!spots.isEmpty()) {
+                content.addBuilding(new Building(content.allocateId(), kind, spots.get(rng.nextInt(spots.size()))));
+            }
+        });
+    }
+
     /** The prestige {@code prestige} version of {@code base} (an item made by someone that many times prestiged). */
     public static ContentBatch newPrestigeProduct(World world, Product base, int prestige) {
         return generate(world, (content, rng) -> content.addProduct(new Product(content.allocateId(),
                 Product.prestigeName(base, prestige), base.tier, content.product(base.id), prestige)));
+    }
+
+    /** A plain item of no skill called {@code name} (the ticket to anywhere: made the first time anyone buys one). */
+    public static ContentBatch newNamedProduct(World world, String name) {
+        return generate(world, (content, rng) -> content.addProduct(new Product(content.allocateId(), name)));
     }
 
     /** The church blessing item for {@code recipe} (made the first time anyone prays for it). */

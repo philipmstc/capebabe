@@ -172,10 +172,11 @@ public class StationView extends Widget {
                 g.putString(x, y, "no direct line");
                 continue;
             }
-            Skill fareSkill = Stations.fareSkill(player.content, i);
+            boolean betweenTowns = here != null && Stations.betweenTowns(player.content, here, station);
+            Skill fareSkill = betweenTowns ? null : Stations.fareSkill(player.content, i);
             if (fareSkill == null) {
                 g.setForegroundColor(TextColor.ANSI.BLACK_BRIGHT);
-                g.putString(x, y, "free");
+                g.putString(x, y, betweenTowns ? "free (town to town)" : "free");
                 continue;
             }
             // bright if you've something of it to pay with, dim if not

@@ -581,6 +581,7 @@ export class Game {
   pray(recipe, payment) { this.send('Pray', { recipeId: recipe.id, paymentProductId: payment.id }); }
   tithe(product, count) { this.send('Tithe', { productId: product.id, count }); }
   ride(stationId) { this.send('Ride', { stationId }); }
+  buyTickets(count) { this.send('BuyTickets', { count }); }
   trade(product, count) { this.send('Trade', { productId: product.id, count }); }
 
   /** The nearest node making {@code recipe} that isn't empty. */
